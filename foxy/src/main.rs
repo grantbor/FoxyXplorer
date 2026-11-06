@@ -78,43 +78,109 @@ fn today() -> (i32, u16) {
 
 type GridData = (grid::Grid, Vec<Vec<(f64, f64)>>);
 
-fn load_kit(dir: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
+fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
+    let mut notes = Vec::new();
+
+    // --- 1. Собираем директории с .map и .gpx ---
+    let mut map_dirs: Vec<PathBuf> = Vec::new();
+    let mut data_dirs: Vec<PathBuf> = Vec::new();
+
+    // (a) Передан один OZI-каталог: root/Maps и root/Data
+    if root.join("Maps").is_dir() {
+        map_dirs.push(root.join("Maps"));
+    }
+    if root.join("Data").is_dir() {
+        data_dirs.push(root.join("Data"));
+    }
+
+    // (b) Передан корень комплекта: root/*/Maps и root/*/Data
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let maps_sub = p.join("Maps");
+            let data_sub = p.join("Data");
+            if maps_sub.is_dir() {
+                map_dirs.push(maps_sub);
+            }
+            if data_sub.is_dir() {
+                data_dirs.push(data_sub);
+            }
+        }
+    }
+
+    // (c) Плоский комплект (старый формат) — обратная совместимость
+    if map_dirs.is_empty() {
+        map_dirs.push(root.to_path_buf());
+    }
+    if data_dirs.is_empty() {
+        data_dirs.push(root.to_path_buf());
+    }
+
+    // --- 2. Читаем .map-файлы ---
     let mut maps: Vec<PathBuf> = Vec::new();
-    let mut gpxs: Vec<PathBuf> = Vec::new();
-    let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for e in entries {
-        let p = e.map_err(|e| e.to_string())?.path();
-        match p.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).as_deref() {
-            Some("map") => maps.push(p),
-            Some("gpx") => gpxs.push(p),
-            _ => {}
+    for d in &map_dirs {
+        if let Ok(entries) = std::fs::read_dir(d) {
+            for e in entries.flatten() {
+                let p = e.path();
+                let ext = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_lowercase());
+                if ext.as_deref() == Some("map") {
+                    maps.push(p);
+                }
+            }
         }
     }
     maps.sort();
 
-    let mut notes = Vec::new();
     let mut layers = Vec::new();
     for p in &maps {
-        let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let stem = p
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
         let map = match ozmap::MapFile::open(p) {
             Ok(m) => m,
-            Err(e) => { notes.push(format!("{stem}: {e}")); continue; }
+            Err(e) => {
+                notes.push(format!("{stem}: {e}"));
+                continue;
+            }
         };
         if !map.projection.to_lowercase().contains("mercator") {
-            notes.push(format!("{stem}: проекция «{}» пока не поддерживается", map.projection));
+            notes.push(format!(
+                "{stem}: проекция «{}» пока не поддерживается",
+                map.projection
+            ));
             continue;
         }
         let georef = match map.georef() {
             Ok(g) => g,
-            Err(e) => { notes.push(format!("{stem}: {e}")); continue; }
+            Err(e) => {
+                notes.push(format!("{stem}: {e}"));
+                continue;
+            }
         };
-        let raster = dir.join(&map.image_file);
+
+        // Растр лежит рядом с .map (в той же Maps/). Если image_file абсолютный —
+        // Path::join корректно его подставит, если относительный — склеит с parent.
+        let parent = p.parent().unwrap_or(root);
+        let raster = parent.join(&map.image_file);
         let ozf = match ozf::Ozf::open(&raster) {
             Ok(o) => o,
-            Err(e) => { notes.push(format!("{stem}: {} — {e}", map.image_file)); continue; }
+            Err(e) => {
+                notes.push(format!("{stem}: {} — {e}", map.image_file));
+                continue;
+            }
         };
         if ozf.levels.is_empty() {
-            notes.push(format!("{stem}: пустой список уровней в {}", map.image_file));
+            notes.push(format!(
+                "{stem}: пустой список уровней в {}",
+                map.image_file
+            ));
             continue;
         }
         let bw = ozf.levels.iter().map(|l| l.width).max().unwrap_or(1) as f64;
@@ -126,20 +192,54 @@ fn load_kit(dir: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), S
             .map(|(i, l)| (i, l.width as f64 / bw, l.height as f64 / bh))
             .collect();
         levels.sort_by(|a, b| b.1.total_cmp(&a.1));
-        layers.push(Layer { name: stem, ozf: RefCell::new(ozf), georef, levels });
+        layers.push(Layer {
+            name: stem,
+            ozf: RefCell::new(ozf),
+            georef,
+            levels,
+        });
     }
+
     if layers.is_empty() {
         return Err(format!(
-            "в папке нет пригодных карт (.map + .ozf2). {}",
+            "не найдено ни одной пригодной карты (.map + .ozf2).\n\
+             Проверены каталоги: {}.\n{}",
+            map_dirs
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
             notes.join("; ")
         ));
+    }
+
+    // --- 3. Ищем сетку среди всех Data/*.gpx ---
+    let mut gpxs: Vec<PathBuf> = Vec::new();
+    for d in &data_dirs {
+        if let Ok(entries) = std::fs::read_dir(d) {
+            for e in entries.flatten() {
+                let p = e.path();
+                let ext = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_lowercase());
+                if ext.as_deref() == Some("gpx") {
+                    gpxs.push(p);
+                }
+            }
+        }
     }
 
     let mut best: Option<GridData> = None;
     for p in &gpxs {
         let Ok(bytes) = std::fs::read(p) else { continue };
-        let Ok(g) = grid::Grid::from_gpx(&geoio::text::decode(&bytes)) else { continue };
-        if best.as_ref().map_or(true, |(b, _)| g.nodes.len() > b.nodes.len()) {
+        let Ok(g) = grid::Grid::from_gpx(&geoio::text::decode(&bytes)) else {
+            continue;
+        };
+        if best
+            .as_ref()
+            .map_or(true, |(b, _)| g.nodes.len() > b.nodes.len())
+        {
             let mut lines: Vec<Vec<(f64, f64)>> = Vec::new();
             if let Ok(data) = geoio::gpx::read(&bytes) {
                 for t in &data.tracks {
@@ -152,8 +252,16 @@ fn load_kit(dir: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), S
         }
     }
     if best.is_none() {
-        notes.push("сетка (GPX с именованными точками) не найдена".into());
+        notes.push(format!(
+            "сетка (GPX с именованными точками) не найдена в: {}",
+            data_dirs
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
+
     Ok((layers, best, notes))
 }
 
