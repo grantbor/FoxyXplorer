@@ -161,6 +161,7 @@ fn load_kit(dir: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), S
 enum Message {
     Layer(usize),
     ToggleGrid,
+    ToggleLabels,
     CycleFormat,
     Decl(f64),
     DeclReset,
@@ -192,6 +193,7 @@ struct App {
     status: String,
     error: Option<String>,
     last_geom_ms: Cell<f64>,
+    show_labels: bool,
 }
 
 impl App {
@@ -216,6 +218,7 @@ impl App {
             status: String::new(),
             error: None,
             last_geom_ms: Cell::new(0.0),
+            show_labels: true,
         };
         let Some(dir) = std::env::args().nth(1) else {
             app.error = Some("Запуск: foxy <папка с распакованным комплектом>".into());
@@ -366,6 +369,10 @@ impl App {
                 self.grid_cache.clear();
                 self.refresh_status();
             }
+            Message::ToggleLabels => {
+                self.show_labels = !self.show_labels;
+                self.grid_cache.clear();
+            }
         }
     }
 
@@ -391,6 +398,10 @@ impl App {
             .push(
                 button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
                     .on_press(Message::ToggleGrid),
+            )
+            .push(
+                button(text(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" }))
+                    .on_press(Message::ToggleLabels),
             )
             .push(button(text(self.format_name())).on_press(Message::CycleFormat))
             .push(button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)))
@@ -652,14 +663,49 @@ impl<'a> canvas::Program<Message> for GridProgram<'a> {
 
             if let Some(g) = &app.grid {
                 let node_color = Color::from_rgba8(255, 40, 40, 1.0);
+                let size_f: f32 = 13.0;
+                let pad: f32 = 3.0;
+                let bg_color = Color::from_rgba8(0, 0, 0, 0.7);
+
                 for n in &g.nodes {
                     let (mx, my) = merc_of(n.lon, n.lat);
                     let pt = to_screen(mx, my);
+
+                    // Отсечение по вьюпорту — до любых fill_*.
+                    if pt.x < -200.0
+                        || pt.y < -50.0
+                        || pt.x > bounds.width + 200.0
+                        || pt.y > bounds.height + 50.0
+                    {
+                        continue;
+                    }
+
+                    // Маркер узла
                     frame.fill_rectangle(
                         Point::new(pt.x - 1.5, pt.y - 1.5),
                         Size::new(3.0, 3.0),
                         node_color,
                     );
+
+                    // Подпись
+                    if app.show_labels && !n.name.is_empty() {
+                        let n_chars = n.name.chars().count() as f32;
+                        let text_w = n_chars * size_f * 0.55;
+                        let bg_w = text_w + 2.0 * pad;
+                        let bg_h = size_f + 2.0 * pad;
+                        let bg_pos = Point::new(pt.x + 6.0, pt.y - 6.0 - bg_h);
+
+                        frame.fill_rectangle(bg_pos, Size::new(bg_w, bg_h), bg_color);
+                        frame.fill_text(canvas::Text {
+                            content: n.name.clone(),
+                            position: Point::new(bg_pos.x + pad, bg_pos.y + bg_h / 2.0),
+                            color: Color::WHITE,
+                            size: iced::Pixels(size_f),
+                            align_x: iced::widget::text::Alignment::Left,
+                            align_y: iced::alignment::Vertical::Center,
+                            ..Default::default()
+                        });
+                    }
                 }
             }
         });
