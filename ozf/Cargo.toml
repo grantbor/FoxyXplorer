@@ -1,0 +1,13 @@
+[package]
+name = "ozf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flate2 = "1.1.10"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+thiserror = "2.0.21"
+
+[[bin]]
+name = "ozf-dump"
+path = "src/bin/ozf-dump.rs"

@@ -1,0 +1,20 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Локальные данные (карты, треки и т.п.)
+maps/
+*.ozf2
+*.ozfx3
+*.map
+*.gpx
+!tests/fixtures/**

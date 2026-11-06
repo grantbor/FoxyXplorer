@@ -1,0 +1,7 @@
+[package]
+name = "declination"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+world_magnetic_model = "1.2025.0"

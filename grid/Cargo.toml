@@ -1,0 +1,9 @@
+[package]
+name = "grid"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+geographiclib-rs = "0.2.7"
+roxmltree = "0.21.2"
+thiserror = "2.0.21"

@@ -1,0 +1,558 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use coord::{format_pair, CoordFormat};
+use iced::mouse::ScrollDelta;
+use iced::widget::{button, column, image, mouse_area, text, Row};
+use iced::{Element, Length, Point, Size};
+
+const VIEW_W: u32 = 1100;
+const VIEW_H: u32 = 720;
+/// Во сколько раз уменьшается кадр при перетаскивании (1100 и 720 делятся на 4).
+const DRAG_STEP: usize = 4;
+const R: f64 = 6_378_137.0;
+const BG: [u8; 4] = [38, 38, 42, 255];
+const LINE_COLOR: [u8; 4] = [255, 70, 70, 255];
+const NODE_COLOR: [u8; 4] = [255, 40, 40, 255];
+
+fn merc_of(lon: f64, lat: f64) -> (f64, f64) {
+    (
+        R * lon.to_radians(),
+        R * (std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0).tan().ln(),
+    )
+}
+
+fn lonlat_of(x: f64, y: f64) -> (f64, f64) {
+    (
+        (x / R).to_degrees(),
+        (2.0 * (y / R).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees(),
+    )
+}
+
+/// Отрезок с отсечением по границам буфера (Лианг-Барски) и шагом в один пиксель.
+fn draw_line(buf: &mut [u8], w: usize, h: usize, p0: (f64, f64), p1: (f64, f64), color: [u8; 4]) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    let (x0, y0) = p0;
+    let (dx, dy) = (p1.0 - x0, p1.1 - y0);
+    if !(x0.is_finite() && y0.is_finite() && dx.is_finite() && dy.is_finite()) {
+        return;
+    }
+    let (xmax, ymax) = ((w - 1) as f64, (h - 1) as f64);
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for (p, q) in [(-dx, x0), (dx, xmax - x0), (-dy, y0), (dy, ymax - y0)] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return;
+            }
+        } else {
+            let r = q / p;
+            if p < 0.0 {
+                if r > t1 {
+                    return;
+                }
+                t0 = t0.max(r);
+            } else {
+                if r < t0 {
+                    return;
+                }
+                t1 = t1.min(r);
+            }
+        }
+    }
+    let (ax, ay) = (x0 + t0 * dx, y0 + t0 * dy);
+    let (bx, by) = (x0 + t1 * dx, y0 + t1 * dy);
+    let steps = (bx - ax).abs().max((by - ay).abs()).ceil() as usize;
+    for i in 0..=steps {
+        let t = if steps == 0 { 0.0 } else { i as f64 / steps as f64 };
+        let x = (ax + (bx - ax) * t).round() as i64;
+        let y = (ay + (by - ay) * t).round() as i64;
+        if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+            let o = (y as usize * w + x as usize) * 4;
+            buf[o..o + 4].copy_from_slice(&color);
+        }
+    }
+}
+
+/// Привязка слоя в виде аффинного преобразования «Меркатор (м) -> пиксель растра».
+struct Affine {
+    x0: f64,
+    y0: f64,
+    ax: f64,
+    ay: f64,
+    bx: f64,
+    by: f64,
+}
+
+fn affine(g: &ozmap::Georef, cx: f64, cy: f64) -> Affine {
+    const D: f64 = 1000.0;
+    let at = |mx: f64, my: f64| {
+        let (lon, lat) = lonlat_of(mx, my);
+        g.lonlat_to_pixel(lon, lat)
+    };
+    let (x0, y0) = at(cx, cy);
+    let (x1, y1) = at(cx + D, cy);
+    let (x2, y2) = at(cx, cy + D);
+    Affine {
+        x0,
+        y0,
+        ax: (x1 - x0) / D,
+        ay: (y1 - y0) / D,
+        bx: (x2 - x0) / D,
+        by: (y2 - y0) / D,
+    }
+}
+
+struct Layer {
+    name: String,
+    ozf: ozf::Ozf,
+    georef: ozmap::Georef,
+    /// (индекс уровня, доля ширины от самого крупного, доля высоты), от крупного к мелкому
+    levels: Vec<(usize, f64, f64)>,
+}
+
+fn today() -> (i32, u16) {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let (y, m, d, ..) = geoio::time::parts(secs);
+    let ordinal = geoio::time::days_from_civil(y, m, d) - geoio::time::days_from_civil(y, 1, 1) + 1;
+    (y as i32, ordinal as u16)
+}
+
+/// Узлы сетки и её линии (в меркаторских метрах).
+type GridData = (grid::Grid, Vec<Vec<(f64, f64)>>);
+
+fn load_kit(dir: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
+    let mut maps: Vec<PathBuf> = Vec::new();
+    let mut gpxs: Vec<PathBuf> = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for e in entries {
+        let p = e.map_err(|e| e.to_string())?.path();
+        match p.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).as_deref() {
+            Some("map") => maps.push(p),
+            Some("gpx") => gpxs.push(p),
+            _ => {}
+        }
+    }
+    maps.sort();
+
+    let mut notes = Vec::new();
+    let mut layers = Vec::new();
+    for p in &maps {
+        let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let map = match ozmap::MapFile::open(p) {
+            Ok(m) => m,
+            Err(e) => {
+                notes.push(format!("{stem}: {e}"));
+                continue;
+            }
+        };
+        if !map.projection.to_lowercase().contains("mercator") {
+            notes.push(format!("{stem}: проекция «{}» пока не поддерживается", map.projection));
+            continue;
+        }
+        let georef = match map.georef() {
+            Ok(g) => g,
+            Err(e) => {
+                notes.push(format!("{stem}: {e}"));
+                continue;
+            }
+        };
+        let raster = dir.join(&map.image_file);
+        let ozf = match ozf::Ozf::open(&raster) {
+            Ok(o) => o,
+            Err(e) => {
+                notes.push(format!("{stem}: {} — {e}", map.image_file));
+                continue;
+            }
+        };
+        let bw = ozf.levels.iter().map(|l| l.width).max().unwrap_or(1) as f64;
+        let bh = ozf.levels.iter().map(|l| l.height).max().unwrap_or(1) as f64;
+        let mut levels: Vec<(usize, f64, f64)> = ozf
+            .levels
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (i, l.width as f64 / bw, l.height as f64 / bh))
+            .collect();
+        levels.sort_by(|a, b| b.1.total_cmp(&a.1));
+        layers.push(Layer { name: stem, ozf, georef, levels });
+    }
+    if layers.is_empty() {
+        return Err(format!(
+            "в папке нет пригодных карт (.map + .ozf2). {}",
+            notes.join("; ")
+        ));
+    }
+
+    let mut best: Option<GridData> = None;
+    for p in &gpxs {
+        let Ok(bytes) = std::fs::read(p) else { continue };
+        let Ok(g) = grid::Grid::from_gpx(&geoio::text::decode(&bytes)) else { continue };
+        if best.as_ref().map_or(true, |(b, _)| g.nodes.len() > b.nodes.len()) {
+            let mut lines: Vec<Vec<(f64, f64)>> = Vec::new();
+            if let Ok(data) = geoio::gpx::read(&bytes) {
+                for t in &data.tracks {
+                    for seg in &t.segments {
+                        lines.push(seg.iter().map(|pt| merc_of(pt.lon, pt.lat)).collect());
+                    }
+                }
+            }
+            best = Some((g, lines));
+        }
+    }
+    if best.is_none() {
+        notes.push("сетка (GPX с именованными точками) не найдена".into());
+    }
+    Ok((layers, best, notes))
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    Layer(usize),
+    ToggleGrid,
+    CycleFormat,
+    Decl(f64),
+    DeclReset,
+    Pressed,
+    Released,
+    Moved(Point),
+    Scrolled(ScrollDelta),
+}
+
+struct App {
+    layers: Vec<Layer>,
+    active: usize,
+    grid: Option<grid::Grid>,
+    lines: Vec<Vec<(f64, f64)>>,
+    show_grid: bool,
+    declination: f64,
+    decl_offset: f64,
+    format: CoordFormat,
+    cx: f64,
+    cy: f64,
+    scale: f64,
+    handle: Option<image::Handle>,
+    cache: HashMap<(usize, usize, u32, u32), Arc<Vec<u8>>>,
+    dragging: bool,
+    cursor: Option<Point>,
+    status: String,
+    error: Option<String>,
+    last_ms: f64,
+    last_step: usize,
+}
+
+impl App {
+    fn new() -> App {
+        let mut app = App {
+            layers: Vec::new(),
+            active: 0,
+            grid: None,
+            lines: Vec::new(),
+            show_grid: true,
+            declination: 0.0,
+            decl_offset: 0.0,
+            format: CoordFormat::Decimal,
+            cx: 0.0,
+            cy: 0.0,
+            scale: 1.0,
+            handle: None,
+            cache: HashMap::new(),
+            dragging: false,
+            cursor: None,
+            status: String::new(),
+            error: None,
+            last_ms: 0.0,
+            last_step: 1,
+        };
+        let Some(dir) = std::env::args().nth(1) else {
+            app.error = Some("Запуск: foxy <папка с распакованным комплектом>".into());
+            return app;
+        };
+        match load_kit(Path::new(&dir)) {
+            Ok((layers, gd, notes)) => {
+                app.layers = layers;
+                if let Some((g, lines)) = gd {
+                    app.grid = Some(g);
+                    app.lines = lines;
+                }
+                app.status = notes.join("; ");
+            }
+            Err(e) => {
+                app.error = Some(e);
+                return app;
+            }
+        }
+        if let Some(g) = &app.grid {
+            let (lat, lon) = g.center();
+            let (y, ord) = today();
+            match declination::declination_deg(lat, lon, y, ord) {
+                Ok(d) => app.declination = d,
+                Err(e) => app.status = format!("{} {e}", app.status),
+            }
+        }
+        // начальный вид: вся первая карта в окне
+        let l = &app.layers[0];
+        let (w0, h0) = {
+            let base = &l.ozf.levels[l.levels[0].0];
+            (base.width as f64, base.height as f64)
+        };
+        let (lon, lat) = l.georef.pixel_to_lonlat(w0 / 2.0, h0 / 2.0);
+        let (cx, cy) = merc_of(lon, lat);
+        let a = affine(&l.georef, cx, cy);
+        let ppm = (a.ax * a.ax + a.ay * a.ay).sqrt();
+        app.cx = cx;
+        app.cy = cy;
+        app.scale = 1.05 * ((w0 / ppm) / VIEW_W as f64).max((h0 / ppm) / VIEW_H as f64);
+        app.render(1);
+        app
+    }
+
+    /// `step` = 1 — полный кадр, `DRAG_STEP` — уменьшенный черновик для перетаскивания.
+    fn render(&mut self, step: usize) {
+        let started = Instant::now();
+        let (w, h) = (VIEW_W as usize / step, VIEW_H as usize / step);
+        let sc = self.scale * step as f64;
+        let mut buf = vec![0u8; w * h * 4];
+        for px in buf.chunks_exact_mut(4) {
+            px.copy_from_slice(&BG);
+        }
+        let li = self.active;
+        if let Some(layer) = self.layers.get_mut(li) {
+            let a = affine(&layer.georef, self.cx, self.cy);
+            let r = sc * (a.ax * a.ax + a.ay * a.ay).sqrt(); // пикселей растра на пиксель кадра
+            // самый мелкий уровень, который не мельче кадра
+            let mut pick = layer.levels[0];
+            for &lv in &layer.levels {
+                if lv.1 * r >= 0.97 {
+                    pick = lv;
+                }
+            }
+            let (lidx, fx, fy) = pick;
+            let (lw, lh) = {
+                let l = &layer.ozf.levels[lidx];
+                (l.width as i64, l.height as i64)
+            };
+            let pal = layer.ozf.levels[lidx].palette.clone();
+            if self.cache.len() > 6000 {
+                self.cache.clear();
+            }
+            let mut last_key = (u32::MAX, u32::MAX);
+            let mut last: Option<Arc<Vec<u8>>> = None;
+            for sy in 0..h {
+                let dy = -((sy as f64 + 0.5) - h as f64 / 2.0) * sc;
+                for sx in 0..w {
+                    let dx = ((sx as f64 + 0.5) - w as f64 / 2.0) * sc;
+                    let px = (a.x0 + a.ax * dx + a.bx * dy) * fx;
+                    let py = (a.y0 + a.ay * dx + a.by * dy) * fy;
+                    let (ix, iy) = (px.floor() as i64, py.floor() as i64);
+                    if ix < 0 || iy < 0 || ix >= lw || iy >= lh {
+                        continue;
+                    }
+                    let (tx, ty) = ((ix / 64) as u32, (iy / 64) as u32);
+                    if (tx, ty) != last_key {
+                        let key = (li, lidx, tx, ty);
+                        last = match self.cache.get(&key) {
+                            Some(t) => Some(t.clone()),
+                            None => match layer.ozf.tile_indices(lidx, tx, ty) {
+                                Ok(v) => {
+                                    let t = Arc::new(v);
+                                    self.cache.insert(key, t.clone());
+                                    Some(t)
+                                }
+                                Err(_) => None,
+                            },
+                        };
+                        last_key = (tx, ty);
+                    }
+                    if let Some(t) = &last {
+                        let c = pal[t[((iy % 64) * 64 + ix % 64) as usize] as usize];
+                        let o = (sy * w + sx) * 4;
+                        buf[o] = c[0];
+                        buf[o + 1] = c[1];
+                        buf[o + 2] = c[2];
+                        buf[o + 3] = 255;
+                    }
+                }
+            }
+        }
+        if self.show_grid {
+            let (hw, hh) = (w as f64 / 2.0, h as f64 / 2.0);
+            let to_screen = |(mx, my): (f64, f64)| (hw + (mx - self.cx) / sc, hh - (my - self.cy) / sc);
+            for line in &self.lines {
+                for pair in line.windows(2) {
+                    draw_line(&mut buf, w, h, to_screen(pair[0]), to_screen(pair[1]), LINE_COLOR);
+                }
+            }
+            if let Some(g) = &self.grid {
+                let half: i64 = if step > 1 { 1 } else { 2 };
+                for n in &g.nodes {
+                    let (sx, sy) = to_screen(merc_of(n.lon, n.lat));
+                    let (sx, sy) = (sx.round() as i64, sy.round() as i64);
+                    for oy in -half..=half {
+                        for ox in -half..=half {
+                            let (x, y) = (sx + ox, sy + oy);
+                            if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+                                let o = (y as usize * w + x as usize) * 4;
+                                buf[o..o + 4].copy_from_slice(&NODE_COLOR);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.handle = Some(image::Handle::from_rgba(w as u32, h as u32, buf));
+        self.last_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.last_step = step;
+    }
+
+    fn screen_to_lonlat(&self, p: Point) -> (f64, f64) {
+        let mx = self.cx + (p.x as f64 - VIEW_W as f64 / 2.0) * self.scale;
+        let my = self.cy - (p.y as f64 - VIEW_H as f64 / 2.0) * self.scale;
+        lonlat_of(mx, my)
+    }
+
+    fn refresh_status(&mut self) {
+        let Some(p) = self.cursor else { return };
+        let (lon, lat) = self.screen_to_lonlat(p);
+        let mut s = format!("Курсор: {}", format_pair(lat, lon, self.format));
+        if let Some(g) = &self.grid {
+            if let Some(n) = g.nearest(lat, lon, self.declination + self.decl_offset) {
+                s += &format!(
+                    "   |   ближайший узел {}: {:.0} м, магнитный азимут {:.0}°",
+                    n.node.name, n.distance_m, n.magnetic_azimuth
+                );
+            }
+        }
+        self.status = s;
+    }
+
+    fn update(&mut self, m: Message) {
+        match m {
+            Message::Layer(i) => {
+                if i < self.layers.len() {
+                    self.active = i;
+                    self.render(1);
+                }
+            }
+            Message::ToggleGrid => {
+                self.show_grid = !self.show_grid;
+                self.render(1);
+            }
+            Message::CycleFormat => {
+                self.format = match self.format {
+                    CoordFormat::Decimal => CoordFormat::DegMin,
+                    CoordFormat::DegMin => CoordFormat::DegMinSec,
+                    CoordFormat::DegMinSec => CoordFormat::Decimal,
+                };
+                self.refresh_status();
+            }
+            Message::Decl(d) => {
+                self.decl_offset += d;
+                self.refresh_status();
+            }
+            Message::DeclReset => {
+                self.decl_offset = 0.0;
+                self.refresh_status();
+            }
+            Message::Pressed => self.dragging = true,
+            Message::Released => {
+                if self.dragging {
+                    self.dragging = false;
+                    self.render(1);
+                    self.refresh_status();
+                }
+            }
+            Message::Moved(p) => {
+                if self.dragging {
+                    if let Some(prev) = self.cursor {
+                        self.cx -= (p.x - prev.x) as f64 * self.scale;
+                        self.cy += (p.y - prev.y) as f64 * self.scale;
+                        self.render(DRAG_STEP);
+                    }
+                    self.cursor = Some(p);
+                } else {
+                    self.cursor = Some(p);
+                    self.refresh_status();
+                }
+            }
+            Message::Scrolled(d) => {
+                let steps = match d {
+                    ScrollDelta::Lines { y, .. } => y as f64,
+                    ScrollDelta::Pixels { y, .. } => y as f64 / 40.0,
+                };
+                let p = self.cursor.unwrap_or(Point::new(VIEW_W as f32 / 2.0, VIEW_H as f32 / 2.0));
+                let (ox, oy) = (p.x as f64 - VIEW_W as f64 / 2.0, p.y as f64 - VIEW_H as f64 / 2.0);
+                let (mx, my) = (self.cx + ox * self.scale, self.cy - oy * self.scale);
+                self.scale = (self.scale * 0.8f64.powf(steps)).clamp(0.05, 2000.0);
+                self.cx = mx - ox * self.scale;
+                self.cy = my + oy * self.scale;
+                self.render(1);
+                self.refresh_status();
+            }
+        }
+    }
+
+    fn format_name(&self) -> &'static str {
+        match self.format {
+            CoordFormat::Decimal => "dd.dddddd",
+            CoordFormat::DegMin => "dd°mm.mmmm′",
+            CoordFormat::DegMinSec => "dd°mm′ss.ss″",
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        let mut top = Row::new().spacing(6);
+        for (i, l) in self.layers.iter().enumerate() {
+            let label = if i == self.active { format!("● {}", l.name) } else { l.name.clone() };
+            top = top.push(button(text(label)).on_press(Message::Layer(i)));
+        }
+        top = top
+            .push(button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" })).on_press(Message::ToggleGrid))
+            .push(button(text(self.format_name())).on_press(Message::CycleFormat))
+            .push(button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)))
+            .push(button(text("Скл +0.1°")).on_press(Message::Decl(0.1)))
+            .push(button(text("Скл: сброс")).on_press(Message::DeclReset));
+
+        let map: Element<Message> = match &self.handle {
+            Some(h) => mouse_area(
+                image(h.clone())
+                    .width(Length::Fixed(VIEW_W as f32))
+                    .height(Length::Fixed(VIEW_H as f32)),
+            )
+            .on_press(Message::Pressed)
+            .on_release(Message::Released)
+            .on_move(Message::Moved)
+            .on_scroll(Message::Scrolled)
+            .into(),
+            None => text(self.error.clone().unwrap_or_else(|| "Нет карты".into())).into(),
+        };
+
+        let name = self.layers.get(self.active).map(|l| l.name.as_str()).unwrap_or("-");
+        let info = format!(
+            "Склонение: {:.2}° (WMM2025 {:.2}°, поправка {:+.2}°)  |  масштаб: {:.2} м/пикс  |  слой: {}  |  кадр: {:.0} мс ({})",
+            self.declination + self.decl_offset,
+            self.declination,
+            self.decl_offset,
+            self.scale,
+            name,
+            self.last_ms,
+            if self.last_step > 1 { "черновой" } else { "полный" }
+        );
+        column![top, map, text(self.status.as_str()), text(info)]
+            .spacing(6)
+            .padding(8)
+            .into()
+    }
+}
+
+fn main() -> iced::Result {
+    iced::application(App::new, App::update, App::view)
+        .title("FoxyXplorer")
+        .window_size(Size::new(1130.0, 880.0))
+        .run()
+}

@@ -1,0 +1,13 @@
+[package]
+name = "foxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+coord = { version = "0.1.0", path = "../coord" }
+declination = { version = "0.1.0", path = "../declination" }
+geoio = { version = "0.1.0", path = "../geoio" }
+grid = { version = "0.1.0", path = "../grid" }
+iced = { version = "0.14", features = ["canvas", "image", "wgpu", "tiny-skia"] }
+ozf = { version = "0.1.0", path = "../ozf" }
+ozmap = { version = "0.1.0", path = "../ozmap" }
