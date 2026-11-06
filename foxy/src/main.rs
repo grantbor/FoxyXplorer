@@ -169,6 +169,7 @@ enum Message {
     Released,
     Moved(Point),
     Scrolled(ScrollDelta),
+    Fit,
 }
 
 struct App {
@@ -193,6 +194,7 @@ struct App {
     status: String,
     error: Option<String>,
     last_geom_ms: Cell<f64>,
+    last_bounds: Cell<Size>,
     show_labels: bool,
 }
 
@@ -218,6 +220,7 @@ impl App {
             status: String::new(),
             error: None,
             last_geom_ms: Cell::new(0.0),
+            last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
             show_labels: true,
         };
         let Some(dir) = std::env::args().nth(1) else {
@@ -269,14 +272,17 @@ impl App {
         let (cx, cy) = merc_of(lon, lat);
         let a = affine(&l.georef, cx, cy);
         let ppm = (a.ax * a.ax + a.ay * a.ay).sqrt();
+        let sz = self.last_bounds.get();
         self.cx = cx;
         self.cy = cy;
-        self.scale = 1.05 * ((w0 / ppm) / VIEW_W as f64).max((h0 / ppm) / VIEW_H as f64);
+        self.scale = 1.05
+            * ((w0 / ppm) / sz.width as f64).max((h0 / ppm) / sz.height as f64);
     }
 
     fn screen_to_lonlat(&self, p: Point) -> (f64, f64) {
-        let mx = self.cx + (p.x as f64 - VIEW_W as f64 / 2.0) * self.scale;
-        let my = self.cy - (p.y as f64 - VIEW_H as f64 / 2.0) * self.scale;
+        let sz = self.last_bounds.get();
+        let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+        let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
         lonlat_of(mx, my)
     }
 
@@ -354,12 +360,13 @@ impl App {
                     ScrollDelta::Lines { y, .. } => y as f64,
                     ScrollDelta::Pixels { y, .. } => y as f64 / 40.0,
                 };
+                let sz = self.last_bounds.get();
                 let p = self
                     .cursor
-                    .unwrap_or(Point::new(VIEW_W / 2.0, VIEW_H / 2.0));
+                    .unwrap_or(Point::new(sz.width / 2.0, sz.height / 2.0));
                 let (ox, oy) = (
-                    p.x as f64 - VIEW_W as f64 / 2.0,
-                    p.y as f64 - VIEW_H as f64 / 2.0,
+                    p.x as f64 - sz.width as f64 / 2.0,
+                    p.y as f64 - sz.height as f64 / 2.0,
                 );
                 let (mx, my) = (self.cx + ox * self.scale, self.cy - oy * self.scale);
                 self.scale = (self.scale * 0.8f64.powf(steps)).clamp(0.05, 2000.0);
@@ -372,6 +379,13 @@ impl App {
             Message::ToggleLabels => {
                 self.show_labels = !self.show_labels;
                 self.grid_cache.clear();
+            }
+            Message::Fit => {
+                let idx = self.active;
+                self.fit_to_layer(idx);
+                self.canvas_cache.clear();
+                self.grid_cache.clear();
+                self.refresh_status();
             }
         }
     }
@@ -399,6 +413,7 @@ impl App {
                 button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
                     .on_press(Message::ToggleGrid),
             )
+            .push(button(text("Fit")).on_press(Message::Fit))
             .push(
                 button(text(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" }))
                     .on_press(Message::ToggleLabels),
@@ -411,15 +426,12 @@ impl App {
         let map: Element<Message> = if self.error.is_some() || self.layers.is_empty() {
             text(self.error.clone().unwrap_or_else(|| "Нет карты".into())).into()
         } else {
-            // Два отдельных Canvas-виджета в стеке: карта снизу, сетка сверху.
-            // Внутри одного виджета iced батчит примитивы по типу (Image поверх
-            // Mesh), поэтому разделение на слои обязательно.
             let map_canvas = Canvas::new(MapProgram { app: self })
-                .width(Length::Fixed(VIEW_W))
-                .height(Length::Fixed(VIEW_H));
+                .width(Length::Fill)
+                .height(Length::Fill);
             let grid_canvas = Canvas::new(GridProgram { app: self })
-                .width(Length::Fixed(VIEW_W))
-                .height(Length::Fixed(VIEW_H));
+                .width(Length::Fill)
+                .height(Length::Fill);
 
             mouse_area(stack![map_canvas, grid_canvas])
                 .on_press(Message::Pressed)
@@ -442,6 +454,8 @@ impl App {
         column![top, map, text(self.status.as_str()), text(info)]
             .spacing(6)
             .padding(8)
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 }
@@ -467,6 +481,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         let started = Instant::now();
 
         let geom = app.canvas_cache.draw(renderer, bounds.size(), |frame| {
+            app.last_bounds.set(bounds.size());
             frame.fill_rectangle(
                 Point::ORIGIN,
                 bounds.size(),
@@ -628,6 +643,7 @@ impl<'a> canvas::Program<Message> for GridProgram<'a> {
         let app = self.app;
 
         let geom = app.grid_cache.draw(renderer, bounds.size(), |frame| {
+            app.last_bounds.set(bounds.size());
             if !app.show_grid {
                 return;
             }
