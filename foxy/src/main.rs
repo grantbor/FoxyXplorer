@@ -17,8 +17,6 @@ const VIEW_H: f32 = 720.0;
 const R: f64 = 6_378_137.0;
 const BG: [u8; 4] = [38, 38, 42, 255];
 
-#[derive(Debug, Clone, Copy)]
-enum MapSource { Local, Osm }
 
 pub fn merc_of(lon: f64, lat: f64) -> (f64, f64) {
     (
@@ -283,15 +281,14 @@ enum Message {
     Moved(Point),
     Scrolled(ScrollDelta),
     Fit,
-    ToggleSource,
-    OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
     PickKit,
     KitPicked(Option<PathBuf>),
+    OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
 }
 
 struct App {
     layers: Vec<Layer>,
-    active: usize,
+    active: usize, // 0..=layers.len(); == layers.len() означает OSM
     grid: Option<grid::Grid>,
     lines: Vec<Vec<(f64, f64)>>,
     show_grid: bool,
@@ -309,25 +306,50 @@ struct App {
     dragging: bool,
     cursor: Option<Point>,
     status: String,
-    error: Option<String>,
     last_geom_ms: Cell<f64>,
     last_bounds: Cell<Size>,
-    source: MapSource,
     osm_cache: osm::OsmCache,
     osm_client: reqwest::Client,
     osm_z: u8,
 }
 
+fn foxy_config_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("foxy")
+}
+
+fn last_kit_path() -> PathBuf {
+    foxy_config_dir().join("last_kit")
+}
+
+fn load_last_kit() -> Option<PathBuf> {
+    std::fs::read_to_string(last_kit_path())
+        .ok()
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| p.is_dir())
+}
+
+fn save_last_kit(path: &Path) {
+    let _ = std::fs::create_dir_all(foxy_config_dir());
+    let _ = std::fs::write(last_kit_path(), path.to_string_lossy().as_bytes());
+}
+
 impl App {
+    fn osm_active(&self) -> bool {
+        self.active >= self.layers.len()
+    }
+
     fn new() -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
-        let use_osm = args.iter().any(|a| a == "--osm");
-        let dir = args
+        let force_osm = args.iter().any(|a| a == "--osm");
+        let dir_arg = args
             .iter()
             .skip(1)
             .find(|a| !a.starts_with("--"))
             .cloned();
-            // Настройки кэша OSM: пока читаются из env, позже — из settings.toml.
+
+        // Настройки кэша OSM (env, потом settings.toml).
         let cache_cfg = osm::OsmCacheConfig {
             max_age_days: std::env::var("FOXY_CACHE_MAX_AGE_DAYS")
                 .ok()
@@ -365,36 +387,48 @@ impl App {
             dragging: false,
             cursor: None,
             status: String::new(),
-            error: None,
             last_geom_ms: Cell::new(0.0),
             last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
-            source: if use_osm { MapSource::Osm } else { MapSource::Local },
             osm_cache: osm::OsmCache::new(&cache_cfg),
             osm_client: osm::client(),
             osm_z: 0,
         };
 
-        if use_osm {
-            let (lon, lat) = (37.6173, 55.7558);
+        // Определяем, какой комплект пробовать загрузить.
+        let kit_path: Option<PathBuf> = if force_osm {
+            None
+        } else if let Some(d) = dir_arg {
+            Some(PathBuf::from(d))
+        } else {
+            load_last_kit()
+        };
+
+        if let Some(p) = kit_path {
+            if app.apply_kit(load_kit(&p)) {
+                save_last_kit(&p);
+            }
+        }
+
+        // Если после этого OSM — задаём стартовый вид и запускаем тайлы.
+        let task = if app.osm_active() && app.layers.is_empty() {
+            let (lon, lat) = (37.6173, 55.7558); // Москва, z~10
             let (cx, cy) = merc_of(lon, lat);
             app.cx = cx;
             app.cy = cy;
             app.scale = 20.0;
-            app.status = "Источник: OpenFreeMap".into();
-            let task = app.request_osm_tiles();
-            return (app, task);
-        }
-
-        let Some(dir) = dir else {
-            app.error = Some("Запуск: foxy <папка> | foxy --osm".into());
-            return (app, Task::none());
+            if app.status.is_empty() {
+                app.status = "Источник: OpenStreetMap".into();
+            } else {
+                app.status = format!("OSM. {}", app.status);
+            }
+            app.request_osm_tiles()
+        } else {
+            Task::none()
         };
-        app.apply_kit(load_kit(Path::new(&dir)));
-        let task = app.request_osm_tiles();
+
         (app, task)
     }
 
-    /// Центрирует вид на `idx`-м слое и подбирает масштаб под окно.
     fn fit_to_layer(&mut self, idx: usize) {
         let Some(l) = self.layers.get(idx) else { return };
         let base_idx = l.levels.first().map(|t| t.0).unwrap_or(0);
@@ -410,8 +444,7 @@ impl App {
         let sz = self.last_bounds.get();
         self.cx = cx;
         self.cy = cy;
-        self.scale = 1.05
-            * ((w0 / ppm) / sz.width as f64).max((h0 / ppm) / sz.height as f64);
+        self.scale = 1.05 * ((w0 / ppm) / sz.width as f64).max((h0 / ppm) / sz.height as f64);
     }
 
     fn screen_to_lonlat(&self, p: Point) -> (f64, f64) {
@@ -435,12 +468,11 @@ impl App {
         }
         self.status = s;
     }
-    
-        /// Применяет результат `load_kit` к текущему состоянию приложения.
+
     fn apply_kit(
         &mut self,
         result: Result<(Vec<Layer>, Option<GridData>, Vec<String>), String>,
-    ) {
+    ) -> bool {
         match result {
             Ok((layers, gd, notes)) => {
                 let n_layers = layers.len();
@@ -453,7 +485,6 @@ impl App {
                     self.lines = lines;
                 }
                 self.active = 0;
-                self.error = None;
                 self.status = if notes.is_empty() {
                     format!("слоёв: {n_layers}, точек GPX: {n_gpx}")
                 } else {
@@ -467,28 +498,21 @@ impl App {
                         self.declination = d;
                     }
                 }
-                // Старые тайлы предыдущего комплекта больше не нужны.
                 self.tile_handles.borrow_mut().clear();
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
+                true
             }
             Err(e) => {
-                self.error = Some(e.clone());
                 self.status = format!("Ошибка загрузки: {e}");
+                false
             }
         }
     }
 
-    /// Запускает загрузку тайлов OSM для текущего вида.
-    /// Возвращает `Task::none()`, если источник не OSM или всё уже в кэше/в очереди.
     fn request_osm_tiles(&mut self) -> Task<Message> {
-        if !matches!(self.source, MapSource::Osm) {
-            return Task::none();
-        }
-
-        // Мягкий лимит на количество одновременных запросов (OSM просит ≤2 соединений;
-        // берём с запасом, чтобы панорамирование не «зависало» на одной пачке).
-        if self.osm_cache.pending.borrow().len() >= 4 {
+        if !self.osm_active() {
             return Task::none();
         }
 
@@ -504,19 +528,15 @@ impl App {
 
         let mut tasks: Vec<Task<Message>> = Vec::new();
         for id in tiles {
-            // уже в памяти или на диске — не трогаем
             if self.osm_cache.get(id).is_some() {
                 continue;
             }
-            // уже в очереди — не дублируем
             if self.osm_cache.pending.borrow().contains(&id) {
                 continue;
             }
-            // запускаем не больше 2 новых за раз
             if tasks.len() >= 2 {
                 break;
             }
-            // вот теперь помечаем pending
             self.osm_cache.pending.borrow_mut().insert(id);
 
             let client = self.osm_client.clone();
@@ -550,23 +570,23 @@ impl App {
                 |(id, result)| Message::OsmTileLoaded(id, result),
             ));
         }
-
         Task::batch(tasks)
     }
 
     fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::Layer(i) => {
-                if i < self.layers.len() {
+                if i <= self.layers.len() {
                     self.active = i;
+                    // НЕ вызываем fit_to_layer(i) — сохраняем текущие cx, cy и scale
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
                     self.refresh_status();
                 }
             }
             Message::ToggleGrid => {
                 self.show_grid = !self.show_grid;
-                self.canvas_cache.clear();
                 self.grid_cache.clear();
             }
             Message::ToggleLabels => {
@@ -637,29 +657,14 @@ impl App {
                 self.refresh_status();
             }
             Message::Fit => {
-                let idx = self.active;
-                self.fit_to_layer(idx);
-                self.canvas_cache.clear();
-                self.grid_cache.clear();
-                self.osm_canvas_cache.clear();
-                self.refresh_status();
-            }
-            Message::ToggleSource => {
-                self.source = match self.source {
-                    MapSource::Local => MapSource::Osm,
-                    MapSource::Osm => MapSource::Local,
-                };
-                self.canvas_cache.clear();
-                self.osm_canvas_cache.clear();
-                self.refresh_status();
-            }
-            Message::OsmTileLoaded(id, result) => {
-                self.osm_cache.unmark_pending(id);
-                let handle = result
-                    .ok()
-                    .map(|bytes| iced::widget::image::Handle::from_bytes(bytes));
-                self.osm_cache.insert(id, handle);
-                self.osm_canvas_cache.clear();
+                if !self.osm_active() {
+                    let idx = self.active;
+                    self.fit_to_layer(idx);
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.refresh_status();
+                }
             }
             Message::PickKit => {
                 return Task::perform(
@@ -673,14 +678,22 @@ impl App {
                 );
             }
             Message::KitPicked(Some(path)) => {
-                self.apply_kit(load_kit(&path));
-                self.source = MapSource::Local;
-                self.refresh_status();
+                if self.apply_kit(load_kit(&path)) {
+                    save_last_kit(&path);
+                }
             }
             Message::KitPicked(None) => {}
+            Message::OsmTileLoaded(id, result) => {
+                self.osm_cache.unmark_pending(id);
+                let handle = result
+                    .ok()
+                    .map(|bytes| iced::widget::image::Handle::from_bytes(bytes));
+                self.osm_cache.insert(id, handle);
+                self.osm_canvas_cache.clear();
+            }
         }
 
-        // Для Local — no-op; для Osm — догружает очередную пачку тайлов.
+        // Догружаем очередную пачку тайлов OSM, если он активен.
         self.request_osm_tiles()
     }
 
@@ -694,18 +707,24 @@ impl App {
 
     fn view(&self) -> Element<'_, Message> {
         let mut top = Row::new().spacing(6);
+        top = top.push(button(text("Открыть")).on_press(Message::PickKit));
+
+        // Кнопки локальных карт.
         for (i, l) in self.layers.iter().enumerate() {
-            let label = if i == self.active {
+            let label = if self.active == i {
                 format!("● {}", l.name)
             } else {
                 l.name.clone()
             };
             top = top.push(button(text(label)).on_press(Message::Layer(i)));
         }
+
+        // Кнопка OSM — всегда последняя в ряду источников.
+        let osm_idx = self.layers.len();
+        let osm_label = if self.osm_active() { "● OSM" } else { "OSM" };
+        top = top.push(button(text(osm_label)).on_press(Message::Layer(osm_idx)));
+
         top = top
-            .push(button(text("Открыть")).on_press(Message::PickKit))
-            .push(button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
-                .on_press(Message::ToggleGrid))
             .push(
                 button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
                     .on_press(Message::ToggleGrid),
@@ -714,31 +733,19 @@ impl App {
                 button(text(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" }))
                     .on_press(Message::ToggleLabels),
             )
-            .push(
-                button(text(match self.source {
-                    MapSource::Local => "Источник: локальная",
-                    MapSource::Osm => "Источник: OSM",
-                }))
-                .on_press(Message::ToggleSource),
-            )
             .push(button(text("Fit")).on_press(Message::Fit))
             .push(button(text(self.format_name())).on_press(Message::CycleFormat))
             .push(button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)))
             .push(button(text("Скл +0.1°")).on_press(Message::Decl(0.1)))
             .push(button(text("Скл: сброс")).on_press(Message::DeclReset));
 
-        let map: Element<Message> = if self.error.is_some()
-            && matches!(self.source, MapSource::Local)
-        {
-            text(self.error.clone().unwrap_or_else(|| "Нет карты".into())).into()
-        } else {
+        let map: Element<Message> = {
             let map_canvas = Canvas::new(MapProgram { app: self })
                 .width(Length::Fill)
                 .height(Length::Fill);
             let grid_canvas = Canvas::new(GridProgram { app: self })
                 .width(Length::Fill)
                 .height(Length::Fill);
-
             mouse_area(stack![map_canvas, grid_canvas])
                 .on_press(Message::Pressed)
                 .on_release(Message::Released)
@@ -747,17 +754,15 @@ impl App {
                 .into()
         };
 
-        let name = match self.source {
-            MapSource::Local => self
-                .layers
+        let name = if self.osm_active() {
+            let pending = self.osm_cache.pending.borrow().len();
+            let cached = self.osm_cache.mem.borrow().len();
+            format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
+        } else {
+            self.layers
                 .get(self.active)
                 .map(|l| l.name.clone())
-                .unwrap_or_else(|| "-".into()),
-            MapSource::Osm => {
-                let pending = self.osm_cache.pending.borrow().len();
-                let cached = self.osm_cache.mem.borrow().len();
-                format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
-            }
+                .unwrap_or_else(|| "-".into())
         };
         let info = format!(
             "Склонение: {:.2}° (WMM2025 {:.2}°, поправка {:+.2}°)  |  масштаб: {:.2} м/пикс  |  источник: {}  |  геометрия: {:.1} мс",
@@ -798,10 +803,9 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         let started = Instant::now();
         app.last_bounds.set(bounds.size());
 
-        let geom = match app.source {
-            MapSource::Osm => {
-                // OSM: свой кэш, чтобы приход тайлов не инвалидировал локальную карту.
-                app.osm_canvas_cache.draw(renderer, bounds.size(), |frame| {
+        let geom = if app.osm_active() {
+            app.osm_canvas_cache
+                .draw(renderer, bounds.size(), |frame| {
                     frame.fill_rectangle(
                         Point::ORIGIN,
                         bounds.size(),
@@ -838,7 +842,6 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                                 frame.draw_image(rect, canvas::Image::new(handle));
                             }
                             Some(None) => {
-                                // Известная ошибка (404/таймаут) — тёмная плашка.
                                 frame.fill_rectangle(
                                     Point::new(rect.x, rect.y),
                                     Size::new(rect.width, rect.height),
@@ -846,7 +849,6 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                                 );
                             }
                             None => {
-                                // Ещё не загружен — нейтральная плашка.
                                 frame.fill_rectangle(
                                     Point::new(rect.x, rect.y),
                                     Size::new(rect.width, rect.height),
@@ -856,8 +858,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         }
                     }
 
-                    // Атрибуция OSM (обязательное требование политики тайл-сервера).
-                                        // Атрибуция OSM (обязательное требование политики тайл-сервера).
+                    // Атрибуция OSM/HOT.
                     let attr_w = 470.0_f32.min(bounds.width);
                     let attr_h = 20.0_f32;
                     frame.fill_rectangle(
@@ -869,9 +870,8 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         Color::from_rgba8(0, 0, 0, 0.6),
                     );
                     frame.fill_text(canvas::Text {
-                        content:
-                            "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team"
-                                .to_string(),
+                        content: "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team"
+                            .to_string(),
                         position: Point::new(
                             bounds.width - 8.0,
                             bounds.height - attr_h / 2.0 - 4.0,
@@ -882,21 +882,10 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         align_y: iced::alignment::Vertical::Center,
                         ..Default::default()
                     });
-                    let attr_w = 200.0_f32;
-                    let attr_h = 18.0_f32;
-                    frame.fill_rectangle(
-                        Point::new(
-                            bounds.width - attr_w - 4.0,
-                            bounds.height - attr_h - 4.0,
-                        ),
-                        Size::new(attr_w, attr_h),
-                        Color::from_rgba8(0, 0, 0, 0.6),
-                    );
                 })
-            }
-            MapSource::Local => {
-                // Локальные OZF2 — существующая логика.
-                app.canvas_cache.draw(renderer, bounds.size(), |frame| {
+        } else {
+            app.canvas_cache
+                .draw(renderer, bounds.size(), |frame| {
                     frame.fill_rectangle(
                         Point::ORIGIN,
                         bounds.size(),
@@ -939,28 +928,22 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                                             (px0 * fx, py0 * fy)
                                         };
                                     let (px_c0, py_c0) = level_px_at(0.0, 0.0);
-                                    let (px_c1, py_c1) = level_px_at(
-                                        bounds.width as f64,
-                                        bounds.height as f64,
-                                    );
+                                    let (px_c1, py_c1) =
+                                        level_px_at(bounds.width as f64, bounds.height as f64);
 
                                     let px_lo = px_c0.min(px_c1).max(0.0);
-                                    let px_hi =
-                                        px_c0.max(px_c1).min(lv_w as f64);
+                                    let px_hi = px_c0.max(px_c1).min(lv_w as f64);
                                     let py_lo = py_c0.min(py_c1).max(0.0);
-                                    let py_hi =
-                                        py_c0.max(py_c1).min(lv_h as f64);
+                                    let py_hi = py_c0.max(py_c1).min(lv_h as f64);
 
                                     if px_hi > px_lo && py_hi > py_lo {
                                         let tile = ozf::TILE as f64;
                                         let tx0 = (px_lo / tile).floor() as u32;
                                         let ty0 = (py_lo / tile).floor() as u32;
                                         let tx1 =
-                                            (((px_hi / tile).floor() as u32) + 1)
-                                                .min(lv_tx);
+                                            (((px_hi / tile).floor() as u32) + 1).min(lv_tx);
                                         let ty1 =
-                                            (((py_hi / tile).floor() as u32) + 1)
-                                                .min(lv_ty);
+                                            (((py_hi / tile).floor() as u32) + 1).min(lv_ty);
 
                                         let inv_scale = 1.0 / app.scale;
                                         let to_screen =
@@ -1046,7 +1029,6 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         }
                     }
                 })
-            }
         };
 
         app.last_geom_ms
