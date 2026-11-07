@@ -1,6 +1,6 @@
+mod document;
 mod osm;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -8,8 +8,15 @@ use coord::{format_pair, CoordFormat};
 use iced::mouse::ScrollDelta;
 use iced::widget::canvas::{self, Cache, Canvas, Geometry, Path as CanvasPath, Stroke};
 use iced::widget::image::Handle as ImageHandle;
-use iced::widget::{button, column, mouse_area, stack, text, Row};
-use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme};
+
+use std::collections::{HashMap, HashSet};
+
+use iced::widget::{
+    button, checkbox, column, container, mouse_area, row, scrollable, stack, text, Space,
+};
+use iced::{
+    Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
+};
 
 
 const VIEW_W: f32 = 1100.0;
@@ -30,6 +37,13 @@ pub fn lonlat_of(x: f64, y: f64) -> (f64, f64) {
         (x / R).to_degrees(),
         (2.0 * (y / R).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees(),
     )
+}
+
+
+#[derive(Default)]
+struct Selection {
+    tracks: HashSet<u64>,
+    waypoints: HashSet<u64>,
 }
 
 /// Аффинное приближение «Меркатор (м) → пиксель растра уровня 0» в точке (cx, cy).
@@ -63,6 +77,7 @@ fn affine(g: &ozmap::Georef, cx: f64, cy: f64) -> Affine {
 
 struct Layer {
     name: String,
+    kit_name: String,
     ozf: RefCell<ozf::Ozf>,
     georef: ozmap::Georef,
     /// (ozf-индекс_уровня, ratio_x, ratio_y), от крупного к мелкому
@@ -141,11 +156,18 @@ fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), 
     maps.sort();
 
     let mut layers = Vec::new();
+    // Получаем имя корневой папки комплекта (например, "2023-09-21_Novosibirsk")
+    let kit_name = root
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+
     for p in &maps {
         let stem = p
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
+            
         let map = match ozmap::MapFile::open(p) {
             Ok(m) => m,
             Err(e) => {
@@ -195,8 +217,28 @@ fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), 
             .map(|(i, l)| (i, l.width as f64 / bw, l.height as f64 / bh))
             .collect();
         levels.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+        // --- Формирование короткого имени для списка карт ---
+        let mut short = stem.strip_suffix("_ozf").unwrap_or(&stem).to_string();
+
+        // Пытаемся отрезать префикс комплекта (если он есть в имени файла)
+        if !kit_name.is_empty() && short.starts_with(&kit_name) {
+            short = short[kit_name.len()..].trim_start_matches('_').to_string();
+        } else if short.len() > 11
+            && short.chars().nth(4) == Some('-')
+            && short.chars().nth(7) == Some('-')
+        {
+            // Fallback: если папка называется иначе, но файл начинается с даты (YYYY-MM-DD_),
+            // отрезаем дату и название города (до следующего подчеркивания).
+            short = short.chars().skip(11).collect::<String>();
+            if let Some(idx) = short.find('_') {
+                short = short[idx + 1..].to_string();
+            }
+        }
+
         layers.push(Layer {
-            name: stem,
+            name: short,
+            kit_name: kit_name.clone(),
             ozf: RefCell::new(ozf),
             georef,
             levels,
@@ -284,6 +326,19 @@ enum Message {
     PickKit,
     KitPicked(Option<PathBuf>),
     OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
+    PickTrack,
+    TracksPicked(Option<Vec<PathBuf>>),
+    ToggleTrackVisible(u64, bool),
+    SelectTrack(u64),
+    ToggleAllTracksVisible,
+    DeleteSelectedTracks,
+    SaveSelectedTracks,
+
+    ToggleWaypointVisible(u64, bool),
+    SelectWaypoint(u64),
+    ToggleAllWaypointsVisible,
+    DeleteSelectedWaypoints,
+    SaveSelectedWaypoints,
 }
 
 struct App {
@@ -311,6 +366,11 @@ struct App {
     osm_cache: osm::OsmCache,
     osm_client: reqwest::Client,
     osm_z: u8,
+    tracks: Vec<document::Track>,
+    waypoints: Vec<document::Waypoint>,
+    next_id: u64,
+    tracks_cache: Cache,
+    selection: Selection,
 }
 
 fn foxy_config_dir() -> PathBuf {
@@ -392,6 +452,11 @@ impl App {
             osm_cache: osm::OsmCache::new(&cache_cfg),
             osm_client: osm::client(),
             osm_z: 0,
+            tracks: Vec::new(),
+            waypoints: Vec::new(),
+            next_id: 0,
+            tracks_cache: Cache::default(),
+            selection: Selection::default(),
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -502,6 +567,7 @@ impl App {
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
                 self.osm_canvas_cache.clear();
+                self.tracks_cache.clear();
                 true
             }
             Err(e) => {
@@ -582,6 +648,7 @@ impl App {
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
                     self.refresh_status();
                 }
             }
@@ -616,6 +683,7 @@ impl App {
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
                     self.refresh_status();
                 }
             }
@@ -627,6 +695,7 @@ impl App {
                         self.canvas_cache.clear();
                         self.grid_cache.clear();
                         self.osm_canvas_cache.clear();
+                        self.tracks_cache.clear();
                     }
                     self.cursor = Some(p);
                 } else {
@@ -654,6 +723,7 @@ impl App {
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
                 self.osm_canvas_cache.clear();
+                self.tracks_cache.clear();
                 self.refresh_status();
             }
             Message::Fit => {
@@ -691,6 +761,91 @@ impl App {
                 self.osm_cache.insert(id, handle);
                 self.osm_canvas_cache.clear();
             }
+                        Message::PickTrack => {
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt"])
+                            .pick_files()
+                            .await
+                    },
+                    |files| Message::TracksPicked(
+                        files.map(|fs| fs.into_iter().map(|f| f.path().to_path_buf()).collect())
+                    ),
+                );
+            }
+            Message::TracksPicked(Some(paths)) => {
+                for path in paths {
+                    match document::load_user_file(&path, &mut self.next_id) {
+                        Ok(content) => {
+                            self.tracks.extend(content.tracks);
+                            self.waypoints.extend(content.waypoints);
+                            let mut s = format!("Загружено: {}", path.file_name().unwrap_or_default().to_string_lossy());
+                            if !content.notes.is_empty() {
+                                s += &format!(" (предупреждения: {})", content.notes.join("; "));
+                            }
+                            self.status = s;
+                        }
+                        Err(e) => {
+                            self.status = format!("Ошибка загрузки: {e}");
+                        }
+                    }
+                }
+                self.tracks_cache.clear();
+            }
+            Message::TracksPicked(None) => {}
+                        Message::ToggleTrackVisible(id, v) => {
+                if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    t.visible = v;
+                    self.tracks_cache.clear();
+                }
+            }
+            Message::SelectTrack(id) => {
+                self.selection.tracks.clear();
+                self.selection.tracks.insert(id);
+            }
+            Message::ToggleAllTracksVisible => {
+                let all_visible = self.tracks.iter().all(|t| t.visible);
+                for t in &mut self.tracks {
+                    t.visible = !all_visible;
+                }
+                self.tracks_cache.clear();
+            }
+            Message::DeleteSelectedTracks => {
+                let ids = self.selection.tracks.clone();
+                self.tracks.retain(|t| !ids.contains(&t.id));
+                self.selection.tracks.clear();
+                self.tracks_cache.clear();
+            }
+            Message::SaveSelectedTracks => {
+                self.status = "Сохранение треков: следующий шаг".into();
+            }
+            Message::ToggleWaypointVisible(id, v) => {
+                if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
+                    w.visible = v;
+                    self.tracks_cache.clear();
+                }
+            }
+            Message::SelectWaypoint(id) => {
+                self.selection.waypoints.clear();
+                self.selection.waypoints.insert(id);
+            }
+            Message::ToggleAllWaypointsVisible => {
+                let all_visible = self.waypoints.iter().all(|w| w.visible);
+                for w in &mut self.waypoints {
+                    w.visible = !all_visible;
+                }
+                self.tracks_cache.clear();
+            }
+            Message::DeleteSelectedWaypoints => {
+                let ids = self.selection.waypoints.clone();
+                self.waypoints.retain(|w| !ids.contains(&w.id));
+                self.selection.waypoints.clear();
+                self.tracks_cache.clear();
+            }
+            Message::SaveSelectedWaypoints => {
+                self.status = "Сохранение точек: следующий шаг".into();
+            }
         }
 
         // Догружаем очередную пачку тайлов OSM, если он активен.
@@ -706,79 +861,306 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let mut top = Row::new().spacing(6);
-        top = top.push(button(text("Открыть")).on_press(Message::PickKit));
+        let top = self.view_top_toolbar();
+        let palette = self.view_tool_palette();
+        let map = self.view_map();
+        let right = self.view_right_panel();
+        let status = text(self.status.as_str());
 
-        // Кнопки локальных карт.
-        for (i, l) in self.layers.iter().enumerate() {
-            let label = if self.active == i {
-                format!("● {}", l.name)
-            } else {
-                l.name.clone()
-            };
-            top = top.push(button(text(label)).on_press(Message::Layer(i)));
-        }
+        column![
+            top,
+            row![
+                container(palette).width(Length::Fixed(56.0)).height(Length::Fill),
+                container(map).width(Length::Fill).height(Length::Fill),
+                container(right).width(Length::Fixed(340.0)).height(Length::Fill),
+            ]
+            .spacing(4)
+            .height(Length::Fill),
+            status,
+        ]
+        .spacing(4)
+        .padding(4)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
 
-        // Кнопка OSM — всегда последняя в ряду источников.
-        let osm_idx = self.layers.len();
-        let osm_label = if self.osm_active() { "● OSM" } else { "OSM" };
-        top = top.push(button(text(osm_label)).on_press(Message::Layer(osm_idx)));
-
-        top = top
-            .push(
-                button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
-                    .on_press(Message::ToggleGrid),
-            )
-            .push(
-                button(text(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" }))
-                    .on_press(Message::ToggleLabels),
-            )
-            .push(button(text("Fit")).on_press(Message::Fit))
-            .push(button(text(self.format_name())).on_press(Message::CycleFormat))
-            .push(button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)))
-            .push(button(text("Скл +0.1°")).on_press(Message::Decl(0.1)))
-            .push(button(text("Скл: сброс")).on_press(Message::DeclReset));
-
-        let map: Element<Message> = {
-            let map_canvas = Canvas::new(MapProgram { app: self })
-                .width(Length::Fill)
-                .height(Length::Fill);
-            let grid_canvas = Canvas::new(GridProgram { app: self })
-                .width(Length::Fill)
-                .height(Length::Fill);
-            mouse_area(stack![map_canvas, grid_canvas])
-                .on_press(Message::Pressed)
-                .on_release(Message::Released)
-                .on_move(Message::Moved)
-                .on_scroll(Message::Scrolled)
-                .into()
-        };
-
-        let name = if self.osm_active() {
-            let pending = self.osm_cache.pending.borrow().len();
-            let cached = self.osm_cache.mem.borrow().len();
-            format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
+    fn view_top_toolbar(&self) -> Element<'_, Message> {
+        let source_label = if self.osm_active() {
+            "Карта: OSM".to_string()
         } else {
             self.layers
                 .get(self.active)
-                .map(|l| l.name.clone())
-                .unwrap_or_else(|| "-".into())
+                .map(|l| format!("Карта: {}", l.name))
+                .unwrap_or_else(|| "Карта: —".into())
         };
-        let info = format!(
-            "Склонение: {:.2}° (WMM2025 {:.2}°, поправка {:+.2}°)  |  масштаб: {:.2} м/пикс  |  источник: {}  |  геометрия: {:.1} мс",
-            self.declination + self.decl_offset,
-            self.declination,
-            self.decl_offset,
-            self.scale,
-            name,
-            self.last_geom_ms.get()
-        );
-        column![top, map, text(self.status.as_str()), text(info)]
-            .spacing(6)
-            .padding(8)
+
+        row![
+            button(text("Открыть")).on_press(Message::PickKit),
+            button(text("Открыть трек")).on_press(Message::PickTrack),
+            text("|"),
+            text(source_label).size(13),
+            text("|"),
+            button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
+                .on_press(Message::ToggleGrid),
+            button(text(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" }))
+                .on_press(Message::ToggleLabels),
+            button(text("Fit")).on_press(Message::Fit),
+            button(text(self.format_name())).on_press(Message::CycleFormat),
+            button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)),
+            button(text("Скл +0.1°")).on_press(Message::Decl(0.1)),
+            button(text("Скл: сброс")).on_press(Message::DeclReset),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .into()
+    }
+
+    fn view_tool_palette(&self) -> Element<'_, Message> {
+        column![
+            button(text("✋")).on_press(Message::Pressed),
+            button(text("▲")).on_press(Message::Pressed),
+            button(text("⊕")).on_press(Message::Pressed),
+            button(text("●")).on_press(Message::Pressed),
+            button(text("✎")).on_press(Message::Pressed),
+            button(text("✕")).on_press(Message::Pressed),
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .into()
+    }
+
+    fn view_map(&self) -> Element<'_, Message> {
+        let map_canvas = Canvas::new(MapProgram { app: self })
             .width(Length::Fill)
-            .height(Length::Fill)
+            .height(Length::Fill);
+        let tracks_canvas = Canvas::new(TrackProgram { app: self })
+            .width(Length::Fill)
+            .height(Length::Fill);
+        let grid_canvas = Canvas::new(GridProgram { app: self })
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        mouse_area(stack![map_canvas, tracks_canvas, grid_canvas])
+            .on_press(Message::Pressed)
+            .on_release(Message::Released)
+            .on_move(Message::Moved)
+            .on_scroll(Message::Scrolled)
             .into()
+    }
+
+    fn view_right_panel(&self) -> Element<'_, Message> {
+        column![
+            self.view_maps_section(),
+            self.view_tracks_section(),
+            self.view_waypoints_section(),
+        ]
+        .spacing(12)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
+
+    fn view_maps_section(&self) -> Element<'_, Message> {
+        let kit_name = self.layers.first().map(|l| l.kit_name.as_str()).unwrap_or("");
+        
+        let header = row![
+            text(format!("Maps ({})", self.layers.len() + 1)).size(14),
+            Space::new().width(Length::Fill),
+            if !kit_name.is_empty() {
+                text(kit_name).size(11).color(Color::from_rgb(0.6, 0.6, 0.6))
+            } else {
+                text("").size(11)
+            }
+        ]
+        .align_y(Alignment::Center);
+
+        let mut list = column![].spacing(2).padding([0.0, 12.0]); // отступ 12px справа и слева
+        for (i, l) in self.layers.iter().enumerate() {
+            let marker = if self.active == i { "◉" } else { "○" };
+            list = list.push(
+                button(text(format!("{marker} {}", l.name)))
+                    .on_press(Message::Layer(i))
+                    .width(Length::Fill),
+            );
+        }
+        let osm_idx = self.layers.len();
+        let osm_marker = if self.osm_active() { "◉" } else { "○" };
+        list = list.push(
+            button(text(format!("{osm_marker} OSM (HOT)")))
+                .on_press(Message::Layer(osm_idx))
+                .width(Length::Fill),
+        );
+
+        column![
+            header,
+            container(scrollable(list).height(Length::Fixed(150.0))).padding(2), // ограничили 150px
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .into()
+    }
+
+    fn view_tracks_section(&self) -> Element<'_, Message> {
+        let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
+
+        let all_visible = self.tracks.iter().all(|t| t.visible);
+        let top_bar = row![
+            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
+                .on_press(Message::ToggleAllTracksVisible),
+        ]
+        .spacing(2);
+
+        let cols = row![
+            iced::widget::Space::new().width(24.0),
+            iced::widget::Space::new().width(16.0),
+            container(text("Имя").size(11)).width(Length::Fill),
+            container(text("Точек").size(11))
+                .width(Length::Fixed(50.0))
+                .align_x(Alignment::End),
+            container(text("Расст.").size(11))
+                .width(Length::Fixed(70.0))
+                .align_x(Alignment::End),
+        ]
+        .spacing(4);
+
+        let mut list = column![].spacing(2).padding([0.0, 12.0]);
+        for t in &self.tracks {
+            let selected = self.selection.tracks.contains(&t.id);
+            let color_box = container(text(""))
+                .width(12)
+                .height(12)
+                .style(move |_| container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb8(
+                        t.color[0], t.color[1], t.color[2],
+                    ))),
+                    border: iced::Border {
+                        color: Color::from_rgb8(60, 60, 60),
+                        width: 1.0,
+                        radius: 2.0.into(),
+                    },
+                    ..Default::default()
+                });
+
+            let dist = if t.cached_distance_m >= 1000.0 {
+                format!("{:.1}км", t.cached_distance_m / 1000.0)
+            } else {
+                format!("{:.0}м", t.cached_distance_m)
+            };
+
+            let name_text = if selected {
+                format!("● {}", t.name)
+            } else {
+                t.name.clone()
+            };
+
+            let r = row![
+                checkbox(t.visible)
+                    .on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
+                color_box,
+                button(text(name_text))
+                    .on_press(Message::SelectTrack(t.id))
+                    .width(Length::Fill),
+                container(text(t.cached_points.to_string()).size(12))
+                    .width(Length::Fixed(50.0))
+                    .align_x(Alignment::End),
+                container(text(dist).size(12))
+                    .width(Length::Fixed(70.0))
+                    .align_x(Alignment::End),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center);
+            list = list.push(r);
+        }
+
+        let bottom_bar = row![
+            button(text("🗑")).on_press(Message::DeleteSelectedTracks),
+            button(text("💾")).on_press(Message::SaveSelectedTracks),
+        ]
+        .spacing(2);
+
+        column![
+            header,
+            container(top_bar).padding(2),
+            container(cols).padding(2),
+            container(scrollable(list).height(Length::FillPortion(1))).padding(2), // ← FillPortion(1)
+            container(bottom_bar).padding(2),
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .height(Length::FillPortion(1)) // ← сама колонка тоже занимает долю
+        .into()
+    }
+
+    fn view_waypoints_section(&self) -> Element<'_, Message> {
+        let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
+
+         let all_visible = self.waypoints.iter().all(|w| w.visible);
+        let top_bar = row![
+            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
+                .on_press(Message::ToggleAllWaypointsVisible),
+        ]
+        .spacing(2);
+
+        let cols = row![
+            iced::widget::Space::new().width(24.0),
+            iced::widget::Space::new().width(14.0),
+            container(text("Имя").size(11)).width(Length::Fill),
+            container(text("Координаты").size(11))
+                .width(Length::Fixed(120.0))
+                .align_x(Alignment::End),
+        ]
+        .spacing(4);
+
+        let mut list = column![].spacing(2).padding([0.0, 12.0]);
+        for w in &self.waypoints {
+            let selected = self.selection.waypoints.contains(&w.id);
+            let icon = container(
+                text("●")
+                    .size(11)
+                    .color(Color::from_rgb8(255, 200, 0)),
+            )
+            .width(14);
+            let coord = coord::format_pair(w.lat, w.lon, self.format);
+            let name_text = if selected {
+                format!("● {}", w.name)
+            } else {
+                w.name.clone()
+            };
+
+            let r = row![
+                checkbox(w.visible)
+                    .on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
+                icon,
+                button(text(name_text))
+                    .on_press(Message::SelectWaypoint(w.id))
+                    .width(Length::Fill),
+                container(text(coord).size(11).font(iced::Font::MONOSPACE))
+                    .width(Length::Fixed(120.0))
+                    .align_x(Alignment::End),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center);
+            list = list.push(r);
+        }
+
+        let bottom_bar = row![
+            button(text("🗑")).on_press(Message::DeleteSelectedWaypoints),
+            button(text("💾")).on_press(Message::SaveSelectedWaypoints),
+        ]
+        .spacing(2);
+
+        column![
+            header,
+            container(top_bar).padding(2),
+            container(cols).padding(2),
+            container(scrollable(list).height(Length::FillPortion(1))).padding(2), // ← FillPortion(1)
+            container(bottom_bar).padding(2),
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .height(Length::FillPortion(1)) // ← сама колонка тоже занимает долю
+        .into()
     }
 }
 
@@ -1236,6 +1618,76 @@ impl<'a> canvas::Program<Message> for GridProgram<'a> {
             } 
             // Линейка масштаба — рисуется всегда, независимо от сетки.
             draw_scale_bar(frame, bounds, app.scale, app.cx, app.cy);
+        });
+        vec![geom]
+    }
+}
+
+struct TrackProgram<'a> {
+    app: &'a App,
+}
+
+impl<'a> canvas::Program<Message> for TrackProgram<'a> {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let app = self.app;
+        let geom = app.tracks_cache.draw(renderer, bounds.size(), |frame| {
+            let hw_f = bounds.width as f64 / 2.0;
+            let hh_f = bounds.height as f64 / 2.0;
+            let to_screen = |mx: f64, my: f64| -> Point {
+                Point::new(
+                    (hw_f + (mx - app.cx) / app.scale) as f32,
+                    (hh_f - (my - app.cy) / app.scale) as f32,
+                )
+            };
+
+            // Треки
+            for t in &app.tracks {
+                if !t.visible { continue; }
+                let color = Color::from_rgb8(t.color[0], t.color[1], t.color[2]);
+                for seg in &t.segments {
+                    if seg.points.len() < 2 { continue; }
+                    let path = CanvasPath::new(|p| {
+                        let mut first = true;
+                        for pt in &seg.points {
+                            let (mx, my) = merc_of(pt.lon, pt.lat);
+                            let sp = to_screen(mx, my);
+                            if first {
+                                p.move_to(sp);
+                                first = false;
+                            } else {
+                                p.line_to(sp);
+                            }
+                        }
+                    });
+                    frame.stroke(&path, Stroke::default().with_color(color).with_width(2.0));
+                }
+            }
+
+            // Точки
+        for wp in &app.waypoints {
+            if !wp.visible { continue; }
+            let (mx, my) = merc_of(wp.lon, wp.lat);
+            let pt = to_screen(mx, my);
+            let circle = CanvasPath::circle(pt, 4.0);
+            frame.fill(&circle, Color::from_rgb8(255, 200, 0));
+            frame.stroke(&circle, Stroke::default().with_color(Color::WHITE).with_width(1.0));
+            frame.fill_text(canvas::Text {
+                content: wp.name.clone(),
+                position: Point::new(pt.x + 6.0, pt.y - 6.0),
+                color: Color::BLACK,
+                size: iced::Pixels(12.0),
+                ..Default::default()
+            });
+        }
         });
         vec![geom]
     }
