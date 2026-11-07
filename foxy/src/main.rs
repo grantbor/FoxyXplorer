@@ -18,8 +18,9 @@ use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
 };
 
-use iced::keyboard::{self, Modifiers};
+use iced::keyboard::Modifiers;
 use iced::Subscription;
+use serde::{Deserialize, Serialize};
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
@@ -344,6 +345,87 @@ enum Message {
     ModifiersChanged(Modifiers),
     SearchTracksChanged(String),
     SearchWaypointsChanged(String),
+    WindowCloseRequested,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SessionView {
+    cx: f64,
+    cy: f64,
+    scale: f64,
+    active: usize,
+    show_grid: bool,
+    show_labels: bool,
+    format_str: String, // "Decimal", "DegMin", "DegMinSec"
+    decl_offset: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Session {
+    version: u32,
+    last_kit: Option<PathBuf>,
+    view: SessionView,
+    tracks: Vec<document::Track>,
+    waypoints: Vec<document::Waypoint>,
+    next_id: u64,
+}
+
+fn session_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("foxy")
+        .join("session.json")
+}
+
+fn save_session(app: &App) {
+    let format_str = match app.format {
+        CoordFormat::Decimal => "Decimal",
+        CoordFormat::DegMin => "DegMin",
+        CoordFormat::DegMinSec => "DegMinSec",
+    }.to_string();
+
+    let session = Session {
+        version: 1,
+        last_kit: app.last_kit.clone(),
+        view: SessionView {
+            cx: app.cx,
+            cy: app.cy,
+            scale: app.scale,
+            active: app.active,
+            show_grid: app.show_grid,
+            show_labels: app.show_labels,
+            format_str,
+            decl_offset: app.decl_offset,
+        },
+        tracks: app.tracks.clone(),
+        waypoints: app.waypoints.clone(),
+        next_id: app.next_id,
+    };
+
+    match serde_json::to_string_pretty(&session) {
+        Ok(json) => {
+            let path = session_path();
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::write(&path, json) {
+                Ok(_) => eprintln!("DEBUG: Сессия успешно сохранена в {:?}", path),
+                Err(e) => eprintln!("DEBUG: Ошибка записи файла сессии: {}", e),
+            }
+        }
+        Err(e) => eprintln!("DEBUG: Ошибка сериализации сессии: {}", e),
+    }
+}
+
+fn load_session() -> Option<Session> {
+    let path = session_path();
+    let content = std::fs::read_to_string(path).ok()?;
+    let session: Session = serde_json::from_str(&content).ok()?;
+    if session.version == 1 {
+        Some(session)
+    } else {
+        None
+    }
 }
 
 struct App {
@@ -381,6 +463,7 @@ struct App {
     last_waypoint_clicked: Option<u64>,
     search_tracks: String,
     search_waypoints: String,
+    last_kit: Option<PathBuf>, 
 }
 
 fn foxy_config_dir() -> PathBuf {
@@ -437,6 +520,91 @@ impl App {
                 .unwrap_or(24 * 3600),
         };
 
+        // ==========================================
+        // 1. ПОПЫТКА ЗАГРУЗИТЬ СЕССИЮ
+        // ==========================================
+        if !force_osm {
+            if let Some(session) = load_session() {
+                let mut app = App {
+                    layers: Vec::new(),
+                    active: 0, // Будет восстановлено из сессии
+                    grid: None,
+                    lines: Vec::new(),
+                    show_grid: true,
+                    show_labels: true,
+                    declination: 0.0,
+                    decl_offset: 0.0,
+                    format: CoordFormat::Decimal,
+                    cx: 0.0,
+                    cy: 0.0,
+                    scale: 1.0,
+                    canvas_cache: Cache::default(),
+                    grid_cache: Cache::default(),
+                    osm_canvas_cache: Cache::default(),
+                    tile_handles: RefCell::new(HashMap::new()),
+                    dragging: false,
+                    cursor: None,
+                    status: String::new(),
+                    last_geom_ms: Cell::new(0.0),
+                    last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
+                    osm_cache: osm::OsmCache::new(&cache_cfg),
+                    osm_client: osm::client(),
+                    osm_z: 0,
+                    
+                    // Восстанавливаем пользовательские данные из сессии
+                    tracks: session.tracks,
+                    waypoints: session.waypoints,
+                    next_id: session.next_id,
+                    tracks_cache: Cache::default(),
+                    selection: Selection::default(),
+                    
+                    // Новые поля
+                    last_kit: session.last_kit.clone(),
+                    modifiers: iced::keyboard::Modifiers::default(),
+                    last_track_clicked: None,
+                    last_waypoint_clicked: None,
+                    search_tracks: String::new(),
+                    search_waypoints: String::new(),
+                };
+
+                // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
+                for t in &mut app.tracks {
+                    document::recompute_track_stats(t);
+                }
+
+                // Загружаем карты из last_kit (они не хранятся в JSON, только путь)
+                if let Some(kit_path) = &app.last_kit {
+                    app.apply_kit(load_kit(kit_path));
+                }
+
+                // Восстанавливаем вид и настройки поверх загруженных карт
+                app.cx = session.view.cx;
+                app.cy = session.view.cy;
+                app.scale = session.view.scale;
+                app.active = session.view.active.min(app.layers.len()); // защита от выхода за границы
+                app.show_grid = session.view.show_grid;
+                app.show_labels = session.view.show_labels;
+                app.decl_offset = session.view.decl_offset;
+                app.format = match session.view.format_str.as_str() {
+                    "DegMin" => CoordFormat::DegMin,
+                    "DegMinSec" => CoordFormat::DegMinSec,
+                    _ => CoordFormat::Decimal,
+                };
+
+                app.status = format!(
+                    "Сессия восстановлена ({} треков, {} точек)",
+                    app.tracks.len(),
+                    app.waypoints.len()
+                );
+
+                let task = app.request_osm_tiles();
+                return (app, task);
+            }
+        }
+
+        // ==========================================
+        // 2. ЕСЛИ СЕССИИ НЕТ (ИЛИ ПЕРЕДАН --osm)
+        // ==========================================
         let mut app = App {
             layers: Vec::new(),
             active: 0,
@@ -467,7 +635,9 @@ impl App {
             next_id: 0,
             tracks_cache: Cache::default(),
             selection: Selection::default(),
-            modifiers: Modifiers::default(),
+            // Новые поля
+            last_kit: None,
+            modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None,
             last_waypoint_clicked: None,
             search_tracks: String::new(),
@@ -485,6 +655,7 @@ impl App {
 
         if let Some(p) = kit_path {
             if app.apply_kit(load_kit(&p)) {
+                app.last_kit = Some(p.clone()); // <-- Сохраняем в состояние приложения
                 save_last_kit(&p);
             }
         }
@@ -593,14 +764,19 @@ impl App {
     }
     
     fn subscription(&self) -> Subscription<Message> {
-        iced::event::listen_with(|event, _status, _id| {
-            if let iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
-                Some(Message::ModifiersChanged(modifiers))
-            } else {
-                None
-            }
-        })
-    }    
+        Subscription::batch([
+            // Отслеживаем зажатие Ctrl / Shift
+            iced::event::listen_with(|event, _status, _id| {
+                if let iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) = event {
+                    Some(Message::ModifiersChanged(modifiers))
+                } else {
+                    None
+                }
+            }),
+            // Отслеживаем закрытие окна (правильный способ в iced 0.14)
+            iced::window::close_requests().map(|_| Message::WindowCloseRequested),
+        ])
+    }
 
     fn request_osm_tiles(&mut self) -> Task<Message> {
         if !self.osm_active() {
@@ -774,6 +950,7 @@ impl App {
             }
             Message::KitPicked(Some(path)) => {
                 if self.apply_kit(load_kit(&path)) {
+                    self.last_kit = Some(path.clone());
                     save_last_kit(&path);
                 }
             }
@@ -933,6 +1110,11 @@ impl App {
             }
             Message::SaveSelectedWaypoints => {
                 self.status = "Сохранение точек: следующий шаг".into();
+            }
+            Message::WindowCloseRequested => {
+                eprintln!("DEBUG: Получено событие закрытия окна");
+                save_session(self);
+                return iced::exit();
             }
         }
 
@@ -1815,6 +1997,7 @@ fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title("FoxyXplorer")
         .window_size(Size::new(1130.0, 880.0))
-        .subscription(App::subscription) // <-- должно быть здесь
+        .subscription(App::subscription)
+        .exit_on_close_request(false) 
         .run()
 }

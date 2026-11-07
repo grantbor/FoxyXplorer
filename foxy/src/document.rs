@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackPoint {
     pub lon: f64,
     pub lat: f64,
@@ -9,18 +10,18 @@ pub struct TrackPoint {
     pub time: Option<f64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackSegment {
     pub points: Vec<TrackPoint>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FileSource {
     File { path: PathBuf, read_only: bool },
     New,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: u64,
     pub name: String,
@@ -30,11 +31,13 @@ pub struct Track {
     pub source: FileSource,
 
     // Кэш статистики для правой панели
+    #[serde(skip)]
     pub cached_points: usize,
+    #[serde(skip)]
     pub cached_distance_m: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Waypoint {
     pub id: u64,
     pub name: String,

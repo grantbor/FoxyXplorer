@@ -1319,6 +1319,8 @@ dependencies = [
  "ozmap",
  "reqwest",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
