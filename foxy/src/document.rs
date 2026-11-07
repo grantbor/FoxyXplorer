@@ -35,6 +35,8 @@ pub struct Track {
     pub cached_points: usize,
     #[serde(skip)]
     pub cached_distance_m: f64,
+    #[serde(default)]
+    pub props: TrackProps,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +57,55 @@ pub struct LoadedContent {
     pub tracks: Vec<Track>,
     pub waypoints: Vec<Waypoint>,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum LineStyle { Solid, Dash, Dot, DashDot, DashDotDot }
+impl Default for LineStyle { fn default() -> Self { Self::Solid } }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PolyType { Line, Polygon }
+impl Default for PolyType { fn default() -> Self { Self::Line } }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum FillType { None, Diagonal1, Diagonal2, CrossHatch, Solid }
+impl Default for FillType { fn default() -> Self { Self::None } }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackProps {
+    pub description: String,
+    pub line_color: [u8; 3],
+    pub line_width: f32,
+    pub line_style: LineStyle,
+    pub poly_type: PolyType,
+    pub fill_color: [u8; 3],
+    pub fill_type: FillType,
+    
+    // Метаданные для именования
+    pub date_str: String,  // "YYYY-MM-DD"
+    pub callsign: String,
+    pub num1: u32,
+    pub num2: Option<u32>,
+    pub suffix: String,
+}
+
+impl Default for TrackProps {
+    fn default() -> Self {
+        Self {
+            description: String::new(),
+            line_color: [255, 0, 0],
+            line_width: 2.0,
+            line_style: LineStyle::Solid,
+            poly_type: PolyType::Line,
+            fill_color: [0, 128, 0],
+            fill_type: FillType::None,
+            date_str: String::new(),
+            callsign: "Lisa".into(),
+            num1: 1,
+            num2: None,
+            suffix: String::new(),
+        }
+    }
 }
 
 fn next_color(idx: usize) -> [u8; 3] {
@@ -171,13 +222,18 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
         
         let mut track = Track {
             id: *next_id,
-            name,
+            name: name.clone(), 
             color,
             visible: true,
             segments,
             source: FileSource::File { path: path.to_path_buf(), read_only: is_read_only },
             cached_points: 0,
             cached_distance_m: 0.0,
+            props: TrackProps {          
+                description: name, 
+                line_color: color,
+                ..Default::default()
+            },
         };
         recompute_track_stats(&mut track);
         tracks.push(track);
@@ -265,11 +321,13 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
     }).collect();
     
     let mut geo_track = geoio::Track {
-        name: track.name.clone(),
+        name: track.props.description.clone(), // Имя берем из Description
         segments,
         ..Default::default()
     };
-    geo_track.style.color = rgb_to_ozi(track.color);
+    geo_track.style.color = rgb_to_ozi(track.props.line_color);
+    geo_track.style.width = track.props.line_width as u32;
+    // (Остальные стили Ozi, такие как тип заливки, зависят от структуры geoio::PltStyle)
     
     let bytes = geoio::plt::write(&geo_track, geoio::text::Encoding::Utf8);
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
@@ -341,4 +399,14 @@ pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
         "ms" => save_ms(tracks, waypoints, path),
         _ => Err(format!("Формат {} не поддерживается для сохранения", ext)),
     }
+}
+
+impl std::fmt::Display for LineStyle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
+}
+impl std::fmt::Display for PolyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
+}
+impl std::fmt::Display for FillType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
 }

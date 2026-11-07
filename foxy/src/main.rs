@@ -12,7 +12,8 @@ use iced::widget::image::Handle as ImageHandle;
 use std::collections::{HashMap, HashSet};
 
 use iced::widget::{
-    button, checkbox, column, container, mouse_area, row, scrollable, stack, text, Space,
+    button, checkbox, column, container, mouse_area, pick_list, row, scrollable, stack, text,
+    text_input, slider, Space,
 };
 use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
@@ -95,6 +96,26 @@ fn today() -> (i32, u16) {
     let (y, m, d, ..) = geoio::time::parts(secs);
     let ordinal = geoio::time::days_from_civil(y, m, d) - geoio::time::days_from_civil(y, 1, 1) + 1;
     (y as i32, ordinal as u16)
+}
+
+fn date_offset(days: i64) -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+        + days * 86400;
+    let (y, m, d, ..) = geoio::time::parts(secs as f64);
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+fn build_template(d: &document::TrackProps) -> String {
+    if d.callsign == "Zadacha" {
+        format!("Zadacha{}_{}", d.num1, d.date_str.replace("-", ""))
+    } else {
+        let n2 = d.num2.map(|n| format!("_{}", n)).unwrap_or_default();
+        let sfx = if d.suffix.is_empty() { String::new() } else { format!("_{}", d.suffix) };
+        format!("{}_{}_{}{}{}", d.date_str.replace("-", ""), d.callsign, d.num1, n2, sfx)
+    }
 }
 
 type GridData = (grid::Grid, Vec<Vec<(f64, f64)>>);
@@ -346,6 +367,31 @@ enum Message {
     SearchTracksChanged(String),
     SearchWaypointsChanged(String),
     WindowCloseRequested,
+    
+    OpenTrackProps(u64),
+    CloseTrackProps,
+    SaveTrackProps,
+    SaveTrackPropsPicked(Option<PathBuf>),
+    
+    // Изменения в драфте
+    DraftDescChanged(String),
+    DraftColorChanged([u8; 3]),
+    DraftWidthChanged(String),
+    DraftStyleChanged(document::LineStyle),
+    DraftTypeChanged(document::PolyType),
+    DraftFillColorChanged([u8; 3]),
+    DraftFillTypeChanged(document::FillType),
+    
+    DraftCallsignChanged(String),
+    DraftNum1Changed(String),
+    DraftNum2Changed(String),
+    DraftSuffixChanged(String),
+    DraftDateYesterday,
+    DraftDateToday,
+    DraftDateChanged(String),
+    ApplyTrackProps, 
+    ToggleColorPicker,
+    ColorChannelChanged(usize, u8), // 0 = R, 1 = G, 2 = B
 }
 
 #[derive(Serialize, Deserialize)]
@@ -375,6 +421,39 @@ fn session_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("foxy")
         .join("session.json")
+}
+
+fn load_palette() -> Vec<[u8; 3]> {
+    let path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("foxy")
+        .join("palette.json");
+
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(arr) = serde_json::from_str::<Vec<[u8; 3]>>(&content) {
+            return arr;
+        }
+    }
+
+    // Дефолтная палитра (как на скриншоте)
+    let default = vec![
+        [255, 0, 0],     // Red
+        [0, 0, 255],     // Blue
+        [0, 128, 0],     // Green
+        [255, 255, 255], // White
+        [0, 255, 255],   // Cyan
+        [255, 255, 0],   // Yellow
+        [255, 0, 255],   // Magenta
+        [0, 255, 0],     // Lime
+        [0, 0, 0],       // Black
+    ];
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(&default).unwrap_or_default());
+
+    default
 }
 
 fn save_session(app: &App) {
@@ -464,6 +543,14 @@ struct App {
     search_tracks: String,
     search_waypoints: String,
     last_kit: Option<PathBuf>, 
+    palette: Vec<[u8; 3]>,
+    modal: Option<Modal>,
+    track_backup: Option<document::Track>, 
+    last_track_click: Option<(u64, std::time::Instant)>,
+    show_color_picker: bool,
+}
+enum Modal {
+    TrackProps { track_id: u64, draft: document::TrackProps },
 }
 
 fn foxy_config_dir() -> PathBuf {
@@ -487,6 +574,7 @@ fn save_last_kit(path: &Path) {
     let _ = std::fs::create_dir_all(foxy_config_dir());
     let _ = std::fs::write(last_kit_path(), path.to_string_lossy().as_bytes());
 }
+
 
 impl App {
     fn osm_active(&self) -> bool {
@@ -565,6 +653,11 @@ impl App {
                     last_waypoint_clicked: None,
                     search_tracks: String::new(),
                     search_waypoints: String::new(),
+                    palette: load_palette(),
+                    modal: None,
+                    track_backup: None,
+                    last_track_click: None, 
+                    show_color_picker: false,
                 };
 
                 // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
@@ -642,6 +735,11 @@ impl App {
             last_waypoint_clicked: None,
             search_tracks: String::new(),
             search_waypoints: String::new(),
+            palette: load_palette(),
+            modal: None,
+            track_backup: None,
+            last_track_click: None,
+            show_color_picker: false,
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -718,6 +816,18 @@ impl App {
             }
         }
         self.status = s;
+    }
+
+    fn update_track_preview(&mut self, id: u64) {
+        if let Some(Modal::TrackProps { draft, .. }) = &self.modal {
+            if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
+                t.props = draft.clone();
+                // Синхронизируем имя и цвет для списка треков
+                t.name = draft.description.clone();
+                t.color = draft.line_color;
+                self.tracks_cache.clear();
+            }
+        }
     }
 
     fn apply_kit(
@@ -1022,32 +1132,46 @@ impl App {
             }
             
             Message::SelectTrack(id) => {
-                let ctrl = self.modifiers.control() || self.modifiers.command();
-                let shift = self.modifiers.shift();
+                let now = std::time::Instant::now();
+                let is_double_click = self.last_track_click.map_or(false, |(last_id, last_time)| {
+                    last_id == id && now.duration_since(last_time).as_millis() < 300
+                });
 
-                if shift {
-                    if let Some(last_id) = self.last_track_clicked {
-                        if let (Some(start), Some(end)) = (
-                            self.tracks.iter().position(|t| t.id == last_id),
-                            self.tracks.iter().position(|t| t.id == id),
-                        ) {
-                            let (min, max) = if start < end { (start, end) } else { (end, start) };
-                            for i in min..=max {
-                                self.selection.tracks.insert(self.tracks[i].id);
+                if is_double_click {
+                    self.last_track_click = None;
+                    if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
+                        self.track_backup = Some(t.clone());
+                        self.modal = Some(Modal::TrackProps { track_id: id, draft: t.props.clone() });
+                    }
+                } else {
+                    self.last_track_click = Some((id, now));
+
+                    let ctrl = self.modifiers.control() || self.modifiers.command();
+                    let shift = self.modifiers.shift();
+
+                    if shift {
+                        if let Some(last_id) = self.last_track_clicked {
+                            if let (Some(start), Some(end)) = (
+                                self.tracks.iter().position(|t| t.id == last_id),
+                                self.tracks.iter().position(|t| t.id == id),
+                            ) {
+                                let (min, max) = if start < end { (start, end) } else { (end, start) };
+                                for i in min..=max {
+                                    self.selection.tracks.insert(self.tracks[i].id);
+                                }
                             }
+                        } else {
+                            self.selection.tracks.insert(id);
+                        }
+                    } else if ctrl {
+                        if !self.selection.tracks.remove(&id) {
+                            self.selection.tracks.insert(id);
                         }
                     } else {
+                        self.selection.tracks.clear();
                         self.selection.tracks.insert(id);
                     }
-                } else if ctrl {
-                    if !self.selection.tracks.remove(&id) {
-                        self.selection.tracks.insert(id);
-                    }
-                    self.last_track_clicked = Some(id);
-                } else {
-                    self.selection.tracks.clear();
-                    self.selection.tracks.insert(id);
-                    self.last_track_clicked = Some(id);
+                    self.last_track_clicked = Some(id); // Важно для работы Shift+Клик
                 }
             }
             // Аналогично для SelectWaypoint:
@@ -1116,7 +1240,213 @@ impl App {
                 save_session(self);
                 return iced::exit();
             }
+            Message::OpenTrackProps(id) => {
+                if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
+                    self.track_backup = Some(t.clone()); // Сохраняем для отмены
+                    self.modal = Some(Modal::TrackProps { track_id: id, draft: t.props.clone() });
+                }
+            }
+            Message::CloseTrackProps => {
+                if let Some(backup) = self.track_backup.take() {
+                    if let Some(t) = self.tracks.iter_mut().find(|t| t.id == backup.id) {
+                        *t = backup; // Откатываем изменения
+                        self.tracks_cache.clear();
+                    }
+                }
+                self.modal = None;
+            }
+            // При изменении полей:
+            Message::SaveTrackProps => {
+                if let Some(Modal::TrackProps { draft, .. }) = &self.modal {
+                    let default_name = format!("{}.plt", draft.description); 
+                    let mut dialog = rfd::AsyncFileDialog::new()
+                        .set_file_name(&default_name)
+                        .add_filter("OziExplorer Track", &["plt"]);
+                    
+                    // Устанавливаем папку 10-Tracks из комплекта карт
+                    if let Some(kit) = &self.last_kit {
+                        let tracks_dir = kit.join("10-Tracks");
+                        if tracks_dir.is_dir() {
+                            dialog = dialog.set_directory(&tracks_dir);
+                        } else if kit.is_dir() {
+                            dialog = dialog.set_directory(kit);
+                        }
+                    }
+
+                    return Task::perform(
+                        async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
+                        Message::SaveTrackPropsPicked,
+                    );
+                }
+            }
+            // Drafts 
+            Message::DraftDescChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.description = s;
+                    tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftDateChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.date_str = s;
+                    draft.description = build_template(draft);
+                    tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftCallsignChanged(cs) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.callsign = cs.clone();
+                    draft.line_color = match cs.as_str() {
+                        "Veter" => [255, 0, 255],
+                        "BPLA" => [0, 255, 255],
+                        "Bort" => [255, 255, 255],
+                        "Zadacha" => [0, 0, 0],
+                        _ => draft.line_color,
+                    };
+                    draft.line_width = if cs == "BPLA" { 1.0 } else { 2.0 };
+                    
+                    // Проверка на запрещенные цвета
+                    let is_lisa_like = matches!(cs.as_str(), "Lisa" | "Avtonom" | "Kinolog" | "Pegas");
+                    let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
+                    if is_lisa_like && forbidden.contains(&draft.line_color) {
+                        draft.line_color = [255, 0, 0]; // Принудительно красный
+                    }
+
+                    draft.description = build_template(draft);
+                    tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftNum1Changed(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    if let Ok(n) = s.parse::<u32>() { draft.num1 = n; draft.description = build_template(draft); tid = Some(*track_id); }
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftNum2Changed(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.num2 = s.parse::<u32>().ok(); draft.description = build_template(draft); tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftSuffixChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.suffix = s; draft.description = build_template(draft); tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftDateToday => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.date_str = date_offset(0); draft.description = build_template(draft); tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftDateYesterday => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.date_str = date_offset(-1); draft.description = build_template(draft); tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftColorChanged(c) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    let is_lisa_like = matches!(draft.callsign.as_str(), "Lisa" | "Avtonom" | "Kinolog" | "Pegas");
+                    let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
+                    
+                    if is_lisa_like && forbidden.contains(&c) {
+                        draft.line_color = [255, 0, 0]; // Принудительно красный
+                    } else {
+                        draft.line_color = c;
+                    }
+                    tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::ToggleColorPicker => {
+                self.show_color_picker = !self.show_color_picker;
+            }
+            Message::ColorChannelChanged(ch, val) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    let mut new_c = draft.line_color;
+                    new_c[ch] = val;
+                    
+                    let is_lisa_like = matches!(draft.callsign.as_str(), "Lisa" | "Avtonom" | "Kinolog" | "Pegas");
+                    let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
+                    if is_lisa_like && forbidden.contains(&new_c) {
+                        draft.line_color = [255, 0, 0]; // Принудительно красный
+                    } else {
+                        draft.line_color = new_c;
+                    }
+                    tid = Some(*track_id);
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftFillColorChanged(c) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.fill_color = c; tid = Some(*track_id); }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftWidthChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    if let Ok(w) = s.parse::<f32>() { draft.line_width = w; tid = Some(*track_id); }
+                }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftStyleChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.line_style = s; tid = Some(*track_id); }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftTypeChanged(t) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.poly_type = t; tid = Some(*track_id); }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::DraftFillTypeChanged(t) => {
+                let mut tid = None;
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.fill_type = t; tid = Some(*track_id); }
+                if let Some(id) = tid { self.update_track_preview(id); }
+            }
+            Message::ApplyTrackProps => {
+                // Применяем и закрываем без сохранения в файл
+                self.track_backup = None; // Сбрасываем бэкап, чтобы Close не откатил изменения
+                self.modal = None;
+            }
+            Message::SaveTrackPropsPicked(Some(path)) => {
+                if let Some(Modal::TrackProps { track_id, .. }) = &self.modal {
+                    if let Some(t) = self.tracks.iter().find(|t| t.id == *track_id) {
+                        if let Err(e) = document::save_plt(t, &path) {
+                            self.status = format!("Ошибка сохранения: {e}");
+                        } else {
+                            self.status = format!("Сохранено в {}", path.display());
+                            if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == *track_id) {
+                                t_mut.source = document::FileSource::File { 
+                                    path: path.clone(), 
+                                    read_only: false 
+                                };
+                                t_mut.name = t_mut.props.description.clone(); // обновляем имя
+                            }
+                            self.modal = None;
+                            self.track_backup = None;
+                        }
+                    }
+                }
+            }            
+            Message::SaveTrackPropsPicked(None) => {}
         }
+        
 
         // Догружаем очередную пачку тайлов OSM, если он активен.
         self.request_osm_tiles()
@@ -1131,13 +1461,14 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        // 1. Формируем базовый интерфейс (как было до модального окна)
         let top = self.view_top_toolbar();
         let palette = self.view_tool_palette();
         let map = self.view_map();
         let right = self.view_right_panel();
         let status = text(self.status.as_str());
 
-        column![
+        let base_ui = column![
             top,
             row![
                 container(palette).width(Length::Fixed(56.0)).height(Length::Fill),
@@ -1151,8 +1482,31 @@ impl App {
         .spacing(4)
         .padding(4)
         .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        .height(Length::Fill);
+
+        // 2. Если открыто модальное окно — накладываем его сверху
+        if let Some(Modal::TrackProps { track_id, draft }) = &self.modal {
+            let modal_ui = self.view_track_props_modal(*track_id, draft);
+            
+            stack![
+                base_ui,
+                // Затемняющий фон
+                container(text(""))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+                        ..Default::default()
+                    }),
+                // Само окно по центру
+                container(modal_ui)
+                    .center_x(Length::Fill)  // В iced 0.14 center_x требует Length
+                    .center_y(Length::Fill)
+            ]
+            .into()
+        } else {
+            base_ui.into()
+        }
     }
 
     fn view_top_toolbar(&self) -> Element<'_, Message> {
@@ -1361,11 +1715,21 @@ impl App {
         }
 
         // ... (bottom_bar остается как было) ...
+        let selected_one = self.selection.tracks.len() == 1;
+        let selected_id = self.selection.tracks.iter().next().copied();
+
+        let props_btn = if selected_one {
+            button(text("⚙ Свойства")).on_press(Message::OpenTrackProps(selected_id.unwrap()))
+        } else {
+            button(text("⚙ Свойства")) // неактивна (серая)
+        };
+
         let bottom_bar = row![
+            props_btn,
             button(text("🗑")).on_press(Message::DeleteSelectedTracks),
             button(text("💾")).on_press(Message::SaveSelectedTracks),
         ]
-        .spacing(2);
+        .spacing(4);
         column![
             header,
             container(top_bar).padding(2),
@@ -1462,6 +1826,187 @@ impl App {
         .height(Length::FillPortion(1))
         .into()
     }
+    fn view_track_props_modal<'a>(&'a self, _id: u64, draft: &'a document::TrackProps) -> Element<'a, Message> {
+        let callsigns = vec![
+            "Lisa".to_string(), "Veter".to_string(), "Kinolog".to_string(), 
+            "BPLA".to_string(), "Bort".to_string(), "Zadacha".to_string(), 
+            "Avtonom".to_string(), "Pegas".to_string()
+        ];
+        
+        let line_styles = vec![
+            document::LineStyle::Solid, document::LineStyle::Dash, document::LineStyle::Dot, 
+            document::LineStyle::DashDot, document::LineStyle::DashDotDot
+        ];
+        let poly_types = vec![document::PolyType::Line, document::PolyType::Polygon];
+        let fill_types = vec![
+            document::FillType::None, document::FillType::Diagonal1, document::FillType::Diagonal2, 
+            document::FillType::CrossHatch, document::FillType::Solid
+        ];
+
+        let template = build_template(draft);
+
+        // Блок полей для #_# и Суффикса (блокируются для Задачи)
+        let extra_fields: Element<'a, Message> = if draft.callsign == "Zadacha" {
+            row![].into()
+        } else {
+            row![
+                container(text("#_#")).padding([0, 4]),
+                text_input("", &draft.num2.map(|n| n.to_string()).unwrap_or_default())
+                    .on_input(Message::DraftNum2Changed).width(50),
+                container(text("Суффикс")).padding([0, 4]),
+                text_input("", &draft.suffix)
+                    .on_input(Message::DraftSuffixChanged).width(80),
+            ].align_y(Alignment::Center).spacing(4).into()
+        };
+
+        // Палитра цветов (Line)
+        let mut color_btns: Vec<Element<'_, Message>> = Vec::new();
+        for &c in &self.palette {
+            color_btns.push(
+                button(text("")).width(20).height(20)
+                    .style(move |_: &Theme, _| button::Style {
+                        background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
+                        border: iced::Border { color: Color::from_rgb(0.5, 0.5, 0.5), width: 1.0, radius: 2.0.into() },
+                        ..Default::default()
+                    })
+                    .on_press(Message::DraftColorChanged(c))
+                    .into()
+            );
+        }
+        // Кнопка вызова пикера
+        color_btns.push(
+            button(text("↓")).width(20).height(20)
+                .on_press(Message::ToggleColorPicker)
+                .into()
+        );
+        let color_row = row(color_btns).spacing(2);
+
+        // Палитра цветов (Fill)
+        let mut fill_color_btns: Vec<Element<'_, Message>> = Vec::new();
+        for &c in &self.palette {
+            fill_color_btns.push(
+                button(text("")).width(20).height(20)
+                    .style(move |_: &Theme, _| button::Style {
+                        background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
+                        border: iced::Border { color: Color::from_rgb(0.5, 0.5, 0.5), width: 1.0, radius: 2.0.into() },
+                        ..Default::default()
+                    })
+                    .on_press(Message::DraftFillColorChanged(c))
+                    .into()
+            );
+        }
+        let fill_color_row = row(fill_color_btns).spacing(2);
+        // Блок полей заливки (появляется только для Polygon)
+        let fill_fields: Element<'a, Message> = if draft.poly_type == document::PolyType::Polygon {
+            column![
+                row![text("Fill Color:").width(120), fill_color_row].align_y(Alignment::Center),
+                row![
+                    text("Fill Type:").width(120),
+                    pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged),
+                ].align_y(Alignment::Center),
+            ].spacing(10).into()
+        } else {
+            column![].into()
+        };
+        let content = column![
+            text("Свойства трека").size(20).color(Color::WHITE),
+            
+            // Description
+            row![
+                text("Description:").width(120),
+                text_input("Введите описание...", &draft.description).on_input(Message::DraftDescChanged).width(280)
+            ].align_y(Alignment::Center),
+
+            // Дата (без Завтра, с ручным вводом)
+            row![
+                text("Дата:").width(120),
+                button("Вчера").on_press(Message::DraftDateYesterday),
+                button("Сегодня").on_press(Message::DraftDateToday),
+                text_input("YYYY-MM-DD", &draft.date_str).on_input(Message::DraftDateChanged).width(120),
+            ].align_y(Alignment::Center).spacing(4),
+
+            // Позывной и Номера
+            row![
+                text("Позывной:").width(120),
+                pick_list(callsigns, Some(draft.callsign.clone()), Message::DraftCallsignChanged),
+                container(text("#")).padding([0, 4]),
+                text_input("", &draft.num1.to_string()).on_input(Message::DraftNum1Changed).width(50),
+                extra_fields
+            ].align_y(Alignment::Center).spacing(4),
+
+            // Line Color
+            // Line Color
+            row![text("Line Color:").width(120), color_row].align_y(Alignment::Center),
+
+            // Встроенный RGB-пикер (появляется по кнопке ↓)
+            if self.show_color_picker {
+                let picker_ui = column![
+                    row![
+                        text("R").width(20),
+                        slider(0.0..=255.0, draft.line_color[0] as f32, move |v| Message::ColorChannelChanged(0, v as u8))
+                    ].align_y(Alignment::Center).spacing(10),
+                    row![
+                        text("G").width(20),
+                        slider(0.0..=255.0, draft.line_color[1] as f32, move |v| Message::ColorChannelChanged(1, v as u8))
+                    ].align_y(Alignment::Center).spacing(10),
+                    row![
+                        text("B").width(20),
+                        slider(0.0..=255.0, draft.line_color[2] as f32, move |v| Message::ColorChannelChanged(2, v as u8))
+                    ].align_y(Alignment::Center).spacing(10),
+                ].spacing(4);
+                
+                // Оборачиваем и даем конкретный тип Element
+                let elem: Element<'a, Message> = container(picker_ui).padding([0, 120]).into();
+                elem
+            } else {
+                column![].into()
+            },
+
+            // Width & Line Style
+            row![
+                text("Width:").width(120),
+                text_input("", &draft.line_width.to_string()).on_input(Message::DraftWidthChanged).width(50),
+                container(text("Line Style:")).padding([0, 10]),
+                pick_list(line_styles, Some(draft.line_style.clone()), Message::DraftStyleChanged),
+            ].align_y(Alignment::Center),
+
+            // Type (Line/Polygon)
+            row![
+                text("Type:").width(120),
+                pick_list(poly_types, Some(draft.poly_type.clone()), Message::DraftTypeChanged),
+            ].align_y(Alignment::Center),
+
+            // Сюда вставляем наши поля для Polygon
+            fill_fields,
+
+            // Шаблон
+            row![
+                text("Шаблон:").width(120),
+                text(template).color(Color::from_rgb8(
+                    draft.line_color[0], 
+                    draft.line_color[1], 
+                    draft.line_color[2]
+                )).size(16)
+            ].align_y(Alignment::Center),
+
+            // Кнопки
+            row![
+                button("Сохранить").on_press(Message::SaveTrackProps),
+                button("Закрыть").on_press(Message::ApplyTrackProps),
+                button("Отмена").on_press(Message::CloseTrackProps),
+            ].spacing(10)
+        ]
+        .spacing(12)
+        .padding(20);
+
+        container(content)
+            .style(|_| container::Style {
+                background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
+                border: iced::Border { color: Color::from_rgb(0.3, 0.3, 0.3), width: 1.0, radius: 8.0.into() },
+                ..Default::default()
+            })
+            .into()
+    }  
 }
 
 // ----- Программа отрисовки карты (фон + тайлы OZF2) -----
@@ -1952,9 +2497,14 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
             // Треки
             for t in &app.tracks {
                 if !t.visible { continue; }
-                let color = Color::from_rgb8(t.color[0], t.color[1], t.color[2]);
+                // Берем цвет и ширину из props!
+                let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
+                let width = t.props.line_width;
+                
                 for seg in &t.segments {
                     if seg.points.len() < 2 { continue; }
+                    
+                    // Создаем path для линии
                     let path = CanvasPath::new(|p| {
                         let mut first = true;
                         for pt in &seg.points {
@@ -1968,7 +2518,8 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                             }
                         }
                     });
-                    frame.stroke(&path, Stroke::default().with_color(color).with_width(2.0));
+                    
+                    frame.stroke(&path, Stroke::default().with_color(color).with_width(width));
                 }
             }
 
