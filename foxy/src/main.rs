@@ -285,6 +285,8 @@ enum Message {
     Fit,
     ToggleSource,
     OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
+    PickKit,
+    KitPicked(Option<PathBuf>),
 }
 
 struct App {
@@ -387,37 +389,7 @@ impl App {
             app.error = Some("Запуск: foxy <папка> | foxy --osm".into());
             return (app, Task::none());
         };
-        match load_kit(Path::new(&dir)) {
-            Ok((layers, gd, notes)) => {
-                let n_layers = layers.len();
-                let n_gpx = gd.as_ref().map_or(0, |(g, _)| g.nodes.len());
-                app.layers = layers;
-                if let Some((g, lines)) = gd {
-                    app.grid = Some(g);
-                    app.lines = lines;
-                }
-                app.status = if notes.is_empty() {
-                    format!("слоёв: {n_layers}, точек GPX: {n_gpx}")
-                } else {
-                    format!("слоёв: {n_layers}, точек GPX: {n_gpx}; {}", notes.join("; "))
-                };
-            }
-            Err(e) => {
-                app.error = Some(e);
-                return (app, Task::none());
-            }
-        }
-
-        if let Some(g) = &app.grid {
-            let (lat, lon) = g.center();
-            let (y, ord) = today();
-            match declination::declination_deg(lat, lon, y, ord) {
-                Ok(d) => app.declination = d,
-                Err(e) => app.status = format!("{} {e}", app.status),
-            }
-        }
-
-        app.fit_to_layer(0);
+        app.apply_kit(load_kit(Path::new(&dir)));
         let task = app.request_osm_tiles();
         (app, task)
     }
@@ -462,6 +434,49 @@ impl App {
             }
         }
         self.status = s;
+    }
+    
+        /// Применяет результат `load_kit` к текущему состоянию приложения.
+    fn apply_kit(
+        &mut self,
+        result: Result<(Vec<Layer>, Option<GridData>, Vec<String>), String>,
+    ) {
+        match result {
+            Ok((layers, gd, notes)) => {
+                let n_layers = layers.len();
+                let n_gpx = gd.as_ref().map_or(0, |(g, _)| g.nodes.len());
+                self.layers = layers;
+                self.grid = None;
+                self.lines.clear();
+                if let Some((g, lines)) = gd {
+                    self.grid = Some(g);
+                    self.lines = lines;
+                }
+                self.active = 0;
+                self.error = None;
+                self.status = if notes.is_empty() {
+                    format!("слоёв: {n_layers}, точек GPX: {n_gpx}")
+                } else {
+                    format!("слоёв: {n_layers}, точек GPX: {n_gpx}; {}", notes.join("; "))
+                };
+                self.fit_to_layer(0);
+                if let Some(g) = &self.grid {
+                    let (lat, lon) = g.center();
+                    let (y, ord) = today();
+                    if let Ok(d) = declination::declination_deg(lat, lon, y, ord) {
+                        self.declination = d;
+                    }
+                }
+                // Старые тайлы предыдущего комплекта больше не нужны.
+                self.tile_handles.borrow_mut().clear();
+                self.canvas_cache.clear();
+                self.grid_cache.clear();
+            }
+            Err(e) => {
+                self.error = Some(e.clone());
+                self.status = format!("Ошибка загрузки: {e}");
+            }
+        }
     }
 
     /// Запускает загрузку тайлов OSM для текущего вида.
@@ -646,6 +661,23 @@ impl App {
                 self.osm_cache.insert(id, handle);
                 self.osm_canvas_cache.clear();
             }
+            Message::PickKit => {
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .pick_folder()
+                            .await
+                            .map(|h| h.path().to_path_buf())
+                    },
+                    Message::KitPicked,
+                );
+            }
+            Message::KitPicked(Some(path)) => {
+                self.apply_kit(load_kit(&path));
+                self.source = MapSource::Local;
+                self.refresh_status();
+            }
+            Message::KitPicked(None) => {}
         }
 
         // Для Local — no-op; для Osm — догружает очередную пачку тайлов.
@@ -671,6 +703,9 @@ impl App {
             top = top.push(button(text(label)).on_press(Message::Layer(i)));
         }
         top = top
+            .push(button(text("Открыть")).on_press(Message::PickKit))
+            .push(button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
+                .on_press(Message::ToggleGrid))
             .push(
                 button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
                     .on_press(Message::ToggleGrid),
