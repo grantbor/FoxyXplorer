@@ -1,3 +1,4 @@
+mod osm;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -8,21 +9,25 @@ use iced::mouse::ScrollDelta;
 use iced::widget::canvas::{self, Cache, Canvas, Geometry, Path as CanvasPath, Stroke};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::{button, column, mouse_area, stack, text, Row};
-use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme};
+
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
 const R: f64 = 6_378_137.0;
 const BG: [u8; 4] = [38, 38, 42, 255];
 
-fn merc_of(lon: f64, lat: f64) -> (f64, f64) {
+#[derive(Debug, Clone, Copy)]
+enum MapSource { Local, Osm }
+
+pub fn merc_of(lon: f64, lat: f64) -> (f64, f64) {
     (
         R * lon.to_radians(),
         R * (std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0).tan().ln(),
     )
 }
 
-fn lonlat_of(x: f64, y: f64) -> (f64, f64) {
+pub fn lonlat_of(x: f64, y: f64) -> (f64, f64) {
     (
         (x / R).to_degrees(),
         (2.0 * (y / R).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees(),
@@ -278,6 +283,8 @@ enum Message {
     Moved(Point),
     Scrolled(ScrollDelta),
     Fit,
+    ToggleSource,
+    OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
 }
 
 struct App {
@@ -286,6 +293,7 @@ struct App {
     grid: Option<grid::Grid>,
     lines: Vec<Vec<(f64, f64)>>,
     show_grid: bool,
+    show_labels: bool,
     declination: f64,
     decl_offset: f64,
     format: CoordFormat,
@@ -294,8 +302,7 @@ struct App {
     scale: f64,
     canvas_cache: Cache,
     grid_cache: Cache,
-    /// Готовые к отрисовке тайлы: ключ `(layer, lvl, tx, ty)`.
-    /// `Some(handle)` — декодировано, `None` — попытка была и провалилась.
+    osm_canvas_cache: Cache,
     tile_handles: RefCell<HashMap<(usize, usize, u32, u32), Option<ImageHandle>>>,
     dragging: bool,
     cursor: Option<Point>,
@@ -303,17 +310,46 @@ struct App {
     error: Option<String>,
     last_geom_ms: Cell<f64>,
     last_bounds: Cell<Size>,
-    show_labels: bool,
+    source: MapSource,
+    osm_cache: osm::OsmCache,
+    osm_client: reqwest::Client,
+    osm_z: u8,
 }
 
 impl App {
-    fn new() -> App {
+    fn new() -> (App, Task<Message>) {
+        let args: Vec<String> = std::env::args().collect();
+        let use_osm = args.iter().any(|a| a == "--osm");
+        let dir = args
+            .iter()
+            .skip(1)
+            .find(|a| !a.starts_with("--"))
+            .cloned();
+            // Настройки кэша OSM: пока читаются из env, позже — из settings.toml.
+        let cache_cfg = osm::OsmCacheConfig {
+            max_age_days: std::env::var("FOXY_CACHE_MAX_AGE_DAYS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(90),
+            max_total_size: std::env::var("FOXY_CACHE_MAX_SIZE_MB")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|mb| mb * 1024 * 1024)
+                .unwrap_or(2 * 1024 * 1024 * 1024),
+            cleanup_interval_secs: std::env::var("FOXY_CACHE_CLEANUP_HOURS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|h| h * 3600)
+                .unwrap_or(24 * 3600),
+        };
+
         let mut app = App {
             layers: Vec::new(),
             active: 0,
             grid: None,
             lines: Vec::new(),
             show_grid: true,
+            show_labels: true,
             declination: 0.0,
             decl_offset: 0.0,
             format: CoordFormat::Decimal,
@@ -322,6 +358,7 @@ impl App {
             scale: 1.0,
             canvas_cache: Cache::default(),
             grid_cache: Cache::default(),
+            osm_canvas_cache: Cache::default(),
             tile_handles: RefCell::new(HashMap::new()),
             dragging: false,
             cursor: None,
@@ -329,11 +366,26 @@ impl App {
             error: None,
             last_geom_ms: Cell::new(0.0),
             last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
-            show_labels: true,
+            source: if use_osm { MapSource::Osm } else { MapSource::Local },
+            osm_cache: osm::OsmCache::new(&cache_cfg),
+            osm_client: osm::client(),
+            osm_z: 0,
         };
-        let Some(dir) = std::env::args().nth(1) else {
-            app.error = Some("Запуск: foxy <папка с распакованным комплектом>".into());
-            return app;
+
+        if use_osm {
+            let (lon, lat) = (37.6173, 55.7558);
+            let (cx, cy) = merc_of(lon, lat);
+            app.cx = cx;
+            app.cy = cy;
+            app.scale = 20.0;
+            app.status = "Источник: OpenFreeMap".into();
+            let task = app.request_osm_tiles();
+            return (app, task);
+        }
+
+        let Some(dir) = dir else {
+            app.error = Some("Запуск: foxy <папка> | foxy --osm".into());
+            return (app, Task::none());
         };
         match load_kit(Path::new(&dir)) {
             Ok((layers, gd, notes)) => {
@@ -352,9 +404,10 @@ impl App {
             }
             Err(e) => {
                 app.error = Some(e);
-                return app;
+                return (app, Task::none());
             }
         }
+
         if let Some(g) = &app.grid {
             let (lat, lon) = g.center();
             let (y, ord) = today();
@@ -363,8 +416,10 @@ impl App {
                 Err(e) => app.status = format!("{} {e}", app.status),
             }
         }
+
         app.fit_to_layer(0);
-        app
+        let task = app.request_osm_tiles();
+        (app, task)
     }
 
     /// Центрирует вид на `idx`-м слое и подбирает масштаб под окно.
@@ -409,7 +464,82 @@ impl App {
         self.status = s;
     }
 
-    fn update(&mut self, m: Message) {
+    /// Запускает загрузку тайлов OSM для текущего вида.
+    /// Возвращает `Task::none()`, если источник не OSM или всё уже в кэше/в очереди.
+    fn request_osm_tiles(&mut self) -> Task<Message> {
+        if !matches!(self.source, MapSource::Osm) {
+            return Task::none();
+        }
+
+        // Мягкий лимит на количество одновременных запросов (OSM просит ≤2 соединений;
+        // берём с запасом, чтобы панорамирование не «зависало» на одной пачке).
+        if self.osm_cache.pending.borrow().len() >= 4 {
+            return Task::none();
+        }
+
+        let sz = self.last_bounds.get();
+        let (z, tiles) = osm::visible_tiles(
+            self.cx,
+            self.cy,
+            self.scale,
+            sz.width as f64,
+            sz.height as f64,
+        );
+        self.osm_z = z;
+
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+        for id in tiles {
+            // уже в памяти или на диске — не трогаем
+            if self.osm_cache.get(id).is_some() {
+                continue;
+            }
+            // уже в очереди — не дублируем
+            if self.osm_cache.pending.borrow().contains(&id) {
+                continue;
+            }
+            // запускаем не больше 2 новых за раз
+            if tasks.len() >= 2 {
+                break;
+            }
+            // вот теперь помечаем pending
+            self.osm_cache.pending.borrow_mut().insert(id);
+
+            let client = self.osm_client.clone();
+            let disk = self.osm_cache.disk_path(id);
+            let url = format!(
+                "https://tile-a.openstreetmap.fr/hot/{}/{}/{}.png",
+                id.0, id.1, id.2
+            );
+            tasks.push(Task::perform(
+                async move {
+                    if let Ok(bytes) = std::fs::read(&disk) {
+                        return (id, Ok(bytes));
+                    }
+                    let res = client.get(&url).send().await;
+                    match res {
+                        Ok(r) if r.status().is_success() => match r.bytes().await {
+                            Ok(b) => {
+                                let v = b.to_vec();
+                                if let Some(parent) = disk.parent() {
+                                    let _ = std::fs::create_dir_all(parent);
+                                }
+                                let _ = std::fs::write(&disk, &v);
+                                (id, Ok(v))
+                            }
+                            Err(e) => (id, Err(e.to_string())),
+                        },
+                        Ok(r) => (id, Err(format!("HTTP {}", r.status()))),
+                        Err(e) => (id, Err(e.to_string())),
+                    }
+                },
+                |(id, result)| Message::OsmTileLoaded(id, result),
+            ));
+        }
+
+        Task::batch(tasks)
+    }
+
+    fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::Layer(i) => {
                 if i < self.layers.len() {
@@ -422,6 +552,10 @@ impl App {
             Message::ToggleGrid => {
                 self.show_grid = !self.show_grid;
                 self.canvas_cache.clear();
+                self.grid_cache.clear();
+            }
+            Message::ToggleLabels => {
+                self.show_labels = !self.show_labels;
                 self.grid_cache.clear();
             }
             Message::CycleFormat => {
@@ -446,6 +580,7 @@ impl App {
                     self.dragging = false;
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
                     self.refresh_status();
                 }
             }
@@ -456,6 +591,7 @@ impl App {
                         self.cy += (p.y - prev.y) as f64 * self.scale;
                         self.canvas_cache.clear();
                         self.grid_cache.clear();
+                        self.osm_canvas_cache.clear();
                     }
                     self.cursor = Some(p);
                 } else {
@@ -482,20 +618,38 @@ impl App {
                 self.cy = my + oy * self.scale;
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
                 self.refresh_status();
-            }
-            Message::ToggleLabels => {
-                self.show_labels = !self.show_labels;
-                self.grid_cache.clear();
             }
             Message::Fit => {
                 let idx = self.active;
                 self.fit_to_layer(idx);
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
                 self.refresh_status();
             }
+            Message::ToggleSource => {
+                self.source = match self.source {
+                    MapSource::Local => MapSource::Osm,
+                    MapSource::Osm => MapSource::Local,
+                };
+                self.canvas_cache.clear();
+                self.osm_canvas_cache.clear();
+                self.refresh_status();
+            }
+            Message::OsmTileLoaded(id, result) => {
+                self.osm_cache.unmark_pending(id);
+                let handle = result
+                    .ok()
+                    .map(|bytes| iced::widget::image::Handle::from_bytes(bytes));
+                self.osm_cache.insert(id, handle);
+                self.osm_canvas_cache.clear();
+            }
         }
+
+        // Для Local — no-op; для Osm — догружает очередную пачку тайлов.
+        self.request_osm_tiles()
     }
 
     fn format_name(&self) -> &'static str {
@@ -521,17 +675,26 @@ impl App {
                 button(text(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" }))
                     .on_press(Message::ToggleGrid),
             )
-            .push(button(text("Fit")).on_press(Message::Fit))
             .push(
                 button(text(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" }))
                     .on_press(Message::ToggleLabels),
             )
+            .push(
+                button(text(match self.source {
+                    MapSource::Local => "Источник: локальная",
+                    MapSource::Osm => "Источник: OSM",
+                }))
+                .on_press(Message::ToggleSource),
+            )
+            .push(button(text("Fit")).on_press(Message::Fit))
             .push(button(text(self.format_name())).on_press(Message::CycleFormat))
             .push(button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)))
             .push(button(text("Скл +0.1°")).on_press(Message::Decl(0.1)))
             .push(button(text("Скл: сброс")).on_press(Message::DeclReset));
 
-        let map: Element<Message> = if self.error.is_some() || self.layers.is_empty() {
+        let map: Element<Message> = if self.error.is_some()
+            && matches!(self.source, MapSource::Local)
+        {
             text(self.error.clone().unwrap_or_else(|| "Нет карты".into())).into()
         } else {
             let map_canvas = Canvas::new(MapProgram { app: self })
@@ -549,9 +712,20 @@ impl App {
                 .into()
         };
 
-        let name = self.layers.get(self.active).map(|l| l.name.as_str()).unwrap_or("-");
+        let name = match self.source {
+            MapSource::Local => self
+                .layers
+                .get(self.active)
+                .map(|l| l.name.clone())
+                .unwrap_or_else(|| "-".into()),
+            MapSource::Osm => {
+                let pending = self.osm_cache.pending.borrow().len();
+                let cached = self.osm_cache.mem.borrow().len();
+                format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
+            }
+        };
         let info = format!(
-            "Склонение: {:.2}° (WMM2025 {:.2}°, поправка {:+.2}°)  |  масштаб: {:.2} м/пикс  |  слой: {}  |  геометрия: {:.1} мс",
+            "Склонение: {:.2}° (WMM2025 {:.2}°, поправка {:+.2}°)  |  масштаб: {:.2} м/пикс  |  источник: {}  |  геометрия: {:.1} мс",
             self.declination + self.decl_offset,
             self.declination,
             self.decl_offset,
@@ -587,143 +761,258 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
     ) -> Vec<Geometry> {
         let app = self.app;
         let started = Instant::now();
+        app.last_bounds.set(bounds.size());
 
-        let geom = app.canvas_cache.draw(renderer, bounds.size(), |frame| {
-            app.last_bounds.set(bounds.size());
-            frame.fill_rectangle(
-                Point::ORIGIN,
-                bounds.size(),
-                Color::from_rgba8(BG[0], BG[1], BG[2], BG[3] as f32 / 255.0),
-            );
+        let geom = match app.source {
+            MapSource::Osm => {
+                // OSM: свой кэш, чтобы приход тайлов не инвалидировал локальную карту.
+                app.osm_canvas_cache.draw(renderer, bounds.size(), |frame| {
+                    frame.fill_rectangle(
+                        Point::ORIGIN,
+                        bounds.size(),
+                        Color::from_rgba8(BG[0], BG[1], BG[2], BG[3] as f32 / 255.0),
+                    );
 
-            if let Some(layer) = app.layers.get(app.active) {
-                let g = &layer.georef;
-                let a = affine(g, app.cx, app.cy);
-                let ppm = (a.ax * a.ax + a.ay * a.ay).sqrt();
-                let r = app.scale * ppm;
+                    let sz = bounds.size();
+                    let (_z, tiles) = osm::visible_tiles(
+                        app.cx,
+                        app.cy,
+                        app.scale,
+                        sz.width as f64,
+                        sz.height as f64,
+                    );
 
-                if r > 1e-12 && !layer.levels.is_empty() {
-                    let mut pick = layer.levels[0];
-                    for &lv in &layer.levels {
-                        if lv.1 * r >= 0.97 {
-                            pick = lv;
+                    for id in tiles {
+                        let rect = osm::tile_screen_rect(
+                            id,
+                            app.cx,
+                            app.cy,
+                            app.scale,
+                            sz.width as f64,
+                            sz.height as f64,
+                        );
+                        if rect.x + rect.width < 0.0
+                            || rect.y + rect.height < 0.0
+                            || rect.x > bounds.width
+                            || rect.y > bounds.height
+                        {
+                            continue;
+                        }
+                        match app.osm_cache.get(id) {
+                            Some(Some(handle)) => {
+                                frame.draw_image(rect, canvas::Image::new(handle));
+                            }
+                            Some(None) => {
+                                // Известная ошибка (404/таймаут) — тёмная плашка.
+                                frame.fill_rectangle(
+                                    Point::new(rect.x, rect.y),
+                                    Size::new(rect.width, rect.height),
+                                    Color::from_rgba8(60, 40, 40, 1.0),
+                                );
+                            }
+                            None => {
+                                // Ещё не загружен — нейтральная плашка.
+                                frame.fill_rectangle(
+                                    Point::new(rect.x, rect.y),
+                                    Size::new(rect.width, rect.height),
+                                    Color::from_rgba8(45, 45, 50, 1.0),
+                                );
+                            }
                         }
                     }
-                    let (lidx, fx, fy) = pick;
 
-                    let (lv_w, lv_h, lv_tx, lv_ty) = {
-                        let ozf_r = layer.ozf.borrow();
-                        let lv = &ozf_r.levels[lidx];
-                        (lv.width, lv.height, lv.tiles_x, lv.tiles_y)
-                    };
+                    // Атрибуция OSM (обязательное требование политики тайл-сервера).
+                                        // Атрибуция OSM (обязательное требование политики тайл-сервера).
+                    let attr_w = 470.0_f32.min(bounds.width);
+                    let attr_h = 20.0_f32;
+                    frame.fill_rectangle(
+                        Point::new(
+                            bounds.width - attr_w - 4.0,
+                            bounds.height - attr_h - 4.0,
+                        ),
+                        Size::new(attr_w, attr_h),
+                        Color::from_rgba8(0, 0, 0, 0.6),
+                    );
+                    frame.fill_text(canvas::Text {
+                        content:
+                            "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team"
+                                .to_string(),
+                        position: Point::new(
+                            bounds.width - 8.0,
+                            bounds.height - attr_h / 2.0 - 4.0,
+                        ),
+                        color: Color::WHITE,
+                        size: iced::Pixels(11.0),
+                        align_x: iced::widget::text::Alignment::Right,
+                        align_y: iced::alignment::Vertical::Center,
+                        ..Default::default()
+                    });
+                    let attr_w = 200.0_f32;
+                    let attr_h = 18.0_f32;
+                    frame.fill_rectangle(
+                        Point::new(
+                            bounds.width - attr_w - 4.0,
+                            bounds.height - attr_h - 4.0,
+                        ),
+                        Size::new(attr_w, attr_h),
+                        Color::from_rgba8(0, 0, 0, 0.6),
+                    );
+                })
+            }
+            MapSource::Local => {
+                // Локальные OZF2 — существующая логика.
+                app.canvas_cache.draw(renderer, bounds.size(), |frame| {
+                    frame.fill_rectangle(
+                        Point::ORIGIN,
+                        bounds.size(),
+                        Color::from_rgba8(BG[0], BG[1], BG[2], BG[3] as f32 / 255.0),
+                    );
 
-                    if lv_w > 0 && lv_h > 0 && lv_tx > 0 && lv_ty > 0 {
-                        let hw_f = bounds.width as f64 / 2.0;
-                        let hh_f = bounds.height as f64 / 2.0;
-                        let det = a.ax * a.by - a.bx * a.ay;
+                    if let Some(layer) = app.layers.get(app.active) {
+                        let g = &layer.georef;
+                        let a = affine(g, app.cx, app.cy);
+                        let ppm = (a.ax * a.ax + a.ay * a.ay).sqrt();
+                        let r = app.scale * ppm;
 
-                        if det.abs() > 1e-20 {
-                            let level_px_at = |sx: f64, sy: f64| -> (f64, f64) {
-                                let dx_m = (sx - hw_f) * app.scale;
-                                let dy_m = -(sy - hh_f) * app.scale;
-                                let px0 = a.x0 + a.ax * dx_m + a.bx * dy_m;
-                                let py0 = a.y0 + a.ay * dx_m + a.by * dy_m;
-                                (px0 * fx, py0 * fy)
+                        if r > 1e-12 && !layer.levels.is_empty() {
+                            let mut pick = layer.levels[0];
+                            for &lv in &layer.levels {
+                                if lv.1 * r >= 0.97 {
+                                    pick = lv;
+                                }
+                            }
+                            let (lidx, fx, fy) = pick;
+
+                            let (lv_w, lv_h, lv_tx, lv_ty) = {
+                                let ozf_r = layer.ozf.borrow();
+                                let lv = &ozf_r.levels[lidx];
+                                (lv.width, lv.height, lv.tiles_x, lv.tiles_y)
                             };
-                            let (px_c0, py_c0) = level_px_at(0.0, 0.0);
-                            let (px_c1, py_c1) =
-                                level_px_at(bounds.width as f64, bounds.height as f64);
 
-                            let px_lo = px_c0.min(px_c1).max(0.0);
-                            let px_hi = px_c0.max(px_c1).min(lv_w as f64);
-                            let py_lo = py_c0.min(py_c1).max(0.0);
-                            let py_hi = py_c0.max(py_c1).min(lv_h as f64);
+                            if lv_w > 0 && lv_h > 0 && lv_tx > 0 && lv_ty > 0 {
+                                let hw_f = bounds.width as f64 / 2.0;
+                                let hh_f = bounds.height as f64 / 2.0;
+                                let det = a.ax * a.by - a.bx * a.ay;
 
-                            if px_hi > px_lo && py_hi > py_lo {
-                                let tile = ozf::TILE as f64;
-                                let tx0 = (px_lo / tile).floor() as u32;
-                                let ty0 = (py_lo / tile).floor() as u32;
-                                let tx1 = (((px_hi / tile).floor() as u32) + 1).min(lv_tx);
-                                let ty1 = (((py_hi / tile).floor() as u32) + 1).min(lv_ty);
-
-                                let inv_scale = 1.0 / app.scale;
-                                let to_screen = |px_l: f64, py_l: f64| -> (f32, f32) {
-                                    let px0 = px_l / fx - a.x0;
-                                    let py0 = py_l / fy - a.y0;
-                                    let dx_m = (a.by * px0 - a.bx * py0) / det;
-                                    let dy_m = (-a.ay * px0 + a.ax * py0) / det;
-                                    (
-                                        (hw_f + dx_m * inv_scale) as f32,
-                                        (hh_f - dy_m * inv_scale) as f32,
-                                    )
-                                };
-
-                                for ty in ty0..ty1 {
-                                    for tx in tx0..tx1 {
-                                        let (sx_tl, sy_tl) =
-                                            to_screen(tx as f64 * tile, ty as f64 * tile);
-                                        let (sx_br, sy_br) = to_screen(
-                                            (tx as f64 + 1.0) * tile,
-                                            (ty as f64 + 1.0) * tile,
-                                        );
-
-                                        let rect = Rectangle {
-                                            x: sx_tl.min(sx_br),
-                                            y: sy_tl.min(sy_br),
-                                            width: (sx_br - sx_tl).abs(),
-                                            height: (sy_br - sy_tl).abs(),
+                                if det.abs() > 1e-20 {
+                                    let level_px_at =
+                                        |sx: f64, sy: f64| -> (f64, f64) {
+                                            let dx_m = (sx - hw_f) * app.scale;
+                                            let dy_m = -(sy - hh_f) * app.scale;
+                                            let px0 = a.x0 + a.ax * dx_m + a.bx * dy_m;
+                                            let py0 = a.y0 + a.ay * dx_m + a.by * dy_m;
+                                            (px0 * fx, py0 * fy)
                                         };
+                                    let (px_c0, py_c0) = level_px_at(0.0, 0.0);
+                                    let (px_c1, py_c1) = level_px_at(
+                                        bounds.width as f64,
+                                        bounds.height as f64,
+                                    );
 
-                                        if rect.width < 0.5 || rect.height < 0.5 {
-                                            continue;
-                                        }
-                                        if rect.x + rect.width < 0.0
-                                            || rect.y + rect.height < 0.0
-                                            || rect.x > bounds.width
-                                            || rect.y > bounds.height
-                                        {
-                                            continue;
-                                        }
+                                    let px_lo = px_c0.min(px_c1).max(0.0);
+                                    let px_hi =
+                                        px_c0.max(px_c1).min(lv_w as f64);
+                                    let py_lo = py_c0.min(py_c1).max(0.0);
+                                    let py_hi =
+                                        py_c0.max(py_c1).min(lv_h as f64);
 
-                                        let key = (app.active, lidx, tx, ty);
-                                        let cached =
-                                            app.tile_handles.borrow().get(&key).cloned();
-                                        let handle_opt = match cached {
-                                            Some(h) => h,
-                                            None => {
-                                                let rgba = layer
-                                                    .ozf
-                                                    .borrow_mut()
-                                                    .tile_rgba(lidx, tx, ty)
-                                                    .ok();
-                                                let h = rgba.map(|r| {
-                                                    ImageHandle::from_rgba(
-                                                        ozf::TILE as u32,
-                                                        ozf::TILE as u32,
-                                                        r,
-                                                    )
-                                                });
-                                                app.tile_handles
-                                                    .borrow_mut()
-                                                    .insert(key, h.clone());
-                                                h
+                                    if px_hi > px_lo && py_hi > py_lo {
+                                        let tile = ozf::TILE as f64;
+                                        let tx0 = (px_lo / tile).floor() as u32;
+                                        let ty0 = (py_lo / tile).floor() as u32;
+                                        let tx1 =
+                                            (((px_hi / tile).floor() as u32) + 1)
+                                                .min(lv_tx);
+                                        let ty1 =
+                                            (((py_hi / tile).floor() as u32) + 1)
+                                                .min(lv_ty);
+
+                                        let inv_scale = 1.0 / app.scale;
+                                        let to_screen =
+                                            |px_l: f64, py_l: f64| -> (f32, f32) {
+                                                let px0 = px_l / fx - a.x0;
+                                                let py0 = py_l / fy - a.y0;
+                                                let dx_m = (a.by * px0 - a.bx * py0) / det;
+                                                let dy_m = (-a.ay * px0 + a.ax * py0) / det;
+                                                (
+                                                    (hw_f + dx_m * inv_scale) as f32,
+                                                    (hh_f - dy_m * inv_scale) as f32,
+                                                )
+                                            };
+
+                                        for ty in ty0..ty1 {
+                                            for tx in tx0..tx1 {
+                                                let (sx_tl, sy_tl) = to_screen(
+                                                    tx as f64 * tile,
+                                                    ty as f64 * tile,
+                                                );
+                                                let (sx_br, sy_br) = to_screen(
+                                                    (tx as f64 + 1.0) * tile,
+                                                    (ty as f64 + 1.0) * tile,
+                                                );
+
+                                                let rect = Rectangle {
+                                                    x: sx_tl.min(sx_br),
+                                                    y: sy_tl.min(sy_br),
+                                                    width: (sx_br - sx_tl).abs(),
+                                                    height: (sy_br - sy_tl).abs(),
+                                                };
+
+                                                if rect.width < 0.5 || rect.height < 0.5 {
+                                                    continue;
+                                                }
+                                                if rect.x + rect.width < 0.0
+                                                    || rect.y + rect.height < 0.0
+                                                    || rect.x > bounds.width
+                                                    || rect.y > bounds.height
+                                                {
+                                                    continue;
+                                                }
+
+                                                let key = (app.active, lidx, tx, ty);
+                                                let cached = app
+                                                    .tile_handles
+                                                    .borrow()
+                                                    .get(&key)
+                                                    .cloned();
+                                                let handle_opt = match cached {
+                                                    Some(h) => h,
+                                                    None => {
+                                                        let rgba = layer
+                                                            .ozf
+                                                            .borrow_mut()
+                                                            .tile_rgba(lidx, tx, ty)
+                                                            .ok();
+                                                        let h = rgba.map(|r| {
+                                                            ImageHandle::from_rgba(
+                                                                ozf::TILE as u32,
+                                                                ozf::TILE as u32,
+                                                                r,
+                                                            )
+                                                        });
+                                                        app.tile_handles
+                                                            .borrow_mut()
+                                                            .insert(key, h.clone());
+                                                        h
+                                                    }
+                                                };
+
+                                                if let Some(handle) = handle_opt {
+                                                    frame.draw_image(
+                                                        rect,
+                                                        canvas::Image::new(handle),
+                                                    );
+                                                }
                                             }
-                                        };
-
-                                        if let Some(handle) = handle_opt {
-                                            frame.draw_image(
-                                                rect,
-                                                canvas::Image::new(handle),
-                                            );
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
+                })
             }
-        });
+        };
 
         app.last_geom_ms
             .set(started.elapsed().as_secs_f64() * 1000.0);

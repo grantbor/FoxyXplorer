@@ -8,6 +8,8 @@ coord = { version = "0.1.0", path = "../coord" }
 declination = { version = "0.1.0", path = "../declination" }
 geoio = { version = "0.1.0", path = "../geoio" }
 grid = { version = "0.1.0", path = "../grid" }
-iced = { version = "0.14", features = ["canvas", "image", "wgpu", "tiny-skia"] }
+iced = { version = "0.14", features = ["canvas", "image", "wgpu", "tiny-skia", "tokio"] }
 ozf = { version = "0.1.0", path = "../ozf" }
 ozmap = { version = "0.1.0", path = "../ozmap" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+dirs = "5"
