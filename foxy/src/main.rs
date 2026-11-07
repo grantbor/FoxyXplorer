@@ -18,6 +18,8 @@ use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
 };
 
+use iced::keyboard::{self, Modifiers};
+use iced::Subscription;
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
@@ -339,6 +341,9 @@ enum Message {
     ToggleAllWaypointsVisible,
     DeleteSelectedWaypoints,
     SaveSelectedWaypoints,
+    ModifiersChanged(Modifiers),
+    SearchTracksChanged(String),
+    SearchWaypointsChanged(String),
 }
 
 struct App {
@@ -371,6 +376,11 @@ struct App {
     next_id: u64,
     tracks_cache: Cache,
     selection: Selection,
+    modifiers: Modifiers,
+    last_track_clicked: Option<u64>,
+    last_waypoint_clicked: Option<u64>,
+    search_tracks: String,
+    search_waypoints: String,
 }
 
 fn foxy_config_dir() -> PathBuf {
@@ -457,6 +467,11 @@ impl App {
             next_id: 0,
             tracks_cache: Cache::default(),
             selection: Selection::default(),
+            modifiers: Modifiers::default(),
+            last_track_clicked: None,
+            last_waypoint_clicked: None,
+            search_tracks: String::new(),
+            search_waypoints: String::new(),
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -576,6 +591,16 @@ impl App {
             }
         }
     }
+    
+    fn subscription(&self) -> Subscription<Message> {
+        iced::event::listen_with(|event, _status, _id| {
+            if let iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
+                Some(Message::ModifiersChanged(modifiers))
+            } else {
+                None
+            }
+        })
+    }    
 
     fn request_osm_tiles(&mut self) -> Task<Message> {
         if !self.osm_active() {
@@ -800,16 +825,83 @@ impl App {
                     self.tracks_cache.clear();
                 }
             }
-            Message::SelectTrack(id) => {
-                self.selection.tracks.clear();
-                self.selection.tracks.insert(id);
-            }
             Message::ToggleAllTracksVisible => {
                 let all_visible = self.tracks.iter().all(|t| t.visible);
                 for t in &mut self.tracks {
                     t.visible = !all_visible;
                 }
                 self.tracks_cache.clear();
+            }
+            Message::ModifiersChanged(mods) => {
+                self.modifiers = mods;
+            }
+            Message::SearchTracksChanged(q) => {
+                self.search_tracks = q;
+                self.tracks_cache.clear(); // если бы поиск влиял на отрисовку карты (пока нет)
+            }
+            Message::SearchWaypointsChanged(q) => {
+                self.search_waypoints = q;
+                self.tracks_cache.clear();
+            }
+            
+            Message::SelectTrack(id) => {
+                let ctrl = self.modifiers.control() || self.modifiers.command();
+                let shift = self.modifiers.shift();
+
+                if shift {
+                    if let Some(last_id) = self.last_track_clicked {
+                        if let (Some(start), Some(end)) = (
+                            self.tracks.iter().position(|t| t.id == last_id),
+                            self.tracks.iter().position(|t| t.id == id),
+                        ) {
+                            let (min, max) = if start < end { (start, end) } else { (end, start) };
+                            for i in min..=max {
+                                self.selection.tracks.insert(self.tracks[i].id);
+                            }
+                        }
+                    } else {
+                        self.selection.tracks.insert(id);
+                    }
+                } else if ctrl {
+                    if !self.selection.tracks.remove(&id) {
+                        self.selection.tracks.insert(id);
+                    }
+                    self.last_track_clicked = Some(id);
+                } else {
+                    self.selection.tracks.clear();
+                    self.selection.tracks.insert(id);
+                    self.last_track_clicked = Some(id);
+                }
+            }
+            // Аналогично для SelectWaypoint:
+            Message::SelectWaypoint(id) => {
+                let ctrl = self.modifiers.control() || self.modifiers.command();
+                let shift = self.modifiers.shift();
+
+                if shift {
+                    if let Some(last_id) = self.last_waypoint_clicked {
+                        if let (Some(start), Some(end)) = (
+                            self.waypoints.iter().position(|w| w.id == last_id),
+                            self.waypoints.iter().position(|w| w.id == id),
+                        ) {
+                            let (min, max) = if start < end { (start, end) } else { (end, start) };
+                            for i in min..=max {
+                                self.selection.waypoints.insert(self.waypoints[i].id);
+                            }
+                        }
+                    } else {
+                        self.selection.waypoints.insert(id);
+                    }
+                } else if ctrl {
+                    if !self.selection.waypoints.remove(&id) {
+                        self.selection.waypoints.insert(id);
+                    }
+                    self.last_waypoint_clicked = Some(id);
+                } else {
+                    self.selection.waypoints.clear();
+                    self.selection.waypoints.insert(id);
+                    self.last_waypoint_clicked = Some(id);
+                }
             }
             Message::DeleteSelectedTracks => {
                 let ids = self.selection.tracks.clone();
@@ -825,10 +917,6 @@ impl App {
                     w.visible = v;
                     self.tracks_cache.clear();
                 }
-            }
-            Message::SelectWaypoint(id) => {
-                self.selection.waypoints.clear();
-                self.selection.waypoints.insert(id);
             }
             Message::ToggleAllWaypointsVisible => {
                 let all_visible = self.waypoints.iter().all(|w| w.visible);
@@ -1004,16 +1092,23 @@ impl App {
     fn view_tracks_section(&self) -> Element<'_, Message> {
         let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
 
-        let all_visible = self.tracks.iter().all(|t| t.visible);
         let top_bar = row![
-            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
-                .on_press(Message::ToggleAllTracksVisible),
+            // Иконка "Скрыть/Показать все"
+            button(text("👁"))
+                .on_press(Message::ToggleAllTracksVisible)
+                .padding([2, 8]),
+            // Поисковая строка
+            iced::widget::text_input("Поиск треков...", &self.search_tracks)
+                .on_input(Message::SearchTracksChanged)
+                .padding(4)
+                .size(12),
         ]
-        .spacing(2);
+        .spacing(4);
 
         let cols = row![
-            iced::widget::Space::new().width(24.0),
-            iced::widget::Space::new().width(16.0),
+            Space::new().width(16.0), // под индикатор выделения
+            Space::new().width(24.0), // под чекбокс
+            Space::new().width(16.0), // под цвет
             container(text("Имя").size(11)).width(Length::Fill),
             container(text("Точек").size(11))
                 .width(Length::Fixed(50.0))
@@ -1024,9 +1119,22 @@ impl App {
         ]
         .spacing(4);
 
+        let query = self.search_tracks.to_lowercase();
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
+        
         for t in &self.tracks {
+            // Фильтрация по поиску
+            if !query.is_empty() && !t.name.to_lowercase().contains(&query) {
+                continue;
+            }
+
             let selected = self.selection.tracks.contains(&t.id);
+            
+            // Индикатор выделения (занимает фиксированное место, текст не прыгает)
+            let sel_dot = container(
+                text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)
+            ).width(16);
+
             let color_box = container(text(""))
                 .width(12)
                 .height(12)
@@ -1048,19 +1156,15 @@ impl App {
                 format!("{:.0}м", t.cached_distance_m)
             };
 
-            let name_text = if selected {
-                format!("● {}", t.name)
-            } else {
-                t.name.clone()
-            };
-
             let r = row![
+                sel_dot, // <- новый фиксированный индикатор
                 checkbox(t.visible)
                     .on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
                 color_box,
-                button(text(name_text))
+                button(text(t.name.clone()))
                     .on_press(Message::SelectTrack(t.id))
-                    .width(Length::Fill),
+                    .width(Length::Fill)
+                    .padding(0), // убираем внутренние отступы кнопки
                 container(text(t.cached_points.to_string()).size(12))
                     .width(Length::Fixed(50.0))
                     .align_x(Alignment::End),
@@ -1070,41 +1174,47 @@ impl App {
             ]
             .spacing(4)
             .align_y(Alignment::Center);
+            
             list = list.push(r);
         }
 
+        // ... (bottom_bar остается как было) ...
         let bottom_bar = row![
             button(text("🗑")).on_press(Message::DeleteSelectedTracks),
             button(text("💾")).on_press(Message::SaveSelectedTracks),
         ]
         .spacing(2);
-
         column![
             header,
             container(top_bar).padding(2),
             container(cols).padding(2),
-            container(scrollable(list).height(Length::FillPortion(1))).padding(2), // ← FillPortion(1)
+            container(scrollable(list).height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
         ]
         .spacing(4)
         .width(Length::Fill)
-        .height(Length::FillPortion(1)) // ← сама колонка тоже занимает долю
+        .height(Length::FillPortion(1))
         .into()
     }
 
     fn view_waypoints_section(&self) -> Element<'_, Message> {
         let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
 
-         let all_visible = self.waypoints.iter().all(|w| w.visible);
         let top_bar = row![
-            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
-                .on_press(Message::ToggleAllWaypointsVisible),
+            button(text("👁"))
+                .on_press(Message::ToggleAllWaypointsVisible)
+                .padding([2, 8]),
+            iced::widget::text_input("Поиск точек...", &self.search_waypoints)
+                .on_input(Message::SearchWaypointsChanged)
+                .padding(4)
+                .size(12),
         ]
-        .spacing(2);
+        .spacing(4);
 
         let cols = row![
-            iced::widget::Space::new().width(24.0),
-            iced::widget::Space::new().width(14.0),
+            Space::new().width(16.0),
+            Space::new().width(24.0),
+            Space::new().width(14.0), // под иконку точки
             container(text("Имя").size(11)).width(Length::Fill),
             container(text("Координаты").size(11))
                 .width(Length::Fixed(120.0))
@@ -1112,54 +1222,62 @@ impl App {
         ]
         .spacing(4);
 
+        let query = self.search_waypoints.to_lowercase();
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
+
         for w in &self.waypoints {
+            if !query.is_empty() && !w.name.to_lowercase().contains(&query) {
+                continue;
+            }
+
             let selected = self.selection.waypoints.contains(&w.id);
+            let sel_dot = container(
+                text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)
+            ).width(16);
+
             let icon = container(
                 text("●")
                     .size(11)
                     .color(Color::from_rgb8(255, 200, 0)),
-            )
-            .width(14);
+            ).width(14);
+            
             let coord = coord::format_pair(w.lat, w.lon, self.format);
-            let name_text = if selected {
-                format!("● {}", w.name)
-            } else {
-                w.name.clone()
-            };
 
             let r = row![
+                sel_dot,
                 checkbox(w.visible)
                     .on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
                 icon,
-                button(text(name_text))
+                button(text(w.name.clone()))
                     .on_press(Message::SelectWaypoint(w.id))
-                    .width(Length::Fill),
+                    .width(Length::Fill)
+                    .padding(0),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE))
                     .width(Length::Fixed(120.0))
                     .align_x(Alignment::End),
             ]
             .spacing(4)
             .align_y(Alignment::Center);
+            
             list = list.push(r);
         }
 
-        let bottom_bar = row![
+        // ... (bottom_bar) ...
+         let bottom_bar = row![
             button(text("🗑")).on_press(Message::DeleteSelectedWaypoints),
             button(text("💾")).on_press(Message::SaveSelectedWaypoints),
         ]
-        .spacing(2);
-
+        .spacing(2);   
         column![
             header,
             container(top_bar).padding(2),
             container(cols).padding(2),
-            container(scrollable(list).height(Length::FillPortion(1))).padding(2), // ← FillPortion(1)
+            container(scrollable(list).height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
         ]
         .spacing(4)
         .width(Length::Fill)
-        .height(Length::FillPortion(1)) // ← сама колонка тоже занимает долю
+        .height(Length::FillPortion(1))
         .into()
     }
 }
@@ -1697,5 +1815,6 @@ fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title("FoxyXplorer")
         .window_size(Size::new(1130.0, 880.0))
+        .subscription(App::subscription) // <-- должно быть здесь
         .run()
 }
