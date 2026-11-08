@@ -400,6 +400,9 @@ enum Message {
     ApplyTrackProps, 
     ToggleColorPicker,
     ColorChannelChanged(usize, u8), // 0 = R, 1 = G, 2 = B
+    WindowResized(Size),
+    WindowMoved(Point),
+    None,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -412,6 +415,8 @@ struct SessionView {
     show_labels: bool,
     format_str: String, // "Decimal", "DegMin", "DegMinSec"
     decl_offset: f64,
+    window_size: Option<(f32, f32)>,
+    window_pos: Option<(f32, f32)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -496,6 +501,9 @@ fn save_session(app: &App) {
             show_labels: app.show_labels,
             format_str,
             decl_offset: app.decl_offset,
+            // ДОБАВЛЕНЫ ЭТИ ДВЕ СТРОКИ:
+            window_size: Some((app.window_size.width, app.window_size.height)),
+            window_pos: Some((app.window_pos.x, app.window_pos.y)),
         },
         tracks: app.tracks.clone(),
         waypoints: app.waypoints.clone(),
@@ -508,12 +516,9 @@ fn save_session(app: &App) {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            match std::fs::write(&path, json) {
-                Ok(_) => eprintln!("DEBUG: Сессия успешно сохранена в {:?}", path),
-                Err(e) => eprintln!("DEBUG: Ошибка записи файла сессии: {}", e),
-            }
+            let _ = std::fs::write(&path, json);
         }
-        Err(e) => eprintln!("DEBUG: Ошибка сериализации сессии: {}", e),
+        Err(_) => {}
     }
 }
 
@@ -569,6 +574,8 @@ struct App {
     track_backup: Option<document::Track>, 
     last_track_click: Option<(u64, std::time::Instant)>,
     show_color_picker: bool,
+    window_size: Size,
+    window_pos: Point,
 }
 enum Modal {
     TrackProps { track_id: u64, draft: document::TrackProps },
@@ -679,6 +686,12 @@ impl App {
                     track_backup: None,
                     last_track_click: None, 
                     show_color_picker: false,
+                    window_size: session.view.window_size
+                        .map(|(w, h)| Size::new(w, h))
+                        .unwrap_or(Size::new(1130.0, 880.0)),
+                    window_pos: session.view.window_pos
+                        .map(|(x, y)| Point::new(x, y))
+                        .unwrap_or(Point::new(100.0, 100.0)),
                 };
 
                 // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
@@ -761,6 +774,8 @@ impl App {
             track_backup: None,
             last_track_click: None,
             show_color_picker: false,
+            window_size: Size::new(1130.0, 880.0),
+            window_pos: Point::new(100.0, 100.0),
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -896,7 +911,7 @@ impl App {
     
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
-            // Отслеживаем зажатие Ctrl / Shift
+            // 1. Отслеживаем зажатие клавиш Ctrl / Shift
             iced::event::listen_with(|event, _status, _id| {
                 if let iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) = event {
                     Some(Message::ModifiersChanged(modifiers))
@@ -904,8 +919,18 @@ impl App {
                     None
                 }
             }),
-            // Отслеживаем закрытие окна (правильный способ в iced 0.14)
+            
+            // 2. Отслеживаем запрос на закрытие окна (для сохранения сессии)
             iced::window::close_requests().map(|_| Message::WindowCloseRequested),
+            
+            // 3. Отслеживаем изменение размера и позиции окна
+            iced::window::events().map(|(_id, event)| {
+                match event {
+                    iced::window::Event::Resized(size) => Message::WindowResized(size),
+                    iced::window::Event::Moved(pos) => Message::WindowMoved(pos),
+                    _ => Message::None, // Заглушка для остальных событий
+                }
+            }),
         ])
     }
 
@@ -1585,6 +1610,13 @@ impl App {
                 }
             }            
             Message::SaveTrackPropsPicked(None) => {}
+            Message::WindowResized(size) => {
+                self.window_size = size;
+            }
+            Message::WindowMoved(pos) => {
+                self.window_pos = pos;
+            }
+            Message::None => {}
         }
         
 
@@ -2820,10 +2852,29 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
 }
 
 fn main() -> iced::Result {
+    // Читаем сессию заранее, чтобы применить размер и позицию окна
+    let session = load_session(); 
+    
+    let mut window_settings = iced::window::Settings {
+        size: Size::new(1130.0, 880.0), // Дефолт
+        min_size: Some(Size::new(640.0, 480.0)),
+        exit_on_close_request: false, // Обязательно! (чтобы ловить закрытие)
+        ..Default::default()
+    };
+
+    if let Some(s) = &session {
+        if let Some((w, h)) = s.view.window_size {
+            window_settings.size = Size::new(w, h);
+        }
+        if let Some((x, y)) = s.view.window_pos {
+            window_settings.position = iced::window::Position::Specific(Point::new(x, y));
+        }
+    }
+
     iced::application(App::new, App::update, App::view)
         .title("FoxyXplorer")
-        .window_size(Size::new(1130.0, 880.0))
+        .window(window_settings) // <--- Применяем настройки окна
         .subscription(App::subscription)
-        .exit_on_close_request(false) 
+        // .exit_on_close_request(false) // Можно убрать отсюда, если передали в Settings
         .run()
 }
