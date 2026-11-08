@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use iced::widget::{
     button, checkbox, column, container, mouse_area, pick_list, row, scrollable, stack, text,
-    text_input, slider, Space,
+    text_input, Space,
 };
 use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
@@ -356,13 +356,21 @@ enum Message {
     SelectTrack(u64),
     ToggleAllTracksVisible,
     DeleteSelectedTracks,
-    SaveSelectedTracks,
+    SaveTracksPlt,
+    SaveTracksPltPicked(Option<PathBuf>),
+    SaveTracksGpx,
+    SaveTracksGpxPicked(Option<PathBuf>),
+    SaveTracksMs,
+    SaveTracksMsPicked(Option<PathBuf>),
 
     ToggleWaypointVisible(u64, bool),
     SelectWaypoint(u64),
+    SaveWaypointsWptNew,
+    SaveWaypointsWptNewPicked(Option<PathBuf>),
+    SaveWaypointsWptAppend,
+    SaveWaypointsWptAppendPicked(Option<PathBuf>),
     ToggleAllWaypointsVisible,
     DeleteSelectedWaypoints,
-    SaveSelectedWaypoints,
     ModifiersChanged(Modifiers),
     SearchTracksChanged(String),
     SearchWaypointsChanged(String),
@@ -454,6 +462,19 @@ fn load_palette() -> Vec<[u8; 3]> {
     let _ = std::fs::write(&path, serde_json::to_string_pretty(&default).unwrap_or_default());
 
     default
+}
+
+fn get_extended_palette() -> Vec<[u8; 3]> {
+    let mut colors = Vec::new();
+    // Градации серого и базовые
+    colors.extend_from_slice(&[[0,0,0], [85,85,85], [170,170,170], [255,255,255]]);
+    // Основные цвета (6 градаций яркости)
+    for &(r, g, b) in &[(255,0,0), (0,255,0), (0,0,255), (255,255,0), (0,255,255), (255,0,255), (128,0,0), (0,128,0), (0,0,128), (128,128,0), (0,128,128), (128,0,128)] {
+        colors.push([r, g, b]);
+        colors.push([r/2, g/2, b/2]);
+        colors.push([(r as u16 * 3 / 4) as u8, (g as u16 * 3 / 4) as u8, (b as u16 * 3 / 4) as u8]);
+    }
+    colors
 }
 
 fn save_session(app: &App) {
@@ -1073,7 +1094,7 @@ impl App {
                 self.osm_cache.insert(id, handle);
                 self.osm_canvas_cache.clear();
             }
-                        Message::PickTrack => {
+            Message::PickTrack => {
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
@@ -1168,10 +1189,12 @@ impl App {
                             self.selection.tracks.insert(id);
                         }
                     } else {
+                        // ОБЫЧНЫЙ КЛИК: сбрасываем ВСЁ и выбираем только этот трек
                         self.selection.tracks.clear();
+                        self.selection.waypoints.clear(); // <--- Вот эта строка должна быть здесь
                         self.selection.tracks.insert(id);
                     }
-                    self.last_track_clicked = Some(id); // Важно для работы Shift+Клик
+                    self.last_track_clicked = Some(id);
                 }
             }
             // Аналогично для SelectWaypoint:
@@ -1197,22 +1220,83 @@ impl App {
                     if !self.selection.waypoints.remove(&id) {
                         self.selection.waypoints.insert(id);
                     }
-                    self.last_waypoint_clicked = Some(id);
                 } else {
+                    // ОБЫЧНЫЙ КЛИК: сбрасываем ВСЁ и выбираем только эту точку
                     self.selection.waypoints.clear();
+                    self.selection.tracks.clear(); // <--- Вот эта строка должна быть здесь
                     self.selection.waypoints.insert(id);
-                    self.last_waypoint_clicked = Some(id);
                 }
+                self.last_waypoint_clicked = Some(id);
             }
             Message::DeleteSelectedTracks => {
                 let ids = self.selection.tracks.clone();
                 self.tracks.retain(|t| !ids.contains(&t.id));
                 self.selection.tracks.clear();
+                self.selection.waypoints.clear();
                 self.tracks_cache.clear();
             }
-            Message::SaveSelectedTracks => {
-                self.status = "Сохранение треков: следующий шаг".into();
+            Message::SaveTracksPlt => {
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .set_file_name("track.plt")
+                    .add_filter("OziExplorer Track", &["plt"]);
+                if let Some(kit) = &self.last_kit {
+                    let dir = kit.join("10-Tracks");
+                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
+                }
+                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksPltPicked);
             }
+            Message::SaveTracksPltPicked(Some(path)) => {
+                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                if let Err(e) = document::save_any(&sel_tracks, &sel_wps, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Сохранено в {}", path.display());
+                }
+            }
+            Message::SaveTracksPltPicked(None) => {}
+
+            Message::SaveTracksGpx => {
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .set_file_name("tracks.gpx")
+                    .add_filter("GPX", &["gpx"]);
+                if let Some(kit) = &self.last_kit {
+                    let dir = kit.join("10-Tracks");
+                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
+                }
+                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksGpxPicked);
+            }
+            Message::SaveTracksGpxPicked(Some(path)) => {
+                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                if let Err(e) = document::save_any(&sel_tracks, &sel_wps, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Сохранено в {}", path.display());
+                }
+            }
+            Message::SaveTracksGpxPicked(None) => {}
+
+            Message::SaveTracksMs => {
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .set_file_name("tracks.ms")
+                    .add_filter("Guru Maps", &["ms"]);
+                if let Some(kit) = &self.last_kit {
+                    let dir = kit.join("10-Tracks");
+                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
+                }
+                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksMsPicked);
+            }
+            Message::SaveTracksMsPicked(Some(path)) => {
+                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                if let Err(e) = document::save_any(&sel_tracks, &sel_wps, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Сохранено в {}", path.display());
+                }
+            }
+            Message::SaveTracksMsPicked(None) => {}
             Message::ToggleWaypointVisible(id, v) => {
                 if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
                     w.visible = v;
@@ -1230,11 +1314,66 @@ impl App {
                 let ids = self.selection.waypoints.clone();
                 self.waypoints.retain(|w| !ids.contains(&w.id));
                 self.selection.waypoints.clear();
+                self.selection.tracks.clear();
                 self.tracks_cache.clear();
             }
-            Message::SaveSelectedWaypoints => {
-                self.status = "Сохранение точек: следующий шаг".into();
+            Message::SaveWaypointsWptNew => {
+                // Формируем имя: Waypoints_YYYYMMDD.wpt
+                let date_str = date_offset(0).replace("-", "");
+                let default_name = format!("Waypoints_{}.wpt", date_str);
+
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .set_file_name(&default_name) // Используем сформированное имя
+                    .add_filter("OziExplorer Waypoints", &["wpt"]);
+                if let Some(kit) = &self.last_kit {
+                    let dir = kit.join("10-Tracks");
+                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
+                }
+                return Task::perform(
+                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, 
+                    Message::SaveWaypointsWptNewPicked
+                );
             }
+            Message::SaveWaypointsWptNewPicked(Some(path)) => {
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                if let Err(e) = document::save_any(&[], &sel_wps, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Сохранено в {}", path.display());
+                }
+            }
+            Message::SaveWaypointsWptNewPicked(None) => {}
+
+            Message::SaveWaypointsWptAppend => {
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .add_filter("OziExplorer Waypoints", &["wpt"]);
+                if let Some(kit) = &self.last_kit {
+                    let dir = kit.join("10-Tracks");
+                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
+                }
+                return Task::perform(async move { dialog.pick_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveWaypointsWptAppendPicked);
+            }
+            Message::SaveWaypointsWptAppendPicked(Some(path)) => {
+                let mut all_wps = Vec::new();
+                // 1. Читаем то, что уже есть в файле (используем наш же загрузчик)
+                if let Ok(content) = document::load_user_file(&path, &mut self.next_id) {
+                    all_wps.extend(content.waypoints);
+                }
+                // 2. Добавляем выделенные точки
+                for w in &self.waypoints {
+                    if self.selection.waypoints.contains(&w.id) {
+                        all_wps.push(w.clone());
+                    }
+                }
+                // 3. Сохраняем обратно
+                let refs: Vec<_> = all_wps.iter().collect();
+                if let Err(e) = document::save_any(&[], &refs, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Добавлено в {}", path.display());
+                }
+            }
+            Message::SaveWaypointsWptAppendPicked(None) => {}
             Message::WindowCloseRequested => {
                 eprintln!("DEBUG: Получено событие закрытия окна");
                 save_session(self);
@@ -1370,6 +1509,7 @@ impl App {
                     }
                     tid = Some(*track_id);
                 }
+                self.show_color_picker = false;
                 if let Some(id) = tid { self.update_track_preview(id); }
             }
             Message::ToggleColorPicker => {
@@ -1628,12 +1768,10 @@ impl App {
     fn view_tracks_section(&self) -> Element<'_, Message> {
         let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
 
+        let all_visible = self.tracks.iter().all(|t| t.visible);
         let top_bar = row![
-            // Иконка "Скрыть/Показать все"
-            button(text("👁"))
-                .on_press(Message::ToggleAllTracksVisible)
-                .padding([2, 8]),
-            // Поисковая строка
+            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
+                .on_press(Message::ToggleAllTracksVisible),
             iced::widget::text_input("Поиск треков...", &self.search_tracks)
                 .on_input(Message::SearchTracksChanged)
                 .padding(4)
@@ -1642,9 +1780,9 @@ impl App {
         .spacing(4);
 
         let cols = row![
-            Space::new().width(16.0), // под индикатор выделения
-            Space::new().width(24.0), // под чекбокс
-            Space::new().width(16.0), // под цвет
+            Space::new().width(16.0),
+            Space::new().width(24.0),
+            Space::new().width(16.0),
             container(text("Имя").size(11)).width(Length::Fill),
             container(text("Точек").size(11))
                 .width(Length::Fixed(50.0))
@@ -1659,14 +1797,12 @@ impl App {
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
         
         for t in &self.tracks {
-            // Фильтрация по поиску
             if !query.is_empty() && !t.name.to_lowercase().contains(&query) {
                 continue;
             }
 
             let selected = self.selection.tracks.contains(&t.id);
             
-            // Индикатор выделения (занимает фиксированное место, текст не прыгает)
             let sel_dot = container(
                 text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)
             ).width(16);
@@ -1692,15 +1828,27 @@ impl App {
                 format!("{:.0}м", t.cached_distance_m)
             };
 
+            let name_text = if selected {
+                format!("● {}", t.name)
+            } else {
+                t.name.clone()
+            };
+
             let r = row![
-                sel_dot, // <- новый фиксированный индикатор
+                sel_dot,
                 checkbox(t.visible)
                     .on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
                 color_box,
-                button(text(t.name.clone()))
+                container(
+                    button(
+                        text(name_text).wrapping(iced::widget::text::Wrapping::None)
+                    )
                     .on_press(Message::SelectTrack(t.id))
                     .width(Length::Fill)
-                    .padding(0), // убираем внутренние отступы кнопки
+                    .padding(0)
+                )
+                .width(Length::Fill)
+                .clip(true),
                 container(text(t.cached_points.to_string()).size(12))
                     .width(Length::Fixed(50.0))
                     .align_x(Alignment::End),
@@ -1714,22 +1862,51 @@ impl App {
             list = list.push(r);
         }
 
-        // ... (bottom_bar остается как было) ...
-        let selected_one = self.selection.tracks.len() == 1;
+        let has_tracks = !self.selection.tracks.is_empty();
+        let has_wps = !self.selection.waypoints.is_empty();
+        let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
 
-        let props_btn = if selected_one {
-            button(text("⚙ Свойства")).on_press(Message::OpenTrackProps(selected_id.unwrap()))
+        let btn_props = if one_track {
+            button(text("⚙")).on_press(Message::OpenTrackProps(selected_id.unwrap()))
         } else {
-            button(text("⚙ Свойства")) // неактивна (серая)
+            button(text("⚙"))
+        };
+
+        let btn_del = if has_tracks {
+            button(text("🗑")).on_press(Message::DeleteSelectedTracks)
+        } else {
+            button(text("🗑"))
+        };
+
+        let btn_plt = if has_tracks && !has_wps {
+            button(text("PLT")).on_press(Message::SaveTracksPlt)
+        } else {
+            button(text("PLT"))
+        };
+
+        let btn_gpx = if has_tracks || has_wps {
+            button(text("GPX")).on_press(Message::SaveTracksGpx)
+        } else {
+            button(text("GPX"))
+        };
+
+        let btn_ms = if has_tracks || has_wps {
+            button(text("MS")).on_press(Message::SaveTracksMs)
+        } else {
+            button(text("MS"))
         };
 
         let bottom_bar = row![
-            props_btn,
-            button(text("🗑")).on_press(Message::DeleteSelectedTracks),
-            button(text("💾")).on_press(Message::SaveSelectedTracks),
+            btn_props,
+            btn_del,
+            btn_plt,
+            btn_gpx,
+            btn_ms,
         ]
-        .spacing(4);
+        .spacing(4)
+        .align_y(Alignment::Center);
+
         column![
             header,
             container(top_bar).padding(2),
@@ -1746,10 +1923,10 @@ impl App {
     fn view_waypoints_section(&self) -> Element<'_, Message> {
         let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
 
+        let all_visible = self.waypoints.iter().all(|w| w.visible);
         let top_bar = row![
-            button(text("👁"))
-                .on_press(Message::ToggleAllWaypointsVisible)
-                .padding([2, 8]),
+            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
+                .on_press(Message::ToggleAllWaypointsVisible),
             iced::widget::text_input("Поиск точек...", &self.search_waypoints)
                 .on_input(Message::SearchWaypointsChanged)
                 .padding(4)
@@ -1760,7 +1937,7 @@ impl App {
         let cols = row![
             Space::new().width(16.0),
             Space::new().width(24.0),
-            Space::new().width(14.0), // под иконку точки
+            Space::new().width(14.0),
             container(text("Имя").size(11)).width(Length::Fill),
             container(text("Координаты").size(11))
                 .width(Length::Fixed(120.0))
@@ -1794,10 +1971,16 @@ impl App {
                 checkbox(w.visible)
                     .on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
                 icon,
-                button(text(w.name.clone()))
+                container(
+                    button(
+                        text(w.name.clone()).wrapping(iced::widget::text::Wrapping::None)
+                    )
                     .on_press(Message::SelectWaypoint(w.id))
                     .width(Length::Fill)
-                    .padding(0),
+                    .padding(0)
+                )
+                .width(Length::Fill)
+                .clip(true),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE))
                     .width(Length::Fixed(120.0))
                     .align_x(Alignment::End),
@@ -1808,12 +1991,56 @@ impl App {
             list = list.push(r);
         }
 
-        // ... (bottom_bar) ...
-         let bottom_bar = row![
-            button(text("🗑")).on_press(Message::DeleteSelectedWaypoints),
-            button(text("💾")).on_press(Message::SaveSelectedWaypoints),
+        let has_wps = !self.selection.waypoints.is_empty();
+        let has_tracks = !self.selection.tracks.is_empty();
+
+        let btn_props = button(text("⚙"));
+
+        let btn_del = if has_wps {
+            button(text("🗑")).on_press(Message::DeleteSelectedWaypoints)
+        } else {
+            button(text("🗑"))
+        };
+
+        let wpt_enabled = has_wps && !has_tracks;
+
+        let btn_wpt_new = if wpt_enabled {
+            button(text("WPT")).on_press(Message::SaveWaypointsWptNew)
+        } else {
+            button(text("WPT"))
+        };
+
+        let btn_wpt_append = if wpt_enabled {
+            button(text("WPT+")).on_press(Message::SaveWaypointsWptAppend)
+        } else {
+            button(text("WPT+"))
+        };
+
+        let mixed_enabled = has_wps || has_tracks;
+
+        let btn_gpx = if mixed_enabled {
+            button(text("GPX")).on_press(Message::SaveTracksGpx)
+        } else {
+            button(text("GPX"))
+        };
+
+        let btn_ms = if mixed_enabled {
+            button(text("MS")).on_press(Message::SaveTracksMs)
+        } else {
+            button(text("MS"))
+        };
+
+        let bottom_bar = row![
+            btn_props,
+            btn_del,
+            btn_wpt_new,
+            btn_wpt_append,
+            btn_gpx,
+            btn_ms,
         ]
-        .spacing(2);   
+        .spacing(4)
+        .align_y(Alignment::Center);
+
         column![
             header,
             container(top_bar).padding(2),
@@ -1908,6 +2135,34 @@ impl App {
         } else {
             column![].into()
         };
+        // Блок пикера цветов
+        let color_picker_ui: Element<'a, Message> = if self.show_color_picker {
+            let ext_palette = get_extended_palette();
+            let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
+            
+            // Разбиваем по 8 цветов в ряд
+            for chunk in ext_palette.chunks(8) {
+                let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
+                for &c in chunk {
+                    row_btns.push(
+                        button(text("")).width(24).height(24)
+                            .style(move |_: &Theme, _| button::Style {
+                                background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
+                                border: iced::Border { color: Color::from_rgb(0.3, 0.3, 0.3), width: 1.0, radius: 2.0.into() },
+                                ..Default::default()
+                            })
+                            .on_press(Message::DraftColorChanged(c))
+                            .into()
+                    );
+                }
+                grid_rows.push(row(row_btns).spacing(2).into());
+            }
+            
+            let grid_ui = column(grid_rows).spacing(2);
+            container(grid_ui).padding([0, 120]).into()
+        } else {
+            column![].into()
+        };
         let content = column![
             text("Свойства трека").size(20).color(Color::WHITE),
             
@@ -1935,32 +2190,10 @@ impl App {
             ].align_y(Alignment::Center).spacing(4),
 
             // Line Color
-            // Line Color
             row![text("Line Color:").width(120), color_row].align_y(Alignment::Center),
 
-            // Встроенный RGB-пикер (появляется по кнопке ↓)
-            if self.show_color_picker {
-                let picker_ui = column![
-                    row![
-                        text("R").width(20),
-                        slider(0.0..=255.0, draft.line_color[0] as f32, move |v| Message::ColorChannelChanged(0, v as u8))
-                    ].align_y(Alignment::Center).spacing(10),
-                    row![
-                        text("G").width(20),
-                        slider(0.0..=255.0, draft.line_color[1] as f32, move |v| Message::ColorChannelChanged(1, v as u8))
-                    ].align_y(Alignment::Center).spacing(10),
-                    row![
-                        text("B").width(20),
-                        slider(0.0..=255.0, draft.line_color[2] as f32, move |v| Message::ColorChannelChanged(2, v as u8))
-                    ].align_y(Alignment::Center).spacing(10),
-                ].spacing(4);
-                
-                // Оборачиваем и даем конкретный тип Element
-                let elem: Element<'a, Message> = container(picker_ui).padding([0, 120]).into();
-                elem
-            } else {
-                column![].into()
-            },
+            // Встроенный RGB-пикер
+            color_picker_ui,
 
             // Width & Line Style
             row![
@@ -2522,6 +2755,48 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     frame.stroke(&path, Stroke::default().with_color(color).with_width(width));
                 }
             }
+            for t in &app.tracks {
+                if !t.visible { continue; }
+                let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
+                let width = t.props.line_width;
+                
+                for seg in &t.segments {
+                    if seg.points.len() < 2 { continue; }
+                    
+                    let path = CanvasPath::new(|p| {
+                        let mut first = true;
+                        for pt in &seg.points {
+                            let (mx, my) = merc_of(pt.lon, pt.lat);
+                            let sp = to_screen(mx, my);
+                            if first {
+                                p.move_to(sp);
+                                first = false;
+                            } else {
+                                p.line_to(sp);
+                            }
+                        }
+                        // Если это полигон, замыкаем контур
+                        if t.props.poly_type == document::PolyType::Polygon {
+                            p.close();
+                        }
+                    });
+                    
+                        // Если полигон и есть заливка — заливаем
+                        if t.props.poly_type == document::PolyType::Polygon && t.props.fill_type != document::FillType::None {
+                            // Для штриховки делаем цвет полупрозрачным, чтобы визуально отличать от сплошной заливки
+                            let alpha = if t.props.fill_type == document::FillType::Solid { 1.0 } else { 0.3 };
+                            let fill_c = Color::from_rgba8(
+                                t.props.fill_color[0], 
+                                t.props.fill_color[1], 
+                                t.props.fill_color[2], 
+                                alpha
+                            );
+                            frame.fill(&path, fill_c);
+                        }
+                    
+                    frame.stroke(&path, Stroke::default().with_color(color).with_width(width));
+                }
+            }            
 
             // Точки
         for wp in &app.waypoints {

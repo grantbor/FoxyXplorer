@@ -321,13 +321,31 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
     }).collect();
     
     let mut geo_track = geoio::Track {
-        name: track.props.description.clone(), // Имя берем из Description
+        name: track.props.description.clone(),
         segments,
         ..Default::default()
     };
+    
     geo_track.style.color = rgb_to_ozi(track.props.line_color);
     geo_track.style.width = track.props.line_width as u32;
-    // (Остальные стили Ozi, такие как тип заливки, зависят от структуры geoio::PltStyle)
+    
+    // Настройки заливки
+    geo_track.style.fill_color = rgb_to_ozi(track.props.fill_color);
+    
+    if track.props.poly_type == PolyType::Polygon {
+        // Спецификация OziExplorer для PLT (Field 7):
+        // 0 = bsSolid, 1 = bsClear (None), 2 = bsBdiagonal, 3 = bsFdiagonal, 
+        // 4 = bsCross, 5 = bsDiagCross, 6 = bsHorizontal, 7 = bsVertical
+        geo_track.style.fill_style = match track.props.fill_type {
+            FillType::Solid => 0,
+            FillType::None => 1,
+            FillType::Diagonal1 => 2, // bsBdiagonal
+            FillType::Diagonal2 => 3, // bsFdiagonal
+            FillType::CrossHatch => 4, // bsCross
+        };
+    } else {
+        geo_track.style.fill_style = 1; // По умолчанию bsClear (None)
+    }
     
     let bytes = geoio::plt::write(&geo_track, geoio::text::Encoding::Utf8);
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
