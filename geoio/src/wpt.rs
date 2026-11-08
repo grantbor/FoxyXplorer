@@ -31,6 +31,13 @@ fn parse_line(line: &str) -> Option<Waypoint> {
         ele_m,
         time: if ole > 1.0 { Some(time::ole_to_unix(ole)) } else { None },
         description: f.get(10).map(|s| (*s).to_string()).unwrap_or_default(),
+        // Парсим цвета (по умолчанию Черный текст на Aqua фоне)
+        bg_color: f.get(7).and_then(|s| s.trim().parse::<u32>().ok())
+            .map(|c| [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8])
+            .unwrap_or([0, 255, 255]),
+        text_color: f.get(8).and_then(|s| s.trim().parse::<u32>().ok())
+            .map(|c| [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8])
+            .unwrap_or([0, 0, 0]),
     })
 }
 
@@ -76,6 +83,8 @@ pub fn write(wps: &[Waypoint], enc: Encoding) -> Vec<u8> {
             None => "-777".to_string(),
         };
         let ole = w.time.map_or(0.0, time::unix_to_ole);
+        let bg = (w.bg_color[0] as u32) | ((w.bg_color[1] as u32) << 8) | ((w.bg_color[2] as u32) << 16);
+        let txt = (w.text_color[0] as u32) | ((w.text_color[1] as u32) << 8) | ((w.text_color[2] as u32) << 16);
         out.push_str(&format!(
             "{},{},{:>11.6},{:>10.6},{:.10}, 0, 1, 3,{:>10},{:>10},{}, 0, 0,0,{:>7}, 6, 0,17,0,10.0,2,,,,\r\n",
             i + 1,
@@ -83,8 +92,8 @@ pub fn write(wps: &[Waypoint], enc: Encoding) -> Vec<u8> {
             w.lat,
             w.lon,
             ole,
-            0,
-            65535,
+            bg,
+            txt, 
             clean(&w.description),
             alt
         ));

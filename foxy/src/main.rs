@@ -403,6 +403,9 @@ enum Message {
     ColorChannelChanged(usize, u8), // 0 = R, 1 = G, 2 = B
     WindowResized(Size),
     WindowMoved(Point),
+    DividerPressed,
+    DividerReleased,
+    CursorMoved(Point),
     None,
 }
 
@@ -577,6 +580,8 @@ struct App {
     show_color_picker: bool,
     window_size: Size,
     window_pos: Point,
+    right_panel_width: f32,
+    resizing_panel: bool,
 }
 enum Modal {
     TrackProps { track_id: u64, draft: document::TrackProps },
@@ -693,6 +698,8 @@ impl App {
                     window_pos: session.view.window_pos
                         .map(|(x, y)| Point::new(x, y))
                         .unwrap_or(Point::new(100.0, 100.0)),
+                    right_panel_width: 340.0,
+                    resizing_panel: false,
                 };
 
                 // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
@@ -777,6 +784,8 @@ impl App {
             show_color_picker: false,
             window_size: Size::new(1130.0, 880.0),
             window_pos: Point::new(100.0, 100.0),
+            right_panel_width: 340.0,
+            resizing_panel: false,
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -911,8 +920,7 @@ impl App {
     }
     
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
-            // 1. Отслеживаем зажатие клавиш Ctrl / Shift
+        let mut subs: Vec<Subscription<Message>> = vec![
             iced::event::listen_with(|event, _status, _id| {
                 if let iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) = event {
                     Some(Message::ModifiersChanged(modifiers))
@@ -920,19 +928,32 @@ impl App {
                     None
                 }
             }),
-            
-            // 2. Отслеживаем запрос на закрытие окна (для сохранения сессии)
             iced::window::close_requests().map(|_| Message::WindowCloseRequested),
-            
-            // 3. Отслеживаем изменение размера и позиции окна
             iced::window::events().map(|(_id, event)| {
                 match event {
                     iced::window::Event::Resized(size) => Message::WindowResized(size),
                     iced::window::Event::Moved(pos) => Message::WindowMoved(pos),
-                    _ => Message::None, // Заглушка для остальных событий
+                    _ => Message::None,
                 }
             }),
-        ])
+        ];
+
+        // Ловим мышь только пока тянем разделитель
+        if self.resizing_panel {
+            subs.push(iced::event::listen_with(|event, _status, _id| {
+                match event {
+                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                        Some(Message::CursorMoved(position))
+                    }
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                        Some(Message::DividerReleased)
+                    }
+                    _ => None,
+                }
+            }));
+        }
+
+        Subscription::batch(subs)
     }
 
     fn request_osm_tiles(&mut self) -> Task<Message> {
@@ -1617,6 +1638,19 @@ impl App {
             Message::WindowMoved(pos) => {
                 self.window_pos = pos;
             }
+            Message::DividerPressed => {
+                self.resizing_panel = true;
+            }
+            Message::DividerReleased => {
+                self.resizing_panel = false;
+            }
+            Message::CursorMoved(p) => {
+                if self.resizing_panel {
+                    let win_w = self.window_size.width;
+                    let new_w = (win_w - p.x).clamp(200.0, win_w * 0.6);
+                    self.right_panel_width = new_w;
+                }
+            }
             Message::None => {}
         }
         
@@ -1646,7 +1680,21 @@ impl App {
             row![
                 container(palette).width(Length::Fixed(56.0)).height(Length::Fill),
                 container(map).width(Length::Fill).height(Length::Fill),
-                container(right).width(Length::Fixed(340.0)).height(Length::Fill),
+                // Разделитель
+                mouse_area(
+                    container(text(""))
+                        .width(Length::Fixed(6.0))
+                        .height(Length::Fill)
+                        .style(|_| container::Style {
+                            background: Some(Color::from_rgb(0.2, 0.2, 0.25).into()),
+                            ..Default::default()
+                        })
+                )
+                .on_press(Message::DividerPressed)
+                .on_release(Message::DividerReleased),
+                container(right)
+                    .width(Length::Fixed(self.right_panel_width))
+                    .height(Length::Fill),
             ]
             .spacing(4)
             .height(Length::Fill),

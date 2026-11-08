@@ -36,6 +36,8 @@ pub struct Waypoint {
     pub ele_m: Option<f64>,
     pub time: Option<f64>,
     pub description: String,
+    pub bg_color: [u8; 3],  
+    pub text_color: [u8; 3],
 }
 
 /// Оформление трека в PLT. Меняется перед сохранением.
