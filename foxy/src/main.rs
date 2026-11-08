@@ -119,6 +119,73 @@ fn build_template(d: &document::TrackProps) -> String {
     }
 }
 
+fn parse_coords(input: &str, grid: Option<&grid::Grid>, declination: f64) -> Option<(f64, f64)> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() { return None; }
+
+    // 1. Проверка на узел сетки (начинается с буквы)
+    if let Some(c) = trimmed.chars().next() {
+        if c.is_alphabetic() {
+            if let Some(g) = grid {
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.is_empty() { return None; }
+                
+                let node_name = parts[0];
+                if let Some(node) = g.find(node_name) {
+                    // Если введены только имя узла — возвращаем его координаты
+                    if parts.len() == 1 {
+                        return Some((node.lat, node.lon));
+                    }
+                    // Если введены имя, азимут и расстояние — вычисляем координаты
+                    if parts.len() >= 3 {
+                        if let (Ok(az), Ok(dist)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
+                            let (lat, lon) = grid::locate_observer(node, az, dist, declination);
+                            return Some((lat, lon));
+                        }
+                    }
+                }
+            }
+            return None;
+        }
+    }
+
+    // 2. Нормализация строки (заменяем запятые на точки, убираем символы градусов)
+    let normalized = trimmed
+        .replace(',', ".")
+        .replace('°', " ")
+        .replace('\'', " ")
+        .replace('"', " ")
+        .replace('″', " ")
+        .replace('′', " ");
+
+    let mut nums = Vec::new();
+    for part in normalized.split_whitespace() {
+        for sub in part.split(|c| c == ' ' || c == '°' || c == '\'' || c == '"') {
+            if sub.is_empty() { continue; }
+            if let Ok(v) = sub.parse::<f64>() {
+                nums.push(v);
+            }
+        }
+    }
+
+    match nums.len() {
+        2 => Some((nums[0], nums[1])), // dd.dddddd dd.dddddd
+        4 => {
+            // dd mm.mmmm dd mm.mmmm
+            let lat = nums[0].signum() * (nums[0].abs() + nums[1] / 60.0);
+            let lon = nums[2].signum() * (nums[2].abs() + nums[3] / 60.0);
+            Some((lat, lon))
+        }
+        6 => {
+            // dd mm ss.ss dd mm ss.ss
+            let lat = nums[0].signum() * (nums[0].abs() + nums[1] / 60.0 + nums[2] / 3600.0);
+            let lon = nums[3].signum() * (nums[3].abs() + nums[4] / 60.0 + nums[5] / 3600.0);
+            Some((lat, lon))
+        }
+        _ => None,
+    }
+}
+
 type GridData = (grid::Grid, Vec<Vec<(f64, f64)>>);
 
 fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
@@ -417,6 +484,7 @@ enum Message {
     DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]),
     DraftWpBgColorChanged([u8; 3]),
+    DraftWpCoordsChanged(String),
     None,
 }
 
@@ -598,7 +666,11 @@ struct App {
 }
 enum Modal {
     TrackProps { track_id: u64, draft: document::TrackProps },
-    WaypointProps { waypoint_id: u64, draft: document::Waypoint }, // <-- новое
+    WaypointProps { 
+        waypoint_id: u64, 
+        draft: document::Waypoint,
+        coord_input: String, // <-- ДОБАВИТЬ ЭТО
+    },
 }
 
 fn foxy_config_dir() -> PathBuf {
@@ -628,7 +700,12 @@ impl App {
     fn osm_active(&self) -> bool {
         self.active >= self.layers.len()
     }
-    fn view_waypoint_props_modal<'a>(&'a self, _id: u64, draft: &'a document::Waypoint) -> Element<'a, Message> {
+    fn view_waypoint_props_modal<'a>(
+        &'a self, 
+        _id: u64, 
+        draft: &'a document::Waypoint,
+        coord_input: &'a str, // <-- ДОБАВИТЬ ЭТО
+    ) -> Element<'a, Message> {
         let text_colors = vec![[0, 0, 0], [255, 255, 255]]; // Черный, Белый
         let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]]; // Красный, Aqua, Зеленый, Желтый
 
@@ -638,11 +715,18 @@ impl App {
             row![text("Имя:").width(100), text_input("Имя", &draft.name).on_input(Message::DraftWpNameChanged).width(250)],
             row![text("Описание:").width(100), text_input("Описание", draft.description.as_deref().unwrap_or("")).on_input(Message::DraftWpDescChanged).width(250)],
             
+            // Координаты (одно поле)
             row![
                 text("Координаты:").width(100),
-                text_input("Широта", &draft.lat.to_string()).on_input(Message::DraftWpLatChanged).width(100),
-                text_input("Долгота", &draft.lon.to_string()).on_input(Message::DraftWpLonChanged).width(100),
+                text_input("55.7558 37.6173", coord_input).on_input(Message::DraftWpCoordsChanged).width(250),
             ],
+            
+            // Подсказка
+            container(
+                text("Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) + азимут на него + метры (A1 120 110)")
+                    .size(11)
+                    .color(Color::from_rgb(0.5, 0.5, 0.5))
+            ).padding([0, 100]),
             row![
                 text("Высота (м):").width(100),
                 text_input("", &draft.ele.map(|e| e.to_string()).unwrap_or_default()).on_input(Message::DraftWpEleChanged).width(100),
@@ -1317,14 +1401,19 @@ impl App {
                 });
 
                 if is_double_click {
-                    // Если это двойной клик — открываем свойства
+                    // Двойной клик: открываем свойства
                     self.last_waypoint_click = None;
                     if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
                         self.waypoint_backup = Some(w.clone());
-                        self.modal = Some(Modal::WaypointProps { waypoint_id: id, draft: w.clone() });
+                        self.modal = Some(Modal::WaypointProps { 
+                            waypoint_id: id, 
+                            draft: w.clone(),
+                            // Инициализируем строку текущими координатами
+                            coord_input: format!("{:.6} {:.6}", w.lat, w.lon),
+                        });
                     }
                 } else {
-                    // Если одиночный — запоминаем время и делаем выделение
+                    // Одиночный клик: запоминаем время и делаем выделение
                     self.last_waypoint_click = Some((id, now));
 
                     let ctrl = self.modifiers.control() || self.modifiers.command();
@@ -1736,7 +1825,12 @@ impl App {
             Message::OpenWaypointProps(id) => {
                 if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
                     self.waypoint_backup = Some(w.clone());
-                    self.modal = Some(Modal::WaypointProps { waypoint_id: id, draft: w.clone() });
+                    self.modal = Some(Modal::WaypointProps { 
+                        waypoint_id: id, 
+                        draft: w.clone(),
+                        // Инициализируем строку текущими координатами
+                        coord_input: format!("{:.6} {:.6}", w.lat, w.lon),
+                    });
                 }
             }
             Message::CloseWaypointProps => {
@@ -1754,21 +1848,21 @@ impl App {
             }
             Message::DraftWpNameChanged(s) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     draft.name = s; tid = Some(*waypoint_id);
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::DraftWpDescChanged(s) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     draft.description = Some(s); tid = Some(*waypoint_id);
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::DraftWpLatChanged(s) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     if let Ok(lat) = s.parse::<f64>() {
                         draft.lat = lat;
                         draft.ele = None; // Высота сбрасывается при ручном вводе
@@ -1779,7 +1873,7 @@ impl App {
             }
             Message::DraftWpLonChanged(s) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     if let Ok(lon) = s.parse::<f64>() {
                         draft.lon = lon;
                         draft.ele = None;
@@ -1790,28 +1884,44 @@ impl App {
             }
             Message::DraftWpEleChanged(s) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     draft.ele = s.parse::<f64>().ok(); tid = Some(*waypoint_id);
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::DraftWpTextColorChanged(c) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     draft.text_color = c; tid = Some(*waypoint_id);
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::DraftWpBgColorChanged(c) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     draft.bg_color = c; tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpCoordsChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input }) = &mut self.modal {
+                    *coord_input = s.clone();
+                    
+                    // Передаем self.declination
+                    if let Some((lat, lon)) = parse_coords(&s, self.grid.as_ref(), self.declination) {
+                        if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
+                            draft.lat = lat;
+                            draft.lon = lon;
+                            draft.ele = None;
+                            tid = Some(*waypoint_id);
+                        }
+                    }
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::None => {}
         }
-        
 
         // Догружаем очередную пачку тайлов OSM, если он активен.
         self.request_osm_tiles()
@@ -1884,8 +1994,8 @@ impl App {
                     .center_y(Length::Fill)
             ]
             .into()
-        } else if let Some(Modal::WaypointProps { waypoint_id, draft }) = &self.modal {
-            let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft);
+        } else if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input }) = &self.modal {
+            let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft, coord_input);
             
             stack![
                 base_ui,
