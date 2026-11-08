@@ -406,6 +406,17 @@ enum Message {
     DividerPressed,
     DividerReleased,
     CursorMoved(Point),
+    OpenWaypointProps(u64),
+    CloseWaypointProps,
+    ApplyWaypointProps,
+    
+    DraftWpNameChanged(String),
+    DraftWpDescChanged(String),
+    DraftWpLatChanged(String),
+    DraftWpLonChanged(String),
+    DraftWpEleChanged(String),
+    DraftWpTextColorChanged([u8; 3]),
+    DraftWpBgColorChanged([u8; 3]),
     None,
 }
 
@@ -582,9 +593,12 @@ struct App {
     window_pos: Point,
     right_panel_width: f32,
     resizing_panel: bool,
+    waypoint_backup: Option<document::Waypoint>,
+    last_waypoint_click: Option<(u64, std::time::Instant)>,
 }
 enum Modal {
     TrackProps { track_id: u64, draft: document::TrackProps },
+    WaypointProps { waypoint_id: u64, draft: document::Waypoint }, // <-- новое
 }
 
 fn foxy_config_dir() -> PathBuf {
@@ -614,6 +628,53 @@ impl App {
     fn osm_active(&self) -> bool {
         self.active >= self.layers.len()
     }
+    fn view_waypoint_props_modal<'a>(&'a self, _id: u64, draft: &'a document::Waypoint) -> Element<'a, Message> {
+        let text_colors = vec![[0, 0, 0], [255, 255, 255]]; // Черный, Белый
+        let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]]; // Красный, Aqua, Зеленый, Желтый
+
+        let content = column![
+            text("Свойства точки").size(20).color(Color::WHITE),
+            
+            row![text("Имя:").width(100), text_input("Имя", &draft.name).on_input(Message::DraftWpNameChanged).width(250)],
+            row![text("Описание:").width(100), text_input("Описание", draft.description.as_deref().unwrap_or("")).on_input(Message::DraftWpDescChanged).width(250)],
+            
+            row![
+                text("Координаты:").width(100),
+                text_input("Широта", &draft.lat.to_string()).on_input(Message::DraftWpLatChanged).width(100),
+                text_input("Долгота", &draft.lon.to_string()).on_input(Message::DraftWpLonChanged).width(100),
+            ],
+            row![
+                text("Высота (м):").width(100),
+                text_input("", &draft.ele.map(|e| e.to_string()).unwrap_or_default()).on_input(Message::DraftWpEleChanged).width(100),
+            ],
+
+            // Цвет текста
+            row![
+                text("Текст:").width(100),
+                row(text_colors.iter().map(|&c| button(text("")).width(20).height(20).style(move |_: &Theme, _| button::Style { background: Some(Color::from_rgb8(c[0], c[1], c[2]).into()), ..Default::default() }).on_press(Message::DraftWpTextColorChanged(c)).into()))
+            ],
+            
+            // Цвет фона
+            row![
+                text("Фон:").width(100),
+                row(bg_colors.iter().map(|&c| button(text("")).width(20).height(20).style(move |_: &Theme, _| button::Style { background: Some(Color::from_rgb8(c[0], c[1], c[2]).into()), ..Default::default() }).on_press(Message::DraftWpBgColorChanged(c)).into()))
+            ],
+
+            // Кнопки
+            row![
+                button("Вложение (Attachment)").on_press(Message::None), // Плейсхолдер
+                button("Применить").on_press(Message::ApplyWaypointProps),
+                button("Отмена").on_press(Message::CloseWaypointProps),
+            ].spacing(10)
+        ].spacing(12).padding(20);
+
+        container(content).style(|_| container::Style {
+            background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
+            border: iced::Border { color: Color::from_rgb(0.3, 0.3, 0.3), width: 1.0, radius: 8.0.into() },
+            ..Default::default()
+        }).into()
+    }
+
 
     fn new() -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
@@ -700,6 +761,8 @@ impl App {
                         .unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 340.0,
                     resizing_panel: false,
+                    waypoint_backup: None,
+                    last_waypoint_click: None,
                 };
 
                 // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
@@ -786,6 +849,8 @@ impl App {
             window_pos: Point::new(100.0, 100.0),
             right_panel_width: 340.0,
             resizing_panel: false,
+            waypoint_backup: None,
+            last_waypoint_click: None,
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -1246,34 +1311,51 @@ impl App {
             }
             // Аналогично для SelectWaypoint:
             Message::SelectWaypoint(id) => {
-                let ctrl = self.modifiers.control() || self.modifiers.command();
-                let shift = self.modifiers.shift();
+                let now = std::time::Instant::now();
+                let is_double_click = self.last_waypoint_click.map_or(false, |(last_id, last_time)| {
+                    last_id == id && now.duration_since(last_time).as_millis() < 300
+                });
 
-                if shift {
-                    if let Some(last_id) = self.last_waypoint_clicked {
-                        if let (Some(start), Some(end)) = (
-                            self.waypoints.iter().position(|w| w.id == last_id),
-                            self.waypoints.iter().position(|w| w.id == id),
-                        ) {
-                            let (min, max) = if start < end { (start, end) } else { (end, start) };
-                            for i in min..=max {
-                                self.selection.waypoints.insert(self.waypoints[i].id);
-                            }
-                        }
-                    } else {
-                        self.selection.waypoints.insert(id);
-                    }
-                } else if ctrl {
-                    if !self.selection.waypoints.remove(&id) {
-                        self.selection.waypoints.insert(id);
+                if is_double_click {
+                    // Если это двойной клик — открываем свойства
+                    self.last_waypoint_click = None;
+                    if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
+                        self.waypoint_backup = Some(w.clone());
+                        self.modal = Some(Modal::WaypointProps { waypoint_id: id, draft: w.clone() });
                     }
                 } else {
-                    // ОБЫЧНЫЙ КЛИК: сбрасываем ВСЁ и выбираем только эту точку
-                    self.selection.waypoints.clear();
-                    self.selection.tracks.clear(); // <--- Вот эта строка должна быть здесь
-                    self.selection.waypoints.insert(id);
+                    // Если одиночный — запоминаем время и делаем выделение
+                    self.last_waypoint_click = Some((id, now));
+
+                    let ctrl = self.modifiers.control() || self.modifiers.command();
+                    let shift = self.modifiers.shift();
+
+                    if shift {
+                        if let Some(last_id) = self.last_waypoint_clicked {
+                            if let (Some(start), Some(end)) = (
+                                self.waypoints.iter().position(|w| w.id == last_id),
+                                self.waypoints.iter().position(|w| w.id == id),
+                            ) {
+                                let (min, max) = if start < end { (start, end) } else { (end, start) };
+                                for i in min..=max {
+                                    self.selection.waypoints.insert(self.waypoints[i].id);
+                                }
+                            }
+                        } else {
+                            self.selection.waypoints.insert(id);
+                        }
+                    } else if ctrl {
+                        if !self.selection.waypoints.remove(&id) {
+                            self.selection.waypoints.insert(id);
+                        }
+                    } else {
+                        // ОБЫЧНЫЙ КЛИК: сбрасываем ВСЁ и выбираем только эту точку
+                        self.selection.waypoints.clear();
+                        self.selection.tracks.clear();
+                        self.selection.waypoints.insert(id);
+                    }
+                    self.last_waypoint_clicked = Some(id);
                 }
-                self.last_waypoint_clicked = Some(id);
             }
             Message::DeleteSelectedTracks => {
                 let ids = self.selection.tracks.clone();
@@ -1651,12 +1733,97 @@ impl App {
                     self.right_panel_width = new_w;
                 }
             }
+            Message::OpenWaypointProps(id) => {
+                if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
+                    self.waypoint_backup = Some(w.clone());
+                    self.modal = Some(Modal::WaypointProps { waypoint_id: id, draft: w.clone() });
+                }
+            }
+            Message::CloseWaypointProps => {
+                if let Some(backup) = self.waypoint_backup.take() {
+                    if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == backup.id) {
+                        *w = backup; // Откат
+                        self.tracks_cache.clear();
+                    }
+                }
+                self.modal = None;
+            }
+            Message::ApplyWaypointProps => {
+                self.waypoint_backup = None;
+                self.modal = None;
+            }
+            Message::DraftWpNameChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    draft.name = s; tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpDescChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    draft.description = Some(s); tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpLatChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    if let Ok(lat) = s.parse::<f64>() {
+                        draft.lat = lat;
+                        draft.ele = None; // Высота сбрасывается при ручном вводе
+                        tid = Some(*waypoint_id);
+                    }
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpLonChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    if let Ok(lon) = s.parse::<f64>() {
+                        draft.lon = lon;
+                        draft.ele = None;
+                        tid = Some(*waypoint_id);
+                    }
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpEleChanged(s) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    draft.ele = s.parse::<f64>().ok(); tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpTextColorChanged(c) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    draft.text_color = c; tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpBgColorChanged(c) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft }) = &mut self.modal {
+                    draft.bg_color = c; tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
             Message::None => {}
         }
         
 
         // Догружаем очередную пачку тайлов OSM, если он активен.
         self.request_osm_tiles()
+    }
+
+    fn update_waypoint_preview(&mut self, id: u64) {
+        if let Some(Modal::WaypointProps { draft, .. }) = &self.modal {
+            if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
+                *w = draft.clone();
+                self.tracks_cache.clear();
+            }
+        }
     }
 
     fn format_name(&self) -> &'static str {
@@ -1667,19 +1834,13 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
-        // 1. Формируем базовый интерфейс (как было до модального окна)
-        let top = self.view_top_toolbar();
-        let palette = self.view_tool_palette();
-        let map = self.view_map();
-        let right = self.view_right_panel();
-        let status = text(self.status.as_str());
-
+        fn view(&self) -> Element<'_, Message> {
+        // 1. Собираем базовый интерфейс (панели, карта, статус-бар)
         let base_ui = column![
-            top,
+            self.view_top_toolbar(),
             row![
-                container(palette).width(Length::Fixed(56.0)).height(Length::Fill),
-                container(map).width(Length::Fill).height(Length::Fill),
+                container(self.view_tool_palette()).width(Length::Fixed(56.0)).height(Length::Fill),
+                container(self.view_map()).width(Length::Fill).height(Length::Fill),
                 // Разделитель
                 mouse_area(
                     container(text(""))
@@ -1692,26 +1853,25 @@ impl App {
                 )
                 .on_press(Message::DividerPressed)
                 .on_release(Message::DividerReleased),
-                container(right)
+                container(self.view_right_panel())
                     .width(Length::Fixed(self.right_panel_width))
                     .height(Length::Fill),
             ]
             .spacing(4)
             .height(Length::Fill),
-            status,
+            text(self.status.as_str()),
         ]
         .spacing(4)
         .padding(4)
         .width(Length::Fill)
         .height(Length::Fill);
 
-        // 2. Если открыто модальное окно — накладываем его сверху
+        // 2. Накладываем модальные окна (если они открыты)
         if let Some(Modal::TrackProps { track_id, draft }) = &self.modal {
             let modal_ui = self.view_track_props_modal(*track_id, draft);
             
             stack![
                 base_ui,
-                // Затемняющий фон
                 container(text(""))
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -1719,13 +1879,30 @@ impl App {
                         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
                         ..Default::default()
                     }),
-                // Само окно по центру
                 container(modal_ui)
-                    .center_x(Length::Fill)  // В iced 0.14 center_x требует Length
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+            ]
+            .into()
+        } else if let Some(Modal::WaypointProps { waypoint_id, draft }) = &self.modal {
+            let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft);
+            
+            stack![
+                base_ui,
+                container(text(""))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui)
+                    .center_x(Length::Fill)
                     .center_y(Length::Fill)
             ]
             .into()
         } else {
+            // Если модальных окон нет, возвращаем только базовый интерфейс
             base_ui.into()
         }
     }
@@ -2058,7 +2235,7 @@ impl App {
             let icon = container(
                 text("●")
                     .size(11)
-                    .color(Color::from_rgb8(255, 200, 0)),
+                    .color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2])),
             ).width(14);
             
             let coord = coord::format_pair(w.lat, w.lon, self.format);
@@ -2107,7 +2284,14 @@ impl App {
         let has_wps = !self.selection.waypoints.is_empty();
         let has_tracks = !self.selection.tracks.is_empty();
 
-        let btn_props = button(text("⚙"));
+        let one_wp = self.selection.waypoints.len() == 1;
+        let selected_id = self.selection.waypoints.iter().next().copied();
+
+        let btn_props = if one_wp {
+            button(text("⚙")).on_press(Message::OpenWaypointProps(selected_id.unwrap()))
+        } else {
+            button(text("⚙"))
+        };
 
         let btn_del = if has_wps {
             button(text("🗑")).on_press(Message::DeleteSelectedWaypoints)
@@ -2912,25 +3096,58 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
             }            
 
             // Точки
-        for wp in &app.waypoints {
-            if !wp.visible { continue; }
-            let (mx, my) = merc_of(wp.lon, wp.lat);
-            let pt = to_screen(mx, my);
-            let circle = CanvasPath::circle(pt, 4.0);
-            frame.fill(&circle, Color::from_rgb8(255, 200, 0));
-            frame.stroke(&circle, Stroke::default().with_color(Color::WHITE).with_width(1.0));
-            frame.fill_text(canvas::Text {
-                content: wp.name.clone(),
-                position: Point::new(pt.x + 6.0, pt.y - 6.0),
-                color: Color::BLACK,
-                size: iced::Pixels(12.0),
-                ..Default::default()
-            });
-        }
+            for wp in &app.waypoints {
+                if !wp.visible { continue; }
+                let (mx, my) = merc_of(wp.lon, wp.lat);
+                let pt = to_screen(mx, my);
+
+                // Примерная ширина плашки (7 пикселей на символ + отступы)
+                let text_len = wp.name.chars().count() as f32;
+                let box_w = (text_len * 7.0).max(30.0) + 6.0;
+                let box_h = 16.0;
+                let box_x = pt.x - box_w / 2.0;
+                let box_y = pt.y - 24.0;
+
+                // 1. Линия от плашки к точке
+                frame.stroke(
+                    &CanvasPath::line(Point::new(pt.x, box_y + box_h), pt), 
+                    Stroke::default().with_color(Color::BLACK).with_width(1.0)
+                );
+
+                // 2. Прямоугольник фона
+                let bg_color = Color::from_rgb8(wp.bg_color[0], wp.bg_color[1], wp.bg_color[2]);
+                frame.fill_rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h), bg_color);
+                
+                // Рамка прямоугольника
+                let border = CanvasPath::rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h));
+                frame.stroke(&border, Stroke::default().with_color(Color::BLACK).with_width(1.0));
+
+                // 3. Текст
+                let fg_color = Color::from_rgb8(wp.text_color[0], wp.text_color[1], wp.text_color[2]);
+                frame.fill_text(canvas::Text {
+                    content: wp.name.clone(),
+                    position: Point::new(box_x + box_w/2.0, box_y + box_h/2.0),
+                    color: fg_color,
+                    size: iced::Pixels(11.0),
+                    align_x: iced::widget::text::Alignment::Center,
+                    align_y: iced::alignment::Vertical::Center,
+                    ..Default::default()
+                });
+
+                // 4. Кружок с белой заливкой и черной рамкой
+                let circle = CanvasPath::circle(pt, 4.0);
+                frame.fill(&circle, Color::WHITE);
+                frame.stroke(&circle, Stroke::default().with_color(Color::BLACK).with_width(1.5));
+
+                // 5. Черная точка в центре
+                let dot = CanvasPath::circle(pt, 1.5);
+                frame.fill(&dot, Color::BLACK);
+            }
         });
         vec![geom]
     }
 }
+
 
 fn main() -> iced::Result {
     // Читаем сессию заранее, чтобы применить размер и позицию окна

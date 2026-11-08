@@ -55,6 +55,8 @@ fn read_wpt(n: &Node<'_, '_>, warnings: &mut Vec<String>) -> Option<Waypoint> {
         description: child_text(n, "desc")
             .or_else(|| child_text(n, "cmt"))
             .unwrap_or_default(),
+        bg_color: [0, 255, 255], 
+        text_color: [0, 0, 0],   
     })
 }
 

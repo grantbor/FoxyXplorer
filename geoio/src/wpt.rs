@@ -31,13 +31,16 @@ fn parse_line(line: &str) -> Option<Waypoint> {
         ele_m,
         time: if ole > 1.0 { Some(time::ole_to_unix(ole)) } else { None },
         description: f.get(10).map(|s| (*s).to_string()).unwrap_or_default(),
-        // Парсим цвета (по умолчанию Черный текст на Aqua фоне)
-        bg_color: f.get(7).and_then(|s| s.trim().parse::<u32>().ok())
-            .map(|c| [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8])
-            .unwrap_or([0, 255, 255]),
+        
+        // Индекс 8 (9-е поле) — цвет текста (Foreground)
         text_color: f.get(8).and_then(|s| s.trim().parse::<u32>().ok())
             .map(|c| [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8])
-            .unwrap_or([0, 0, 0]),
+            .unwrap_or([0, 0, 0]), // по умолчанию черный
+
+        // Индекс 9 (10-е поле) — цвет фона (Background)
+        bg_color: f.get(9).and_then(|s| s.trim().parse::<u32>().ok())
+            .map(|c| [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8])
+            .unwrap_or([0, 255, 255]), // по умолчанию aqua
     })
 }
 
@@ -83,17 +86,19 @@ pub fn write(wps: &[Waypoint], enc: Encoding) -> Vec<u8> {
             None => "-777".to_string(),
         };
         let ole = w.time.map_or(0.0, time::unix_to_ole);
-        let bg = (w.bg_color[0] as u32) | ((w.bg_color[1] as u32) << 8) | ((w.bg_color[2] as u32) << 16);
         let txt = (w.text_color[0] as u32) | ((w.text_color[1] as u32) << 8) | ((w.text_color[2] as u32) << 16);
+        let bg = (w.bg_color[0] as u32) | ((w.bg_color[1] as u32) << 8) | ((w.bg_color[2] as u32) << 16);
+        
         out.push_str(&format!(
+            // Обратите внимание на порядок: сначала txt, потом bg
             "{},{},{:>11.6},{:>10.6},{:.10}, 0, 1, 3,{:>10},{:>10},{}, 0, 0,0,{:>7}, 6, 0,17,0,10.0,2,,,,\r\n",
             i + 1,
             clean(&w.name),
             w.lat,
             w.lon,
             ole,
-            bg,
-            txt, 
+            txt, // 9-е поле
+            bg,  // 10-е поле
             clean(&w.description),
             alt
         ));

@@ -150,6 +150,8 @@ fn read_feature(f: &Value, index: usize, data: &mut GeoData) {
                     .and_then(Value::as_str)
                     .and_then(time::parse_iso),
                 description: String::new(),
+                bg_color: [0, 255, 255], 
+                text_color: [0, 0, 0],   
             }),
             None => data.warnings.push(format!("объект {n}: некорректная точка")),
         },

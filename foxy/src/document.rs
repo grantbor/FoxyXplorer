@@ -51,7 +51,14 @@ pub struct Waypoint {
     pub description: Option<String>,
     pub visible: bool,
     pub source: FileSource,
+    #[serde(default = "default_text_color")]
+    pub text_color: [u8; 3],
+    #[serde(default = "default_bg_color")]
+    pub bg_color: [u8; 3],
 }
+
+fn default_text_color() -> [u8; 3] { [0, 0, 0] }
+fn default_bg_color() -> [u8; 3] { [0, 255, 255] }
 
 pub struct LoadedContent {
     pub tracks: Vec<Track>,
@@ -259,6 +266,8 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             description: if w.description.is_empty() { None } else { Some(w.description) },
             visible: true,
             source: FileSource::File { path: path.to_path_buf(), read_only: is_read_only },
+            text_color: w.text_color, // <-- из geoio
+            bg_color: w.bg_color,     // <-- из geoio
         });
         *next_id += 1;
     }
@@ -303,11 +312,17 @@ pub fn save_gpx(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
             ele_m: w.ele,
             time: w.time,
             description: w.description.clone().unwrap_or_default(),
+            text_color: w.text_color,
+            bg_color: w.bg_color,
         });
     }
     
     let xml = geoio::gpx::write(&gd);
     std::fs::write(path, xml).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn ozi_hack(s: &str) -> String {
+    s.replace('С', "C").replace('с', "c")
 }
 
 pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
@@ -321,7 +336,7 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
     }).collect();
     
     let mut geo_track = geoio::Track {
-        name: track.props.description.clone(),
+        name: ozi_hack(&track.props.description), // <-- ПРИМЕНИЛИ ЗДЕСЬ
         segments,
         ..Default::default()
     };
@@ -347,21 +362,23 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
         geo_track.style.fill_style = 1; // По умолчанию bsClear (None)
     }
     
-    let bytes = geoio::plt::write(&geo_track, geoio::text::Encoding::Utf8);
+    let bytes = geoio::plt::write(&geo_track, geoio::text::Encoding::Cp1251);
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 pub fn save_wpt(waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
     let geo_wps: Vec<geoio::Waypoint> = waypoints.iter().map(|w| geoio::Waypoint {
-        name: w.name.clone(),
+        name: ozi_hack(&w.name),
         lon: w.lon,
         lat: w.lat,
         ele_m: w.ele,
         time: w.time,
         description: w.description.clone().unwrap_or_default(),
+        text_color: w.text_color,
+        bg_color: w.bg_color,                                                             
     }).collect();
     
-    let bytes = geoio::wpt::write(&geo_wps, geoio::text::Encoding::Utf8);
+    let bytes = geoio::wpt::write(&geo_wps, geoio::text::Encoding::Cp1251);
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -393,6 +410,8 @@ pub fn save_ms(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resul
             ele_m: w.ele,
             time: w.time,
             description: w.description.clone().unwrap_or_default(),
+            text_color: w.text_color,
+            bg_color: w.bg_color,
         });
     }
     
