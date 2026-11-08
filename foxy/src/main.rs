@@ -8,12 +8,13 @@ use coord::{format_pair, CoordFormat};
 use iced::mouse::ScrollDelta;
 use iced::widget::canvas::{self, Cache, Canvas, Geometry, Path as CanvasPath, Stroke};
 use iced::widget::image::Handle as ImageHandle;
+use iced::widget::tooltip;
 
 use std::collections::{HashMap, HashSet};
 
 use iced::widget::{
     button, checkbox, column, container, mouse_area, pick_list, row, scrollable, stack, text,
-    text_input, Space,
+    text_input, Space, 
 };
 use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
@@ -1800,9 +1801,9 @@ impl App {
     fn view_tracks_section(&self) -> Element<'_, Message> {
         let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
 
-        let all_visible = self.tracks.iter().all(|t| t.visible);
-        let top_bar = row![
-            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
+        //let all_visible = self.tracks.iter().all(|t| t.visible);
+         let top_bar = row![
+            button(text("👁"))
                 .on_press(Message::ToggleAllTracksVisible),
             iced::widget::text_input("Поиск треков...", &self.search_tracks)
                 .on_input(Message::SearchTracksChanged)
@@ -1872,12 +1873,28 @@ impl App {
                     .on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
                 color_box,
                 container(
-                    button(
-                        text(name_text).wrapping(iced::widget::text::Wrapping::None)
+                    tooltip(
+                        button(
+                            text(name_text).wrapping(iced::widget::text::Wrapping::None)
+                        )
+                        .on_press(Message::SelectTrack(t.id))
+                        .width(Length::Fill)
+                        .padding(0),
+                        // Вот наш новый блок подсказки:
+                        container(text(t.name.clone()))
+                            .padding([2, 6])
+                            .style(|_| container::Style {
+                                background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
+                                text_color: Some(Color::WHITE),
+                                border: iced::Border {
+                                    color: Color::from_rgb(0.4, 0.4, 0.4),
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            }),
+                        tooltip::Position::Bottom,
                     )
-                    .on_press(Message::SelectTrack(t.id))
-                    .width(Length::Fill)
-                    .padding(0)
                 )
                 .width(Length::Fill)
                 .clip(true),
@@ -1954,10 +1971,10 @@ impl App {
 
     fn view_waypoints_section(&self) -> Element<'_, Message> {
         let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
-
-        let all_visible = self.waypoints.iter().all(|w| w.visible);
+        
+       // let all_visible = self.waypoints.iter().all(|w| w.visible);
         let top_bar = row![
-            button(text(if all_visible { "👁 Скрыть все" } else { "👁 Показать все" }))
+            button(text("👁"))
                 .on_press(Message::ToggleAllWaypointsVisible),
             iced::widget::text_input("Поиск точек...", &self.search_waypoints)
                 .on_input(Message::SearchWaypointsChanged)
@@ -2004,12 +2021,28 @@ impl App {
                     .on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
                 icon,
                 container(
-                    button(
-                        text(w.name.clone()).wrapping(iced::widget::text::Wrapping::None)
+                    tooltip(
+                        button(
+                            text(w.name.clone()).wrapping(iced::widget::text::Wrapping::None)
+                        )
+                        .on_press(Message::SelectWaypoint(w.id))
+                        .width(Length::Fill)
+                        .padding(0),
+                        // Блок подсказки:
+                        container(text(w.name.clone()))
+                            .padding([2, 6])
+                            .style(|_| container::Style {
+                                background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
+                                text_color: Some(Color::WHITE),
+                                border: iced::Border {
+                                    color: Color::from_rgb(0.4, 0.4, 0.4),
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            }),
+                        tooltip::Position::Bottom,
                     )
-                    .on_press(Message::SelectWaypoint(w.id))
-                    .width(Length::Fill)
-                    .padding(0)
                 )
                 .width(Length::Fill)
                 .clip(true),
@@ -2257,7 +2290,7 @@ impl App {
             // Кнопки
             row![
                 button("Сохранить").on_press(Message::SaveTrackProps),
-                button("Закрыть").on_press(Message::ApplyTrackProps),
+                button("Применить").on_press(Message::ApplyTrackProps),
                 button("Отмена").on_press(Message::CloseTrackProps),
             ].spacing(10)
         ]
