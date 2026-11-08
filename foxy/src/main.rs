@@ -485,6 +485,10 @@ enum Message {
     DraftWpTextColorChanged([u8; 3]),
     DraftWpBgColorChanged([u8; 3]),
     DraftWpCoordsChanged(String),
+    
+    AddNewWaypoint,
+    ToggleTrackSaveMenu,
+    ToggleWpSaveMenu,
     None,
 }
 
@@ -663,13 +667,16 @@ struct App {
     resizing_panel: bool,
     waypoint_backup: Option<document::Waypoint>,
     last_waypoint_click: Option<(u64, std::time::Instant)>,
+    show_track_save_menu: bool,
+    show_wp_save_menu: bool,
 }
 enum Modal {
     TrackProps { track_id: u64, draft: document::TrackProps },
     WaypointProps { 
         waypoint_id: u64, 
         draft: document::Waypoint,
-        coord_input: String, // <-- ДОБАВИТЬ ЭТО
+        coord_input: String,
+        is_new: bool, // <-- ДОБАВИТЬ
     },
 }
 
@@ -847,6 +854,8 @@ impl App {
                     resizing_panel: false,
                     waypoint_backup: None,
                     last_waypoint_click: None,
+                    show_track_save_menu: false,
+                    show_wp_save_menu: false,
                 };
 
                 // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
@@ -935,6 +944,8 @@ impl App {
             resizing_panel: false,
             waypoint_backup: None,
             last_waypoint_click: None,
+            show_track_save_menu: false,
+            show_wp_save_menu: false,
         };
 
         // Определяем, какой комплект пробовать загрузить.
@@ -1410,6 +1421,7 @@ impl App {
                             draft: w.clone(),
                             // Инициализируем строку текущими координатами
                             coord_input: format!("{:.6} {:.6}", w.lat, w.lon),
+                            is_new: false,
                         });
                     }
                 } else {
@@ -1830,16 +1842,25 @@ impl App {
                         draft: w.clone(),
                         // Инициализируем строку текущими координатами
                         coord_input: format!("{:.6} {:.6}", w.lat, w.lon),
+                        is_new: false,
                     });
                 }
             }
             Message::CloseWaypointProps => {
-                if let Some(backup) = self.waypoint_backup.take() {
-                    if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == backup.id) {
-                        *w = backup; // Откат
-                        self.tracks_cache.clear();
+                if let Some(Modal::WaypointProps { waypoint_id, is_new, .. }) = &self.modal {
+                    if *is_new {
+                        // Если это была новая точка — удаляем её из списка
+                        let id = *waypoint_id;
+                        self.waypoints.retain(|w| w.id != id);
                     }
                 }
+                // Откатываем изменения для существующих
+                if let Some(backup) = self.waypoint_backup.take() {
+                    if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == backup.id) {
+                        *w = backup;
+                    }
+                }
+                self.tracks_cache.clear();
                 self.modal = None;
             }
             Message::ApplyWaypointProps => {
@@ -1905,7 +1926,7 @@ impl App {
             }
             Message::DraftWpCoordsChanged(s) => {
                 let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input }) = &mut self.modal {
+                if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input, .. }) = &mut self.modal {
                     *coord_input = s.clone();
                     
                     // Передаем self.declination
@@ -1919,6 +1940,38 @@ impl App {
                     }
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::AddNewWaypoint => {
+                let (lon, lat) = lonlat_of(self.cx, self.cy);
+                let new_wp = document::Waypoint {
+                    id: self.next_id,
+                    name: "New WP".into(),
+                    lon,
+                    lat,
+                    ele: None, time: None, symbol: None, description: None,
+                    visible: true,
+                    source: document::FileSource::New,
+                    text_color: [0, 0, 0],
+                    bg_color: [0, 255, 255],
+                };
+                self.next_id += 1;
+                self.waypoints.push(new_wp.clone());
+                self.waypoint_backup = Some(new_wp.clone());
+                self.modal = Some(Modal::WaypointProps {
+                    waypoint_id: new_wp.id,
+                    draft: new_wp,
+                    coord_input: format!("{:.6} {:.6}", lat, lon),
+                    is_new: true, // <-- помечаем как новую
+                });
+                self.tracks_cache.clear();
+            }
+            Message::ToggleTrackSaveMenu => {
+                self.show_track_save_menu = !self.show_track_save_menu;
+                self.show_wp_save_menu = false; // закрываем другое меню
+            }
+            Message::ToggleWpSaveMenu => {
+                self.show_wp_save_menu = !self.show_wp_save_menu;
+                self.show_track_save_menu = false;
             }
             Message::None => {}
         }
@@ -1994,7 +2047,7 @@ impl App {
                     .center_y(Length::Fill)
             ]
             .into()
-        } else if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input }) = &self.modal {
+        } else if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input, .. }) = &self.modal {
             let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft, coord_input);
             
             stack![
@@ -2012,7 +2065,6 @@ impl App {
             ]
             .into()
         } else {
-            // Если модальных окон нет, возвращаем только базовый интерфейс
             base_ui.into()
         }
     }
@@ -2136,10 +2188,8 @@ impl App {
     fn view_tracks_section(&self) -> Element<'_, Message> {
         let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
 
-        //let all_visible = self.tracks.iter().all(|t| t.visible);
-         let top_bar = row![
-            button(text("👁"))
-                .on_press(Message::ToggleAllTracksVisible),
+        let top_bar = row![
+            button(text("👁")).on_press(Message::ToggleAllTracksVisible),
             iced::widget::text_input("Поиск треков...", &self.search_tracks)
                 .on_input(Message::SearchTracksChanged)
                 .padding(4)
@@ -2152,41 +2202,25 @@ impl App {
             Space::new().width(24.0),
             Space::new().width(16.0),
             container(text("Имя").size(11)).width(Length::Fill),
-            container(text("Точек").size(11))
-                .width(Length::Fixed(50.0))
-                .align_x(Alignment::End),
-            container(text("Расст.").size(11))
-                .width(Length::Fixed(70.0))
-                .align_x(Alignment::End),
+            container(text("Точек").size(11)).width(Length::Fixed(50.0)).align_x(Alignment::End),
+            container(text("Расст.").size(11)).width(Length::Fixed(70.0)).align_x(Alignment::End),
         ]
         .spacing(4);
 
         let query = self.search_tracks.to_lowercase();
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
-        
+
         for t in &self.tracks {
-            if !query.is_empty() && !t.name.to_lowercase().contains(&query) {
-                continue;
-            }
+            if !query.is_empty() && !t.name.to_lowercase().contains(&query) { continue; }
 
             let selected = self.selection.tracks.contains(&t.id);
-            
-            let sel_dot = container(
-                text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)
-            ).width(16);
+            let sel_dot = container(text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)).width(16);
 
             let color_box = container(text(""))
-                .width(12)
-                .height(12)
+                .width(12).height(12)
                 .style(move |_| container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb8(
-                        t.color[0], t.color[1], t.color[2],
-                    ))),
-                    border: iced::Border {
-                        color: Color::from_rgb8(60, 60, 60),
-                        width: 1.0,
-                        radius: 2.0.into(),
-                    },
+                    background: Some(iced::Background::Color(Color::from_rgb8(t.color[0], t.color[1], t.color[2]))),
+                    border: iced::Border { color: Color::from_rgb8(60, 60, 60), width: 1.0, radius: 2.0.into() },
                     ..Default::default()
                 });
 
@@ -2196,100 +2230,51 @@ impl App {
                 format!("{:.0}м", t.cached_distance_m)
             };
 
-            let name_text = if selected {
-                format!("● {}", t.name)
-            } else {
-                t.name.clone()
-            };
+            let name_text = if selected { format!("● {}", t.name) } else { t.name.clone() };
 
             let r = row![
                 sel_dot,
-                checkbox(t.visible)
-                    .on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
+                checkbox(t.visible).on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
                 color_box,
                 container(
                     tooltip(
-                        button(
-                            text(name_text).wrapping(iced::widget::text::Wrapping::None)
-                        )
-                        .on_press(Message::SelectTrack(t.id))
-                        .width(Length::Fill)
-                        .padding(0),
-                        // Вот наш новый блок подсказки:
-                        container(text(t.name.clone()))
-                            .padding([2, 6])
-                            .style(|_| container::Style {
-                                background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
-                                text_color: Some(Color::WHITE),
-                                border: iced::Border {
-                                    color: Color::from_rgb(0.4, 0.4, 0.4),
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
-                                ..Default::default()
-                            }),
+                        button(text(name_text).wrapping(iced::widget::text::Wrapping::None))
+                            .on_press(Message::SelectTrack(t.id)).width(Length::Fill).padding(0),
+                        container(text(t.name.clone())).padding([2, 6]).style(|_| container::Style {
+                            background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
+                            text_color: Some(Color::WHITE),
+                            border: iced::Border { color: Color::from_rgb(0.4, 0.4, 0.4), width: 1.0, radius: 4.0.into() },
+                            ..Default::default()
+                        }),
                         tooltip::Position::Bottom,
                     )
-                )
-                .width(Length::Fill)
-                .clip(true),
-                container(text(t.cached_points.to_string()).size(12))
-                    .width(Length::Fixed(50.0))
-                    .align_x(Alignment::End),
-                container(text(dist).size(12))
-                    .width(Length::Fixed(70.0))
-                    .align_x(Alignment::End),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center);
-            
+                ).width(Length::Fill).clip(true),
+                container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
+                container(text(dist).size(12)).width(Length::Fixed(70.0)).align_x(Alignment::End),
+            ].spacing(4).align_y(Alignment::Center);
+
             list = list.push(r);
         }
 
         let has_tracks = !self.selection.tracks.is_empty();
-        let has_wps = !self.selection.waypoints.is_empty();
         let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
 
-        let btn_props = if one_track {
-            button(text("⚙")).on_press(Message::OpenTrackProps(selected_id.unwrap()))
-        } else {
-            button(text("⚙"))
-        };
+        // Создаем два варианта нижней панели
+        let row_normal = row![
+            if one_track { button(text("⚙")).on_press(Message::OpenTrackProps(selected_id.unwrap())) } else { button(text("⚙")) },
+            if has_tracks { button(text("🗑")).on_press(Message::DeleteSelectedTracks) } else { button(text("🗑")) },
+            button(text("💾")).on_press(Message::ToggleTrackSaveMenu)
+        ].spacing(4).align_y(Alignment::Center);
 
-        let btn_del = if has_tracks {
-            button(text("🗑")).on_press(Message::DeleteSelectedTracks)
-        } else {
-            button(text("🗑"))
-        };
+        let row_save = row![
+            button(text("PLT")).on_press(Message::SaveTracksPlt),
+            button(text("GPX")).on_press(Message::SaveTracksGpx),
+            button(text("MS")).on_press(Message::SaveTracksMs),
+            button(text("✖")).on_press(Message::ToggleTrackSaveMenu)
+        ].spacing(4).align_y(Alignment::Center);
 
-        let btn_plt = if has_tracks && !has_wps {
-            button(text("PLT")).on_press(Message::SaveTracksPlt)
-        } else {
-            button(text("PLT"))
-        };
-
-        let btn_gpx = if has_tracks || has_wps {
-            button(text("GPX")).on_press(Message::SaveTracksGpx)
-        } else {
-            button(text("GPX"))
-        };
-
-        let btn_ms = if has_tracks || has_wps {
-            button(text("MS")).on_press(Message::SaveTracksMs)
-        } else {
-            button(text("MS"))
-        };
-
-        let bottom_bar = row![
-            btn_props,
-            btn_del,
-            btn_plt,
-            btn_gpx,
-            btn_ms,
-        ]
-        .spacing(4)
-        .align_y(Alignment::Center);
+        let bottom_bar = if self.show_track_save_menu { row_save } else { row_normal };
 
         column![
             header,
@@ -2297,20 +2282,14 @@ impl App {
             container(cols).padding(2),
             container(scrollable(list).height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .height(Length::FillPortion(1))
-        .into()
+        ].spacing(4).width(Length::Fill).height(Length::FillPortion(1)).into()
     }
 
     fn view_waypoints_section(&self) -> Element<'_, Message> {
         let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
-        
-       // let all_visible = self.waypoints.iter().all(|w| w.visible);
+
         let top_bar = row![
-            button(text("👁"))
-                .on_press(Message::ToggleAllWaypointsVisible),
+            button(text("👁")).on_press(Message::ToggleAllWaypointsVisible),
             iced::widget::text_input("Поиск точек...", &self.search_waypoints)
                 .on_input(Message::SearchWaypointsChanged)
                 .padding(4)
@@ -2323,9 +2302,7 @@ impl App {
             Space::new().width(24.0),
             Space::new().width(14.0),
             container(text("Имя").size(11)).width(Length::Fill),
-            container(text("Координаты").size(11))
-                .width(Length::Fixed(120.0))
-                .align_x(Alignment::End),
+            container(text("Координаты").size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
         ]
         .spacing(4);
 
@@ -2333,120 +2310,57 @@ impl App {
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
 
         for w in &self.waypoints {
-            if !query.is_empty() && !w.name.to_lowercase().contains(&query) {
-                continue;
-            }
+            if !query.is_empty() && !w.name.to_lowercase().contains(&query) { continue; }
 
             let selected = self.selection.waypoints.contains(&w.id);
-            let sel_dot = container(
-                text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)
-            ).width(16);
-
-            let icon = container(
-                text("●")
-                    .size(11)
-                    .color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2])),
-            ).width(14);
-            
+            let sel_dot = container(text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)).width(16);
+            let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
             let coord = coord::format_pair(w.lat, w.lon, self.format);
 
             let r = row![
                 sel_dot,
-                checkbox(w.visible)
-                    .on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
+                checkbox(w.visible).on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
                 icon,
                 container(
                     tooltip(
-                        button(
-                            text(w.name.clone()).wrapping(iced::widget::text::Wrapping::None)
-                        )
-                        .on_press(Message::SelectWaypoint(w.id))
-                        .width(Length::Fill)
-                        .padding(0),
-                        // Блок подсказки:
-                        container(text(w.name.clone()))
-                            .padding([2, 6])
-                            .style(|_| container::Style {
-                                background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
-                                text_color: Some(Color::WHITE),
-                                border: iced::Border {
-                                    color: Color::from_rgb(0.4, 0.4, 0.4),
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
-                                ..Default::default()
-                            }),
+                        button(text(w.name.clone()).wrapping(iced::widget::text::Wrapping::None))
+                            .on_press(Message::SelectWaypoint(w.id)).width(Length::Fill).padding(0),
+                        container(text(w.name.clone())).padding([2, 6]).style(|_| container::Style {
+                            background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
+                            text_color: Some(Color::WHITE),
+                            border: iced::Border { color: Color::from_rgb(0.4, 0.4, 0.4), width: 1.0, radius: 4.0.into() },
+                            ..Default::default()
+                        }),
                         tooltip::Position::Bottom,
                     )
-                )
-                .width(Length::Fill)
-                .clip(true),
-                container(text(coord).size(11).font(iced::Font::MONOSPACE))
-                    .width(Length::Fixed(120.0))
-                    .align_x(Alignment::End),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center);
+                ).width(Length::Fill).clip(true),
+                container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
+            ].spacing(4).align_y(Alignment::Center);
             
             list = list.push(r);
         }
 
         let has_wps = !self.selection.waypoints.is_empty();
-        let has_tracks = !self.selection.tracks.is_empty();
-
         let one_wp = self.selection.waypoints.len() == 1;
         let selected_id = self.selection.waypoints.iter().next().copied();
 
-        let btn_props = if one_wp {
-            button(text("⚙")).on_press(Message::OpenWaypointProps(selected_id.unwrap()))
-        } else {
-            button(text("⚙"))
-        };
+        // Создаем два варианта нижней панели
+        let row_normal = row![
+            button(text("➕")).on_press(Message::AddNewWaypoint),
+            if one_wp { button(text("⚙")).on_press(Message::OpenWaypointProps(selected_id.unwrap())) } else { button(text("⚙")) },
+            if has_wps { button(text("🗑")).on_press(Message::DeleteSelectedWaypoints) } else { button(text("🗑")) },
+            button(text("💾")).on_press(Message::ToggleWpSaveMenu)
+        ].spacing(4).align_y(Alignment::Center);
 
-        let btn_del = if has_wps {
-            button(text("🗑")).on_press(Message::DeleteSelectedWaypoints)
-        } else {
-            button(text("🗑"))
-        };
+        let row_save = row![
+            button(text("WPT")).on_press(Message::SaveWaypointsWptNew),
+            button(text("WPT+")).on_press(Message::SaveWaypointsWptAppend),
+            button(text("GPX")).on_press(Message::SaveTracksGpx),
+            button(text("MS")).on_press(Message::SaveTracksMs),
+            button(text("✖")).on_press(Message::ToggleWpSaveMenu)
+        ].spacing(4).align_y(Alignment::Center);
 
-        let wpt_enabled = has_wps && !has_tracks;
-
-        let btn_wpt_new = if wpt_enabled {
-            button(text("WPT")).on_press(Message::SaveWaypointsWptNew)
-        } else {
-            button(text("WPT"))
-        };
-
-        let btn_wpt_append = if wpt_enabled {
-            button(text("WPT+")).on_press(Message::SaveWaypointsWptAppend)
-        } else {
-            button(text("WPT+"))
-        };
-
-        let mixed_enabled = has_wps || has_tracks;
-
-        let btn_gpx = if mixed_enabled {
-            button(text("GPX")).on_press(Message::SaveTracksGpx)
-        } else {
-            button(text("GPX"))
-        };
-
-        let btn_ms = if mixed_enabled {
-            button(text("MS")).on_press(Message::SaveTracksMs)
-        } else {
-            button(text("MS"))
-        };
-
-        let bottom_bar = row![
-            btn_props,
-            btn_del,
-            btn_wpt_new,
-            btn_wpt_append,
-            btn_gpx,
-            btn_ms,
-        ]
-        .spacing(4)
-        .align_y(Alignment::Center);
+        let bottom_bar = if self.show_wp_save_menu { row_save } else { row_normal };
 
         column![
             header,
@@ -2454,12 +2368,9 @@ impl App {
             container(cols).padding(2),
             container(scrollable(list).height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .height(Length::FillPortion(1))
-        .into()
+        ].spacing(4).width(Length::Fill).height(Length::FillPortion(1)).into()
     }
+    
     fn view_track_props_modal<'a>(&'a self, _id: u64, draft: &'a document::TrackProps) -> Element<'a, Message> {
         let callsigns = vec![
             "Lisa".to_string(), "Veter".to_string(), "Kinolog".to_string(), 
