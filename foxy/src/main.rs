@@ -1028,7 +1028,37 @@ impl App {
 
         (app, task)
     }
+    /// Кнопка с SVG-иконкой, которая перекрашивается под тему
+    fn icon_button<'a>(&'a self, icon: &'static [u8], msg: Message) -> iced::widget::Button<'a, Message> {
+        button(lucide_iced::themed_icon(icon, 16.0))
+            .padding(native_theme_iced::button_padding(&self.resolved_theme))
+            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .on_press(msg)
+    }
 
+    /// То же самое, но без действия (для неактивных кнопок)
+    fn icon_button_disabled<'a>(&'a self, icon: &'static [u8]) -> iced::widget::Button<'a, Message> {
+        button(lucide_iced::themed_icon(icon, 16.0))
+            .padding(native_theme_iced::button_padding(&self.resolved_theme))
+            .style(native_theme_iced::styles::button(&self.resolved_theme))
+    }
+
+    /// Кнопка-переключатель видимости (глаз)
+    fn visibility_button<'a>(&'a self, is_visible: bool, msg: Message) -> iced::widget::Button<'a, Message> {
+        let icon = if is_visible {
+            lucide_iced::bytes::EYE
+        } else {
+            lucide_iced::bytes::EYE_CLOSED
+        };
+
+        button(lucide_iced::themed_icon(icon, 16.0))
+            .width(16)   // Фиксированная ширина, чтобы колонки не прыгали
+            .height(16)
+            .padding(0)
+            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .on_press(msg)
+    }
+    
     fn fit_to_layer(&mut self, idx: usize) {
         let Some(l) = self.layers.get(idx) else { return };
         let base_idx = l.levels.first().map(|t| t.0).unwrap_or(0);
@@ -2233,8 +2263,8 @@ impl App {
         };
 
         row![
-            self.btn("Открыть").on_press(Message::PickKit),
-            self.btn("Открыть трек").on_press(Message::PickTrack),
+            self.btn("Карты").on_press(Message::PickKit),
+            self.btn("Данные").on_press(Message::PickTrack),
             text("|"),
             text(source_label).size(13),
             text("|"),
@@ -2299,7 +2329,7 @@ impl App {
         let kit_name = self.layers.first().map(|l| l.kit_name.as_str()).unwrap_or("");
         
         let header = row![
-            text(format!("Maps ({})", self.layers.len() + 1)).size(14),
+            text(format!("Карты ({})", self.layers.len() + 1)).size(14),
             Space::new().width(Length::Fill),
             if !kit_name.is_empty() {
                 text(kit_name).size(11).color(Color::from_rgb(0.6, 0.6, 0.6))
@@ -2321,7 +2351,7 @@ impl App {
         // Карта OSM
         let osm_idx = self.layers.len();
         list = list.push(
-            self.list_item("OSM (HOT)", self.osm_active(), Message::Layer(osm_idx))
+            self.list_item("Openstreetmap (HOT)", self.osm_active(), Message::Layer(osm_idx))
         );
 
         column![
@@ -2334,20 +2364,19 @@ impl App {
     }
 
     fn view_tracks_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
+        let header = text(format!("Треки ({})", self.tracks.len())).size(14);
 
         let top_bar = row![
-            self.btn_secondary("👁").on_press(Message::ToggleAllTracksVisible),
-            iced::widget::text_input("Поиск треков...", &self.search_tracks)
-                .padding(native_theme_iced::input_padding(&self.resolved_theme)) // <-- Системный отступ
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme)) // <-- Системный стиль
+            self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllTracksVisible),
+            text_input("Поиск треков...", &self.search_tracks)
+                .padding(native_theme_iced::input_padding(&self.resolved_theme))
+                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
                 .on_input(Message::SearchTracksChanged)
                 .size(12),
         ]
         .spacing(4);
 
         let cols = row![
-            //Space::new().width(16.0),
             Space::new().width(24.0),
             Space::new().width(16.0),
             container(text("Имя").size(11)).width(Length::Fill),
@@ -2360,16 +2389,24 @@ impl App {
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
 
         for t in &self.tracks {
-            if !query.is_empty() && !t.name.to_lowercase().contains(&query) { continue; }
+            if !query.is_empty() && !t.name.to_lowercase().contains(&query) {
+                continue;
+            }
 
             let selected = self.selection.tracks.contains(&t.id);
-            //let sel_dot = container(text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)).width(16);
 
             let color_box = container(text(""))
-                .width(12).height(12)
+                .width(12)
+                .height(12)
                 .style(move |_| container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb8(t.color[0], t.color[1], t.color[2]))),
-                    border: iced::Border { color: Color::from_rgb8(60, 60, 60), width: 1.0, radius: 2.0.into() },
+                    background: Some(iced::Background::Color(Color::from_rgb8(
+                        t.color[0], t.color[1], t.color[2],
+                    ))),
+                    border: iced::Border {
+                        color: Color::from_rgb8(60, 60, 60),
+                        width: 1.0,
+                        radius: 2.0.into(),
+                    },
                     ..Default::default()
                 });
 
@@ -2379,10 +2416,8 @@ impl App {
                 format!("{:.0}м", t.cached_distance_m)
             };
 
-
             let r = row![
-                //sel_dot,
-                checkbox(t.visible).on_toggle(move |v| Message::ToggleTrackVisible(t.id, v)),
+                self.visibility_button(t.visible, Message::ToggleTrackVisible(t.id, !t.visible)),
                 color_box,
                 container(
                     tooltip(
@@ -2407,28 +2442,49 @@ impl App {
                 ).width(Length::Fill).clip(true),
                 container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
                 container(text(dist).size(12)).width(Length::Fixed(70.0)).align_x(Alignment::End),
-            ].spacing(4).align_y(Alignment::Center);
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center);
 
             list = list.push(r);
         }
 
         let has_tracks = !self.selection.tracks.is_empty();
-        let one_track = self.selection.tracks.len() == 1;
         let has_wps = !self.selection.waypoints.is_empty();
+        let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
 
-        // Создаем два варианта нижней панели
         let row_normal = row![
-            if one_track { self.btn_secondary("⚙").on_press(Message::OpenTrackProps(selected_id.unwrap())) } else { self.btn_secondary("⚙") },
-            if has_tracks { self.btn_secondary("🗑").on_press(Message::DeleteSelectedTracks) } else { self.btn_secondary("🗑") },
-            self.btn_secondary("💾").on_press(Message::ToggleTrackSaveMenu)
+            if one_track { 
+                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap())) 
+            } else { 
+                self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
+            },
+            if has_tracks { 
+                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks) 
+            } else { 
+                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
+            },
+            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
 
         let row_save = row![
-            if has_tracks && !has_wps { self.btn_secondary("PLT").on_press(Message::SaveTracksPlt) } else { self.btn_secondary("PLT") },
-            if has_tracks || has_wps { self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) } else { self.btn_secondary("GPX") },
-            if has_tracks || has_wps { self.btn_secondary("MS").on_press(Message::SaveTracksMs) } else { self.btn_secondary("MS") },
-            self.btn_secondary("✖").on_press(Message::ToggleTrackSaveMenu)
+            if has_tracks && !has_wps { 
+                self.btn_secondary("PLT").on_press(Message::SaveTracksPlt) 
+            } else { 
+                self.btn_secondary("PLT") 
+            },
+            if has_tracks || has_wps { 
+                self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) 
+            } else { 
+                self.btn_secondary("GPX") 
+            },
+            if has_tracks || has_wps { 
+                self.btn_secondary("MS").on_press(Message::SaveTracksMs) 
+            } else { 
+                self.btn_secondary("MS") 
+            },
+            self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
 
         let bottom_bar = if self.show_track_save_menu { row_save } else { row_normal };
@@ -2439,15 +2495,19 @@ impl App {
             container(cols).padding(2),
             container(scrollable(list).height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
-        ].spacing(4).width(Length::Fill).height(Length::FillPortion(1)).into()
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .height(Length::FillPortion(1))
+        .into()
     }
 
     fn view_waypoints_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
+        let header = text(format!("Точки ({})", self.waypoints.len())).size(14);
 
         let top_bar = row![
-            self.btn_secondary("👁").on_press(Message::ToggleAllWaypointsVisible),
-            iced::widget::text_input("Поиск точек...", &self.search_waypoints)
+            self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllWaypointsVisible),
+            text_input("Поиск точек...", &self.search_waypoints)
                 .padding(native_theme_iced::input_padding(&self.resolved_theme))
                 .style(native_theme_iced::styles::text_input(&self.resolved_theme))
                 .on_input(Message::SearchWaypointsChanged)
@@ -2456,7 +2516,6 @@ impl App {
         .spacing(4);
 
         let cols = row![
-            //Space::new().width(16.0),
             Space::new().width(24.0),
             Space::new().width(14.0),
             container(text("Имя").size(11)).width(Length::Fill),
@@ -2468,18 +2527,18 @@ impl App {
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
 
         for w in &self.waypoints {
-            if !query.is_empty() && !w.name.to_lowercase().contains(&query) { continue; }
+            if !query.is_empty() && !w.name.to_lowercase().contains(&query) {
+                continue;
+            }
 
             let selected = self.selection.waypoints.contains(&w.id);
-            //let sel_dot = container(text(if selected { "●" } else { "" }).size(12).color(Color::WHITE)).width(16);
             let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
             let coord = coord::format_pair(w.lat, w.lon, self.format);
 
             let r = row![
-                //sel_dot,
-                checkbox(w.visible).on_toggle(move |v| Message::ToggleWaypointVisible(w.id, v)),
+                self.visibility_button(w.visible, Message::ToggleWaypointVisible(w.id, !w.visible)),
                 icon,
-                 container(
+                container(
                     tooltip(
                         self.list_item(&w.name, selected, Message::SelectWaypoint(w.id)),
                         container(text(w.name.clone()))
@@ -2501,30 +2560,55 @@ impl App {
                     )
                 ).width(Length::Fill).clip(true),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
-            ].spacing(4).align_y(Alignment::Center);
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center);
             
             list = list.push(r);
         }
 
         let has_wps = !self.selection.waypoints.is_empty();
+        let has_tracks = !self.selection.tracks.is_empty();
         let one_wp = self.selection.waypoints.len() == 1;
-        let has_tracks = !self.selection.tracks.is_empty(); // <-- ДОБАВИТЬ ЭТО
         let selected_id = self.selection.waypoints.iter().next().copied();
 
-        // Создаем два варианта нижней панели
         let row_normal = row![
-            self.btn_secondary("➕").on_press(Message::AddNewWaypoint),
-            if one_wp { self.btn_secondary("⚙").on_press(Message::OpenWaypointProps(selected_id.unwrap())) } else { self.btn_secondary("⚙") },
-            if has_wps { self.btn_secondary("🗑").on_press(Message::DeleteSelectedWaypoints) } else { self.btn_secondary("🗑") },
-            self.btn_secondary("💾").on_press(Message::ToggleWpSaveMenu)
+            self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
+            if one_wp { 
+                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenWaypointProps(selected_id.unwrap())) 
+            } else { 
+                self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
+            },
+            if has_wps { 
+                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedWaypoints) 
+            } else { 
+                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
+            },
+            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
 
         let row_save = row![
-            if has_wps && !has_tracks { self.btn_secondary("WPT").on_press(Message::SaveWaypointsWptNew) } else { self.btn_secondary("WPT") },
-            if has_wps && !has_tracks { self.btn_secondary("WPT+").on_press(Message::SaveWaypointsWptAppend) } else { self.btn_secondary("WPT+") },
-            if has_wps || has_tracks { self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) } else { self.btn_secondary("GPX") },
-            if has_wps || has_tracks { self.btn_secondary("MS").on_press(Message::SaveTracksMs) } else { self.btn_secondary("MS") },
-            self.btn_secondary("✖").on_press(Message::ToggleWpSaveMenu)
+            if has_wps && !has_tracks { 
+                self.btn_secondary("WPT").on_press(Message::SaveWaypointsWptNew) 
+            } else { 
+                self.btn_secondary("WPT") 
+            },
+            if has_wps && !has_tracks { 
+                self.btn_secondary("WPT+").on_press(Message::SaveWaypointsWptAppend) 
+            } else { 
+                self.btn_secondary("WPT+") 
+            },
+            if has_wps || has_tracks { 
+                self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) 
+            } else { 
+                self.btn_secondary("GPX") 
+            },
+            if has_wps || has_tracks { 
+                self.btn_secondary("MS").on_press(Message::SaveTracksMs) 
+            } else { 
+                self.btn_secondary("MS") 
+            },
+            self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
 
         let bottom_bar = if self.show_wp_save_menu { row_save } else { row_normal };
@@ -2535,7 +2619,11 @@ impl App {
             container(cols).padding(2),
             container(scrollable(list).height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
-        ].spacing(4).width(Length::Fill).height(Length::FillPortion(1)).into()
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .height(Length::FillPortion(1))
+        .into()
     }
     
     fn view_track_props_modal<'a>(&'a self, _id: u64, draft: &'a document::TrackProps) -> Element<'a, Message> {
@@ -2593,7 +2681,16 @@ impl App {
         for &c in &self.palette {
             color_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
         }
-        color_btns.push(button(text("↓")).width(24).height(24).on_press(Message::ToggleColorPicker).into());
+        // СТАЛО:
+        color_btns.push(
+            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
+                .width(24)
+                .height(24)
+                .padding(0) // Убираем лишние отступы, чтобы иконка была по центру
+                .on_press(Message::ToggleColorPicker)
+                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .into()
+        );
         let color_row = row(color_btns).spacing(2);
 
         let mut fill_color_btns: Vec<Element<'a, Message>> = Vec::new();
@@ -2640,7 +2737,7 @@ impl App {
             text("Свойства трека").size(20),
             
             row![
-                text("Description:").width(120),
+                text("Описание:").width(120),
                 text_input("Введите описание...", &draft.description)
                     .on_input(Message::DraftDescChanged).width(280)
                     .padding(input_pad).style(input_style.clone())
@@ -2666,21 +2763,21 @@ impl App {
                 extra_fields
             ].align_y(Alignment::Center).spacing(4),
 
-            row![text("Line Color:").width(120), color_row].align_y(Alignment::Center),
+            row![text("Цвет трека:").width(120), color_row].align_y(Alignment::Center),
             color_picker_ui,
 
             row![
-                text("Width:").width(120),
+                text("Толщина:").width(120),
                 text_input("", &draft.line_width.to_string())
                     .on_input(Message::DraftWidthChanged).width(50)
                     .padding(input_pad).style(input_style.clone()),
-                container(text("Line Style:")).padding([0, 10]),
+                container(text("Стиль:")).padding([0, 10]),
                 pick_list(line_styles, Some(draft.line_style.clone()), Message::DraftStyleChanged)
                     .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
 
             row![
-                text("Type:").width(120),
+                text("Тип:").width(120),
                 pick_list(poly_types, Some(draft.poly_type.clone()), Message::DraftTypeChanged)
                     .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
