@@ -1,5 +1,5 @@
 use iced::widget::{
-    column, container, row, scrollable, text, text_input, tooltip, Space,
+    column, container, row, scrollable, text, pick_list, text_input, tooltip, Space,
 };
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::{App, Message};
@@ -147,6 +147,18 @@ impl App {
         let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
         
+        // Создаем список пресетов для допуска
+        let tolerances = vec![1.0, 2.0, 3.0, 4.0, 5.0, 7.5, 10.0];
+        let tol_options: Vec<String> = tolerances.iter().map(|t| format!("{:.1} м", t)).collect();
+        let current_tol = format!("{:.1} м", self.simplify_tolerance);
+        
+        let tol_picker = pick_list(tol_options, Some(current_tol), move |s: String| {
+            let val = s.trim_end_matches(" м").parse::<f64>().unwrap_or(2.0);
+            Message::ChangeSimplifyTolerance(val)
+        })
+        .padding(native_theme_iced::button_padding(&self.resolved_theme))
+        .style(native_theme_iced::styles::pick_list(&self.resolved_theme));
+        
         let row_normal = row![
             if one_track { 
                 self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap())) 
@@ -158,6 +170,12 @@ impl App {
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::TRASH) 
             },
+            if has_tracks {
+                self.icon_button(lucide_iced::bytes::FUNNEL, Message::SimplifyTracks)
+            } else {
+                self.icon_button_disabled(lucide_iced::bytes::FUNNEL)
+            },
+            tol_picker, // <-- ДОБАВИТЬ СЮДА
             self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
         
