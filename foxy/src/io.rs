@@ -1,64 +1,7 @@
 #![allow(dead_code)]
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
+use std::path::Path;
+use crate::domain::{Track, TrackPoint, TrackSegment, Waypoint, FileSource, TrackProps, PolyType, FillType, recompute_track_stats};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrackPoint {
-    pub lon: f64,
-    pub lat: f64,
-    pub ele: Option<f64>,
-    pub time: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrackSegment {
-    pub points: Vec<TrackPoint>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum FileSource {
-    File { path: PathBuf, read_only: bool },
-    New,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Track {
-    pub id: u64,
-    pub name: String,
-    pub color: [u8; 3],
-    pub visible: bool,
-    pub segments: Vec<TrackSegment>,
-    pub source: FileSource,
-
-    // Кэш статистики для правой панели
-    #[serde(skip)]
-    pub cached_points: usize,
-    #[serde(skip)]
-    pub cached_distance_m: f64,
-    #[serde(default)]
-    pub props: TrackProps,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Waypoint {
-    pub id: u64,
-    pub name: String,
-    pub lon: f64,
-    pub lat: f64,
-    pub ele: Option<f64>,
-    pub time: Option<f64>,
-    pub symbol: Option<String>,
-    pub description: Option<String>,
-    pub visible: bool,
-    pub source: FileSource,
-    #[serde(default = "default_text_color")]
-    pub text_color: [u8; 3],
-    #[serde(default = "default_bg_color")]
-    pub bg_color: [u8; 3],
-}
-
-fn default_text_color() -> [u8; 3] { [0, 0, 0] }
-fn default_bg_color() -> [u8; 3] { [0, 255, 255] }
 
 pub struct LoadedContent {
     pub tracks: Vec<Track>,
@@ -66,54 +9,7 @@ pub struct LoadedContent {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum LineStyle { Solid, Dash, Dot, DashDot, DashDotDot }
-impl Default for LineStyle { fn default() -> Self { Self::Solid } }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum PolyType { Line, Polygon }
-impl Default for PolyType { fn default() -> Self { Self::Line } }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum FillType { None, Diagonal1, Diagonal2, CrossHatch, Solid }
-impl Default for FillType { fn default() -> Self { Self::None } }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrackProps {
-    pub description: String,
-    pub line_color: [u8; 3],
-    pub line_width: f32,
-    pub line_style: LineStyle,
-    pub poly_type: PolyType,
-    pub fill_color: [u8; 3],
-    pub fill_type: FillType,
-    
-    // Метаданные для именования
-    pub date_str: String,  // "YYYY-MM-DD"
-    pub callsign: String,
-    pub num1: u32,
-    pub num2: Option<u32>,
-    pub suffix: String,
-}
-
-impl Default for TrackProps {
-    fn default() -> Self {
-        Self {
-            description: String::new(),
-            line_color: [255, 0, 0],
-            line_width: 2.0,
-            line_style: LineStyle::Solid,
-            poly_type: PolyType::Line,
-            fill_color: [0, 128, 0],
-            fill_type: FillType::None,
-            date_str: String::new(),
-            callsign: "Lisa".into(),
-            num1: 1,
-            num2: None,
-            suffix: String::new(),
-        }
-    }
-}
 
 fn next_color(idx: usize) -> [u8; 3] {
     const PALETTE: [[u8; 3]; 8] = [
@@ -163,27 +59,6 @@ fn rgb_to_ozi(c: [u8; 3]) -> u32 {
     (c[0] as u32) | ((c[1] as u32) << 8) | ((c[2] as u32) << 16)
 }
 
-fn haversine_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    const R: f64 = 6_371_000.0;
-    let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
-    let dp = (lat2 - lat1).to_radians();
-    let dl = (lon2 - lon1).to_radians();
-    let a = (dp / 2.0).sin().powi(2) + p1.cos() * p2.cos() * (dl / 2.0).sin().powi(2);
-    2.0 * R * a.sqrt().asin()
-}
-
-pub fn recompute_track_stats(track: &mut Track) {
-    let mut points = 0usize;
-    let mut dist = 0.0f64;
-    for seg in &track.segments {
-        points += seg.points.len();
-        for w in seg.points.windows(2) {
-            dist += haversine_m(w[0].lat, w[0].lon, w[1].lat, w[1].lon);
-        }
-    }
-    track.cached_points = points;
-    track.cached_distance_m = dist;
-}
 
 
 pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, String> {
@@ -436,14 +311,4 @@ pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
         "ms" => save_ms(tracks, waypoints, path),
         _ => Err(format!("Формат {} не поддерживается для сохранения", ext)),
     }
-}
-
-impl std::fmt::Display for LineStyle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
-}
-impl std::fmt::Display for PolyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
-}
-impl std::fmt::Display for FillType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
 }

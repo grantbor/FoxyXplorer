@@ -1,41 +1,41 @@
-mod document;
+mod canvas;
+mod domain;
+mod io;
 mod osm;
-mod util;    
-mod widgets; 
+mod session;
+mod ui;
+mod util;
+mod widgets;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use coord::{format_pair, CoordFormat};
 use iced::mouse::ScrollDelta;
-use iced::widget::canvas::{self, Cache, Canvas, Geometry, Path as CanvasPath, Stroke};
-use iced::widget::image::Handle as ImageHandle;
-use iced::widget::tooltip;
+use iced::widget::canvas::{Cache, Canvas};
+use iced::widget::image::Handle as ImageHandle; // <-- если ImageHandle ещё используется в App
+// use iced::widget::tooltip;
 
 use std::collections::{HashMap, HashSet};
 
 use iced::widget::{
-    button, column, container, mouse_area, pick_list, row, scrollable, stack, text,
-    text_input, Space,
+    column, container, mouse_area, row, stack, text,
 };
 use iced::{
-    Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
+    Color, Element, Length, Point, Size, Task,
 };
 
 use iced::keyboard::Modifiers;
 use iced::Subscription;
-use serde::{Deserialize, Serialize};
 
 use native_theme_iced::ResolvedTheme; 
 
 use util::geo::{merc_of, lonlat_of, affine};
 use util::coords::{today, date_offset, build_template, parse_coords};
-use widgets::palette::{load_palette, get_extended_palette};
+use widgets::palette::load_palette;
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
-const BG: [u8; 4] = [38, 38, 42, 255];
 
 
 #[derive(Default)]
@@ -45,7 +45,7 @@ struct Selection {
 }
 
 
-struct Layer {
+pub(crate) struct Layer {
     name: String,
     kit_name: String,
     ozf: RefCell<ozf::Ozf>,
@@ -271,7 +271,7 @@ fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), 
 }
 
 #[derive(Debug, Clone)]
-enum Message {
+pub(crate) enum Message {
     Layer(usize),
     ToggleGrid,
     ToggleLabels,
@@ -321,10 +321,10 @@ enum Message {
     DraftDescChanged(String),
     DraftColorChanged([u8; 3]),
     DraftWidthChanged(String),
-    DraftStyleChanged(document::LineStyle),
-    DraftTypeChanged(document::PolyType),
+    DraftStyleChanged(domain::LineStyle),
+    DraftTypeChanged(domain::PolyType),
     DraftFillColorChanged([u8; 3]),
-    DraftFillTypeChanged(document::FillType),
+    DraftFillTypeChanged(domain::FillType),
     
     DraftCallsignChanged(String),
     DraftNum1Changed(String),
@@ -358,37 +358,6 @@ enum Message {
     None,
 }
 
-#[derive(Serialize, Deserialize)]
-struct SessionView {
-    cx: f64,
-    cy: f64,
-    scale: f64,
-    active: usize,
-    show_grid: bool,
-    show_labels: bool,
-    format_str: String, // "Decimal", "DegMin", "DegMinSec"
-    //decl_offset: f64,
-    window_size: Option<(f32, f32)>,
-    window_pos: Option<(f32, f32)>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Session {
-    version: u32,
-    last_kit: Option<PathBuf>,
-    view: SessionView,
-    tracks: Vec<document::Track>,
-    waypoints: Vec<document::Waypoint>,
-    next_id: u64,
-}
-
-fn session_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("foxy")
-        .join("session.json")
-}
-
 fn save_session(app: &App) {
     let format_str = match app.format {
         CoordFormat::Decimal => "Decimal",
@@ -396,10 +365,10 @@ fn save_session(app: &App) {
         CoordFormat::DegMinSec => "DegMinSec",
     }.to_string();
 
-    let session = Session {
+    let sess = session::Session {
         version: 1,
         last_kit: app.last_kit.clone(),
-        view: SessionView {
+        view: session::SessionView {
             cx: app.cx,
             cy: app.cy,
             scale: app.scale,
@@ -407,8 +376,6 @@ fn save_session(app: &App) {
             show_grid: app.show_grid,
             show_labels: app.show_labels,
             format_str,
-            //decl_offset: app.decl_offset,
-            // ДОБАВЛЕНЫ ЭТИ ДВЕ СТРОКИ:
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
         },
@@ -417,30 +384,10 @@ fn save_session(app: &App) {
         next_id: app.next_id,
     };
 
-    match serde_json::to_string_pretty(&session) {
-        Ok(json) => {
-            let path = session_path();
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(&path, json);
-        }
-        Err(_) => {}
-    }
+    session::write_session(&sess);
 }
 
-fn load_session() -> Option<Session> {
-    let path = session_path();
-    let content = std::fs::read_to_string(path).ok()?;
-    let session: Session = serde_json::from_str(&content).ok()?;
-    if session.version == 1 {
-        Some(session)
-    } else {
-        None
-    }
-}
-
-struct App {
+pub(crate) struct App {
     layers: Vec<Layer>,
     active: usize, // 0..=layers.len(); == layers.len() означает OSM
     grid: Option<grid::Grid>,
@@ -465,8 +412,8 @@ struct App {
     osm_cache: osm::OsmCache,
     osm_client: reqwest::Client,
     osm_z: u8,
-    tracks: Vec<document::Track>,
-    waypoints: Vec<document::Waypoint>,
+    tracks: Vec<domain::Track>,
+    waypoints: Vec<domain::Waypoint>,
     next_id: u64,
     tracks_cache: Cache,
     selection: Selection,
@@ -478,14 +425,14 @@ struct App {
     last_kit: Option<PathBuf>, 
     palette: Vec<[u8; 3]>,
     modal: Option<Modal>,
-    track_backup: Option<document::Track>, 
+    track_backup: Option<domain::Track>, 
     last_track_click: Option<(u64, std::time::Instant)>,
     show_color_picker: bool,
     window_size: Size,
     window_pos: Point,
     right_panel_width: f32,
     resizing_panel: bool,
-    waypoint_backup: Option<document::Waypoint>,
+    waypoint_backup: Option<domain::Waypoint>,
     last_waypoint_click: Option<(u64, std::time::Instant)>,
     show_track_save_menu: bool,
     show_wp_save_menu: bool,
@@ -493,134 +440,19 @@ struct App {
     resolved_theme: ResolvedTheme, 
 }
 enum Modal {
-    TrackProps { track_id: u64, draft: document::TrackProps },
+    TrackProps { track_id: u64, draft: domain::TrackProps },
     WaypointProps { 
         waypoint_id: u64, 
-        draft: document::Waypoint,
+        draft: domain::Waypoint,
         coord_input: String,
         is_new: bool, // <-- ДОБАВИТЬ
     },
 }
 
-fn foxy_config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("foxy")
-}
-
-fn last_kit_path() -> PathBuf {
-    foxy_config_dir().join("last_kit")
-}
-
-fn load_last_kit() -> Option<PathBuf> {
-    std::fs::read_to_string(last_kit_path())
-        .ok()
-        .map(|s| PathBuf::from(s.trim()))
-        .filter(|p| p.is_dir())
-}
-
-fn save_last_kit(path: &Path) {
-    let _ = std::fs::create_dir_all(foxy_config_dir());
-    let _ = std::fs::write(last_kit_path(), path.to_string_lossy().as_bytes());
-}
-
-
 impl App {
-    fn osm_active(&self) -> bool {
+    pub(crate) fn osm_active(&self) -> bool {
         self.active >= self.layers.len()
     }
-    fn view_waypoint_props_modal<'a>(
-        &'a self, 
-        _id: u64, 
-        draft: &'a document::Waypoint,
-        coord_input: &'a str,
-    ) -> Element<'a, Message> {
-        let text_colors = vec![[0, 0, 0], [255, 255, 255]];
-        let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]];
-
-        let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
-            button(text("")).width(24).height(24)
-                .style(move |_: &Theme, _| button::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
-                    border: iced::Border { 
-                        color: Color::from_rgb(0.5, 0.5, 0.5), 
-                        width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into()
-                    },
-                    ..Default::default()
-                })
-                .on_press(msg)
-                .into()
-        };
-
-        let text_color_row = row(text_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c))).collect::<Vec<_>>()).spacing(2);
-        let bg_color_row = row(bg_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c))).collect::<Vec<_>>()).spacing(2);
-
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
-
-        let content = column![
-            text("Свойства точки").size(20),
-            
-            row![
-                text("Имя:").width(100), 
-                text_input("Имя", &draft.name)
-                    .on_input(Message::DraftWpNameChanged).width(250)
-                    .padding(input_pad).style(input_style.clone())
-            ],
-            row![
-                text("Описание:").width(100), 
-                text_input("Описание", draft.description.as_deref().unwrap_or(""))
-                    .on_input(Message::DraftWpDescChanged).width(250)
-                    .padding(input_pad).style(input_style.clone())
-            ],
-            
-            row![
-                text("Координаты:").width(100),
-                text_input("55.7558 37.6173", coord_input)
-                    .on_input(Message::DraftWpCoordsChanged).width(250)
-                    .padding(input_pad).style(input_style.clone()),
-            ].align_y(Alignment::Center),
-            
-            container(
-                text("Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)")
-                    .size(11)
-                    .color(Color::from_rgb(0.5, 0.5, 0.5))
-            ).padding([0, 100]),
-
-            row![
-                text("Высота (м):").width(100),
-                text_input("", &draft.ele.map(|e| e.to_string()).unwrap_or_default())
-                    .on_input(Message::DraftWpEleChanged).width(100)
-                    .padding(input_pad).style(input_style.clone()),
-            ],
-
-            row![text("Цвет текста:").width(100), text_color_row].align_y(Alignment::Center),
-            row![text("Цвет фона:").width(100), bg_color_row].align_y(Alignment::Center),
-            
-            row![
-                self.btn_secondary("Вложение").on_press(Message::None), 
-                self.btn_secondary("Применить").on_press(Message::ApplyWaypointProps),
-                self.btn_secondary("Отмена").on_press(Message::CloseWaypointProps),
-            ].spacing(10)
-        ].spacing(12).padding(20);
-
-        container(content)
-            .style(|theme: &Theme| {
-                let palette = theme.extended_palette();
-                container::Style {
-                    background: Some(palette.background.base.color.into()),
-                    border: iced::Border {
-                        color: palette.background.strong.color,
-                        width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into()
-                    },
-                    ..Default::default()
-                }
-            })
-            .into()
-    }
-
 
     fn new(theme: iced::Theme, resolved_theme: ResolvedTheme) -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
@@ -653,7 +485,7 @@ impl App {
         // 1. ПОПЫТКА ЗАГРУЗИТЬ СЕССИЮ
         // ==========================================
         if !force_osm {
-            if let Some(session) = load_session() {
+            if let Some(session) = session::load_session() {
                 let mut app = App {
                     layers: Vec::new(),
                     active: 0, // Будет восстановлено из сессии
@@ -718,7 +550,7 @@ impl App {
 
                 // Пересчитываем кэш статистики (количество точек и расстояние) для восстановленных треков
                 for t in &mut app.tracks {
-                    document::recompute_track_stats(t);
+                    domain::recompute_track_stats(t);
                 }
 
                 // Загружаем карты из last_kit (они не хранятся в JSON, только путь)
@@ -815,13 +647,13 @@ impl App {
         } else if let Some(d) = dir_arg {
             Some(PathBuf::from(d))
         } else {
-            load_last_kit()
+            session::load_last_kit()
         };
 
         if let Some(p) = kit_path {
             if app.apply_kit(load_kit(&p)) {
                 app.last_kit = Some(p.clone()); // <-- Сохраняем в состояние приложения
-                save_last_kit(&p);
+                session::save_last_kit(&p);
             }
         }
 
@@ -844,36 +676,7 @@ impl App {
 
         (app, task)
     }
-    /// Кнопка с SVG-иконкой, которая перекрашивается под тему
-    fn icon_button<'a>(&'a self, icon: &'static [u8], msg: Message) -> iced::widget::Button<'a, Message> {
-        button(lucide_iced::themed_icon(icon, 16.0))
-            .padding(native_theme_iced::button_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
-            .on_press(msg)
-    }
 
-    /// То же самое, но без действия (для неактивных кнопок)
-    fn icon_button_disabled<'a>(&'a self, icon: &'static [u8]) -> iced::widget::Button<'a, Message> {
-        button(lucide_iced::themed_icon(icon, 16.0))
-            .padding(native_theme_iced::button_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
-    }
-
-    /// Кнопка-переключатель видимости (глаз)
-    fn visibility_button<'a>(&'a self, is_visible: bool, msg: Message) -> iced::widget::Button<'a, Message> {
-        let icon = if is_visible {
-            lucide_iced::bytes::EYE
-        } else {
-            lucide_iced::bytes::EYE_CLOSED
-        };
-
-        button(lucide_iced::themed_icon(icon, 16.0))
-            .width(16)   // Фиксированная ширина, чтобы колонки не прыгали
-            .height(16)
-            .padding(0)
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
-            .on_press(msg)
-    }
     
     fn fit_to_layer(&mut self, idx: usize) {
         let Some(l) = self.layers.get(idx) else { return };
@@ -1193,7 +996,7 @@ impl App {
             Message::KitPicked(Some(path)) => {
                 if self.apply_kit(load_kit(&path)) {
                     self.last_kit = Some(path.clone());
-                    save_last_kit(&path);
+                    session::save_last_kit(&path);
                 }
             }
             Message::KitPicked(None) => {}
@@ -1220,7 +1023,7 @@ impl App {
             }
             Message::TracksPicked(Some(paths)) => {
                 for path in paths {
-                    match document::load_user_file(&path, &mut self.next_id) {
+                    match io::load_user_file(&path, &mut self.next_id) {
                         Ok(content) => {
                             self.tracks.extend(content.tracks);
                             self.waypoints.extend(content.waypoints);
@@ -1370,9 +1173,16 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::SaveTracksPlt => {
+                // Ищем первый выделенный трек, чтобы взять его имя
+                let name = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
+                    .unwrap_or_else(|| "track".to_string());
+
                 let mut dialog = rfd::AsyncFileDialog::new()
-                    .set_file_name("track.plt")
+                    .set_file_name(format!("{}.plt", name)) // <-- Подставляем имя
                     .add_filter("OziExplorer Track", &["plt"]);
+                
                 if let Some(kit) = &self.last_kit {
                     let dir = kit.join("10-Tracks");
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
@@ -1382,7 +1192,7 @@ impl App {
             Message::SaveTracksPltPicked(Some(path)) => {
                 let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
-                if let Err(e) = document::save_any(&sel_tracks, &sel_wps, &path) {
+                if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
                     self.status = format!("Сохранено в {}", path.display());
@@ -1391,9 +1201,15 @@ impl App {
             Message::SaveTracksPltPicked(None) => {}
 
             Message::SaveTracksGpx => {
+                let name = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
+                    .unwrap_or_else(|| "tracks".to_string());
+
                 let mut dialog = rfd::AsyncFileDialog::new()
-                    .set_file_name("tracks.gpx")
+                    .set_file_name(format!("{}.gpx", name)) // <-- Подставляем имя
                     .add_filter("GPX", &["gpx"]);
+                
                 if let Some(kit) = &self.last_kit {
                     let dir = kit.join("10-Tracks");
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
@@ -1403,7 +1219,7 @@ impl App {
             Message::SaveTracksGpxPicked(Some(path)) => {
                 let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
-                if let Err(e) = document::save_any(&sel_tracks, &sel_wps, &path) {
+                if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
                     self.status = format!("Сохранено в {}", path.display());
@@ -1412,9 +1228,15 @@ impl App {
             Message::SaveTracksGpxPicked(None) => {}
 
             Message::SaveTracksMs => {
+                let name = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
+                    .unwrap_or_else(|| "tracks".to_string());
+
                 let mut dialog = rfd::AsyncFileDialog::new()
-                    .set_file_name("tracks.ms")
+                    .set_file_name(format!("{}.ms", name)) // <-- Подставляем имя
                     .add_filter("Guru Maps", &["ms"]);
+                
                 if let Some(kit) = &self.last_kit {
                     let dir = kit.join("10-Tracks");
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
@@ -1424,7 +1246,7 @@ impl App {
             Message::SaveTracksMsPicked(Some(path)) => {
                 let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
-                if let Err(e) = document::save_any(&sel_tracks, &sel_wps, &path) {
+                if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
                     self.status = format!("Сохранено в {}", path.display());
@@ -1470,7 +1292,7 @@ impl App {
             }
             Message::SaveWaypointsWptNewPicked(Some(path)) => {
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
-                if let Err(e) = document::save_any(&[], &sel_wps, &path) {
+                if let Err(e) = io::save_any(&[], &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
                     self.status = format!("Сохранено в {}", path.display());
@@ -1490,7 +1312,7 @@ impl App {
             Message::SaveWaypointsWptAppendPicked(Some(path)) => {
                 let mut all_wps = Vec::new();
                 // 1. Читаем то, что уже есть в файле (используем наш же загрузчик)
-                if let Ok(content) = document::load_user_file(&path, &mut self.next_id) {
+                if let Ok(content) = io::load_user_file(&path, &mut self.next_id) {
                     all_wps.extend(content.waypoints);
                 }
                 // 2. Добавляем выделенные точки
@@ -1501,7 +1323,7 @@ impl App {
                 }
                 // 3. Сохраняем обратно
                 let refs: Vec<_> = all_wps.iter().collect();
-                if let Err(e) = document::save_any(&[], &refs, &path) {
+                if let Err(e) = io::save_any(&[], &refs, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
                     self.status = format!("Добавлено в {}", path.display());
@@ -1684,12 +1506,12 @@ impl App {
             Message::SaveTrackPropsPicked(Some(path)) => {
                 if let Some(Modal::TrackProps { track_id, .. }) = &self.modal {
                     if let Some(t) = self.tracks.iter().find(|t| t.id == *track_id) {
-                        if let Err(e) = document::save_plt(t, &path) {
+                        if let Err(e) = io::save_plt(t, &path) {
                             self.status = format!("Ошибка сохранения: {e}");
                         } else {
                             self.status = format!("Сохранено в {}", path.display());
                             if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == *track_id) {
-                                t_mut.source = document::FileSource::File { 
+                                t_mut.source = domain::FileSource::File { 
                                     path: path.clone(), 
                                     read_only: false 
                                 };
@@ -1808,14 +1630,14 @@ impl App {
             }
             Message::AddNewWaypoint => {
                 let (lon, lat) = lonlat_of(self.cx, self.cy);
-                let new_wp = document::Waypoint {
+                let new_wp = domain::Waypoint {
                     id: self.next_id,
                     name: "New WP".into(),
                     lon,
                     lat,
                     ele: None, time: None, symbol: None, description: None,
                     visible: true,
-                    source: document::FileSource::New,
+                    source: domain::FileSource::New,
                     text_color: [0, 0, 0],
                     bg_color: [0, 255, 255],
                 };
@@ -1868,70 +1690,7 @@ impl App {
         }
     }
     
-    /// Основная кнопка (акцентная)
-    fn btn<'a>(&'a self, label: impl Into<String>) -> iced::widget::Button<'a, Message> {
-        button(text(label.into()))
-            .padding(native_theme_iced::button_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::button_primary(&self.resolved_theme))
-    }
-
-    /// Второстепенная кнопка (обычная)
-    fn btn_secondary<'a>(&'a self, label: impl Into<String>) -> iced::widget::Button<'a, Message> {
-        button(text(label.into()))
-            .padding(native_theme_iced::button_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
-    }
-    
-    /// Элемент списка (трек или точка)
-    fn list_item<'a>(&'a self, label: &str, is_selected: bool, msg: Message) -> Element<'a, Message> {
-        // БЫЛО:
-        // let content = if is_selected {
-        //     format!("● {}", label)
-        // } else {
-        //     label.to_string()
-        // };
-
-        // СТАЛО (просто используем текст как есть):
-        let content = label.to_string();
-
-        let style = move |theme: &iced::Theme, status| {
-            let palette = theme.extended_palette();
-            
-            let (bg, text_color) = if is_selected {
-                (Some(palette.primary.weak.color.into()), palette.primary.weak.text)
-            } else {
-                match status {
-                    iced::widget::button::Status::Hovered => (
-                        Some(palette.background.weak.color.into()), 
-                        palette.background.weak.text
-                    ),
-                    _ => (None, palette.background.base.text),
-                }
-            };
-
-            iced::widget::button::Style {
-                background: bg,
-                text_color,
-                border: iced::Border { radius: 4.0.into(), ..Default::default() },
-                ..Default::default()
-            }
-        };
-
-        button(
-            container(
-                text(content)
-                    .wrapping(iced::widget::text::Wrapping::None)
-                    .size(14)
-            )
-            .width(Length::Fill)
-            .align_x(Alignment::Start)
-        )
-        .on_press(msg)
-        .width(Length::Fill)
-        .padding([4, 8])
-        .style(style)
-        .into()
-    }
+ 
 
     fn view(&self) -> Element<'_, Message> {
         // Формируем строку с информацией (без геометрии)
@@ -2025,56 +1784,14 @@ impl App {
         }
     }
 
-    fn view_top_toolbar(&self) -> Element<'_, Message> {
-        let source_label = if self.osm_active() {
-            "Карта: OSM".to_string()
-        } else {
-            self.layers
-                .get(self.active)
-                .map(|l| format!("Карта: {}", l.name))
-                .unwrap_or_else(|| "Карта: —".into())
-        };
-
-        row![
-            self.btn("Карты").on_press(Message::PickKit),
-            self.btn("Данные").on_press(Message::PickTrack),
-            text("|"),
-            text(source_label).size(13),
-            text("|"),
-            self.btn_secondary(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" })
-                .on_press(Message::ToggleGrid),
-            self.btn_secondary(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" })
-                .on_press(Message::ToggleLabels),
-            self.btn_secondary("Fit").on_press(Message::Fit),
-            self.btn_secondary(self.format_name()).on_press(Message::CycleFormat),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center)
-        .into()
-    }
-
-    fn view_tool_palette(&self) -> Element<'_, Message> {
-        column![
-            button(text("✋")).on_press(Message::Pressed),
-            button(text("▲")).on_press(Message::Pressed),
-            button(text("⊕")).on_press(Message::Pressed),
-            button(text("●")).on_press(Message::Pressed),
-            button(text("✎")).on_press(Message::Pressed),
-            button(text("✕")).on_press(Message::Pressed),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .into()
-    }
-
     fn view_map(&self) -> Element<'_, Message> {
-        let map_canvas = Canvas::new(MapProgram { app: self })
+        let map_canvas = Canvas::new(canvas::MapProgram { app: self })
             .width(Length::Fill)
             .height(Length::Fill);
-        let tracks_canvas = Canvas::new(TrackProgram { app: self })
+        let tracks_canvas = Canvas::new(canvas::TrackProgram { app: self })
             .width(Length::Fill)
             .height(Length::Fill);
-        let grid_canvas = Canvas::new(GridProgram { app: self })
+        let grid_canvas = Canvas::new(canvas::GridProgram { app: self })
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -2085,1123 +1802,14 @@ impl App {
             .on_scroll(Message::Scrolled)
             .into()
     }
-
-    fn view_right_panel(&self) -> Element<'_, Message> {
-        column![
-            self.view_maps_section(),
-            self.view_tracks_section(),
-            self.view_waypoints_section(),
-        ]
-        .spacing(12)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
-    }
-
-    fn view_maps_section(&self) -> Element<'_, Message> {
-        let kit_name = self.layers.first().map(|l| l.kit_name.as_str()).unwrap_or("");
-        
-        let header = row![
-            text(format!("Карты ({})", self.layers.len() + 1)).size(14),
-            Space::new().width(Length::Fill),
-            if !kit_name.is_empty() {
-                text(kit_name).size(11).color(Color::from_rgb(0.6, 0.6, 0.6))
-            } else {
-                text("").size(11)
-            }
-        ]
-        .align_y(Alignment::Center);
-
-        let mut list = column![].spacing(2).padding([0.0, 12.0]);
-        
-        // Список локальных карт
-        for (i, l) in self.layers.iter().enumerate() {
-            list = list.push(
-                self.list_item(&l.name, self.active == i, Message::Layer(i))
-            );
-        }
-        
-        // Карта OSM
-        let osm_idx = self.layers.len();
-        list = list.push(
-            self.list_item("Openstreetmap (HOT)", self.osm_active(), Message::Layer(osm_idx))
-        );
-
-        column![
-            header,
-            container(scrollable(list).height(Length::Fixed(150.0))).padding(2),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .into()
-    }
-
-    fn view_tracks_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Треки ({})", self.tracks.len())).size(14);
-
-        let top_bar = row![
-            self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllTracksVisible),
-            text_input("Поиск треков...", &self.search_tracks)
-                .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                .on_input(Message::SearchTracksChanged)
-                .size(12),
-        ]
-        .spacing(4);
-
-        let cols = row![
-            Space::new().width(24.0),
-            Space::new().width(16.0),
-            container(text("Имя").size(11)).width(Length::Fill),
-            container(text("Точек").size(11)).width(Length::Fixed(50.0)).align_x(Alignment::End),
-            container(text("Расст.").size(11)).width(Length::Fixed(70.0)).align_x(Alignment::End),
-        ]
-        .spacing(4);
-
-        let query = self.search_tracks.to_lowercase();
-        let mut list = column![].spacing(2).padding([0.0, 12.0]);
-
-        for t in &self.tracks {
-            if !query.is_empty() && !t.name.to_lowercase().contains(&query) {
-                continue;
-            }
-
-            let selected = self.selection.tracks.contains(&t.id);
-
-            let color_box = container(text(""))
-                .width(12)
-                .height(12)
-                .style(move |_| container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb8(
-                        t.color[0], t.color[1], t.color[2],
-                    ))),
-                    border: iced::Border {
-                        color: Color::from_rgb8(60, 60, 60),
-                        width: 1.0,
-                        radius: 2.0.into(),
-                    },
-                    ..Default::default()
-                });
-
-            let dist = if t.cached_distance_m >= 1000.0 {
-                format!("{:.1}км", t.cached_distance_m / 1000.0)
-            } else {
-                format!("{:.0}м", t.cached_distance_m)
-            };
-
-            let r = row![
-                self.visibility_button(t.visible, Message::ToggleTrackVisible(t.id, !t.visible)),
-                color_box,
-                container(
-                    tooltip(
-                        self.list_item(&t.name, selected, Message::SelectTrack(t.id)),
-                        container(text(t.name.clone()))
-                            .padding([2, 6])
-                            .style(|theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                container::Style {
-                                    background: Some(palette.background.weak.color.into()),
-                                    text_color: Some(palette.background.weak.text),
-                                    border: iced::Border {
-                                        color: palette.background.strong.color,
-                                        width: 1.0,
-                                        radius: 4.0.into(),
-                                    },
-                                    ..Default::default()
-                                }
-                            }),
-                        tooltip::Position::Bottom,
-                    )
-                ).width(Length::Fill).clip(true),
-                container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
-                container(text(dist).size(12)).width(Length::Fixed(70.0)).align_x(Alignment::End),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center);
-
-            list = list.push(r);
-        }
-
-        let has_tracks = !self.selection.tracks.is_empty();
-        let has_wps = !self.selection.waypoints.is_empty();
-        let one_track = self.selection.tracks.len() == 1;
-        let selected_id = self.selection.tracks.iter().next().copied();
-
-        let row_normal = row![
-            if one_track { 
-                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap())) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
-            },
-            if has_tracks { 
-                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
-            },
-            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu)
-        ].spacing(4).align_y(Alignment::Center);
-
-        let row_save = row![
-            if has_tracks && !has_wps { 
-                self.btn_secondary("PLT").on_press(Message::SaveTracksPlt) 
-            } else { 
-                self.btn_secondary("PLT") 
-            },
-            if has_tracks || has_wps { 
-                self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) 
-            } else { 
-                self.btn_secondary("GPX") 
-            },
-            if has_tracks || has_wps { 
-                self.btn_secondary("MS").on_press(Message::SaveTracksMs) 
-            } else { 
-                self.btn_secondary("MS") 
-            },
-            self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu)
-        ].spacing(4).align_y(Alignment::Center);
-
-        let bottom_bar = if self.show_track_save_menu { row_save } else { row_normal };
-
-        column![
-            header,
-            container(top_bar).padding(2),
-            container(cols).padding(2),
-            container(scrollable(list).height(Length::FillPortion(1))).padding(2),
-            container(bottom_bar).padding(2),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .height(Length::FillPortion(1))
-        .into()
-    }
-
-    fn view_waypoints_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Точки ({})", self.waypoints.len())).size(14);
-
-        let top_bar = row![
-            self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllWaypointsVisible),
-            text_input("Поиск точек...", &self.search_waypoints)
-                .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                .on_input(Message::SearchWaypointsChanged)
-                .size(12),
-        ]
-        .spacing(4);
-
-        let cols = row![
-            Space::new().width(24.0),
-            Space::new().width(14.0),
-            container(text("Имя").size(11)).width(Length::Fill),
-            container(text("Координаты").size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
-        ]
-        .spacing(4);
-
-        let query = self.search_waypoints.to_lowercase();
-        let mut list = column![].spacing(2).padding([0.0, 12.0]);
-
-        for w in &self.waypoints {
-            if !query.is_empty() && !w.name.to_lowercase().contains(&query) {
-                continue;
-            }
-
-            let selected = self.selection.waypoints.contains(&w.id);
-            let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
-            let coord = coord::format_pair(w.lat, w.lon, self.format);
-
-            let r = row![
-                self.visibility_button(w.visible, Message::ToggleWaypointVisible(w.id, !w.visible)),
-                icon,
-                container(
-                    tooltip(
-                        self.list_item(&w.name, selected, Message::SelectWaypoint(w.id)),
-                        container(text(w.name.clone()))
-                            .padding([2, 6])
-                            .style(|theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                container::Style {
-                                    background: Some(palette.background.weak.color.into()),
-                                    text_color: Some(palette.background.weak.text),
-                                    border: iced::Border {
-                                        color: palette.background.strong.color,
-                                        width: 1.0,
-                                        radius: 4.0.into(),
-                                    },
-                                    ..Default::default()
-                                }
-                            }),
-                        tooltip::Position::Bottom,
-                    )
-                ).width(Length::Fill).clip(true),
-                container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center);
-            
-            list = list.push(r);
-        }
-
-        let has_wps = !self.selection.waypoints.is_empty();
-        let has_tracks = !self.selection.tracks.is_empty();
-        let one_wp = self.selection.waypoints.len() == 1;
-        let selected_id = self.selection.waypoints.iter().next().copied();
-
-        let row_normal = row![
-            self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
-            if one_wp { 
-                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenWaypointProps(selected_id.unwrap())) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
-            },
-            if has_wps { 
-                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedWaypoints) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
-            },
-            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu)
-        ].spacing(4).align_y(Alignment::Center);
-
-        let row_save = row![
-            if has_wps && !has_tracks { 
-                self.btn_secondary("WPT").on_press(Message::SaveWaypointsWptNew) 
-            } else { 
-                self.btn_secondary("WPT") 
-            },
-            if has_wps && !has_tracks { 
-                self.btn_secondary("WPT+").on_press(Message::SaveWaypointsWptAppend) 
-            } else { 
-                self.btn_secondary("WPT+") 
-            },
-            if has_wps || has_tracks { 
-                self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) 
-            } else { 
-                self.btn_secondary("GPX") 
-            },
-            if has_wps || has_tracks { 
-                self.btn_secondary("MS").on_press(Message::SaveTracksMs) 
-            } else { 
-                self.btn_secondary("MS") 
-            },
-            self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu)
-        ].spacing(4).align_y(Alignment::Center);
-
-        let bottom_bar = if self.show_wp_save_menu { row_save } else { row_normal };
-
-        column![
-            header,
-            container(top_bar).padding(2),
-            container(cols).padding(2),
-            container(scrollable(list).height(Length::FillPortion(1))).padding(2),
-            container(bottom_bar).padding(2),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .height(Length::FillPortion(1))
-        .into()
-    }
-    
-    fn view_track_props_modal<'a>(&'a self, _id: u64, draft: &'a document::TrackProps) -> Element<'a, Message> {
-        let callsigns = vec![
-            "Lisa".to_string(), "Veter".to_string(), "Kinolog".to_string(), 
-            "BPLA".to_string(), "Bort".to_string(), "Zadacha".to_string(), 
-            "Avtonom".to_string(), "Pegas".to_string()
-        ];
-        
-        let line_styles = vec![
-            document::LineStyle::Solid, document::LineStyle::Dash, document::LineStyle::Dot, 
-            document::LineStyle::DashDot, document::LineStyle::DashDotDot
-        ];
-        let poly_types = vec![document::PolyType::Line, document::PolyType::Polygon];
-        let fill_types = vec![
-            document::FillType::None, document::FillType::Diagonal1, document::FillType::Diagonal2, 
-            document::FillType::CrossHatch, document::FillType::Solid
-        ];
-
-        let template = build_template(draft);
-
-        let extra_fields: Element<'a, Message> = if draft.callsign == "Zadacha" {
-            row![].into()
-        } else {
-            row![
-                container(text("#_#")).padding([0, 4]),
-                text_input("", &draft.num2.map(|n| n.to_string()).unwrap_or_default())
-                    .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                    .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                    .on_input(Message::DraftNum2Changed).width(50),
-                container(text("Суффикс")).padding([0, 4]),
-                text_input("", &draft.suffix)
-                    .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                    .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                    .on_input(Message::DraftSuffixChanged).width(80),
-            ].align_y(Alignment::Center).spacing(4).into()
-        };
-        let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
-            button(text("")).width(24).height(24)
-                .style(move |_: &Theme, _| button::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
-                    border: iced::Border { 
-                        color: Color::from_rgb(0.5, 0.5, 0.5), 
-                        width: 1.0, 
-                        // ВОТ ЗДЕСЬ ОБЯЗАТЕЛЬНО ДОЛЖНО БЫТЬ .into()
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
-                    },
-                    ..Default::default()
-                })
-                .on_press(msg)
-                .into()
-        };
-        
-        let mut color_btns: Vec<Element<'a, Message>> = Vec::new();
-        for &c in &self.palette {
-            color_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
-        }
-        // СТАЛО:
-        color_btns.push(
-            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
-                .width(24)
-                .height(24)
-                .padding(0) // Убираем лишние отступы, чтобы иконка была по центру
-                .on_press(Message::ToggleColorPicker)
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
-                .into()
-        );
-        let color_row = row(color_btns).spacing(2);
-
-        let mut fill_color_btns: Vec<Element<'a, Message>> = Vec::new();
-        for &c in &self.palette {
-            fill_color_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
-        }
-        let fill_color_row = row(fill_color_btns).spacing(2);
-
-        let color_picker_ui: Element<'a, Message> = if self.show_color_picker {
-            let ext_palette = get_extended_palette();
-            let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in ext_palette.chunks(8) {
-                let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
-                for &c in chunk {
-                    row_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
-                }
-                grid_rows.push(row(row_btns).spacing(2).into());
-            }
-            container(column(grid_rows).spacing(2)).padding([0, 120]).into()
-        } else {
-            column![].into()
-        };
-
-        let fill_fields: Element<'a, Message> = if draft.poly_type == document::PolyType::Polygon {
-            column![
-                row![text("Fill Color:").width(120), fill_color_row].align_y(Alignment::Center),
-                row![
-                    text("Fill Type:").width(120),
-                    pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged)
-                        .padding(native_theme_iced::button_padding(&self.resolved_theme))
-                        .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
-                ].align_y(Alignment::Center),
-            ].spacing(10).into()
-        } else {
-            column![].into()
-        };
-
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
-        let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
-        let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
-
-        let content = column![
-            text("Свойства трека").size(20),
-            
-            row![
-                text("Описание:").width(120),
-                text_input("Введите описание...", &draft.description)
-                    .on_input(Message::DraftDescChanged).width(280)
-                    .padding(input_pad).style(input_style.clone())
-            ].align_y(Alignment::Center),
-
-            row![
-                text("Дата:").width(120),
-                self.btn_secondary("Вчера").on_press(Message::DraftDateYesterday),
-                self.btn_secondary("Сегодня").on_press(Message::DraftDateToday),
-                text_input("YYYY-MM-DD", &draft.date_str)
-                    .on_input(Message::DraftDateChanged).width(120)
-                    .padding(input_pad).style(input_style.clone()),
-            ].align_y(Alignment::Center).spacing(4),
-
-            row![
-                text("Позывной:").width(120),
-                pick_list(callsigns, Some(draft.callsign.clone()), Message::DraftCallsignChanged)
-                    .padding(pick_pad).style(pick_style.clone()),
-                container(text("#")).padding([0, 4]),
-                text_input("", &draft.num1.to_string())
-                    .on_input(Message::DraftNum1Changed).width(50)
-                    .padding(input_pad).style(input_style.clone()),
-                extra_fields
-            ].align_y(Alignment::Center).spacing(4),
-
-            row![text("Цвет трека:").width(120), color_row].align_y(Alignment::Center),
-            color_picker_ui,
-
-            row![
-                text("Толщина:").width(120),
-                text_input("", &draft.line_width.to_string())
-                    .on_input(Message::DraftWidthChanged).width(50)
-                    .padding(input_pad).style(input_style.clone()),
-                container(text("Стиль:")).padding([0, 10]),
-                pick_list(line_styles, Some(draft.line_style.clone()), Message::DraftStyleChanged)
-                    .padding(pick_pad).style(pick_style.clone()),
-            ].align_y(Alignment::Center),
-
-            row![
-                text("Тип:").width(120),
-                pick_list(poly_types, Some(draft.poly_type.clone()), Message::DraftTypeChanged)
-                    .padding(pick_pad).style(pick_style.clone()),
-            ].align_y(Alignment::Center),
-
-            fill_fields,
-
-            row![
-                text("Шаблон:").width(120),
-                text(template).color(Color::from_rgb8(draft.line_color[0], draft.line_color[1], draft.line_color[2])).size(16)
-            ].align_y(Alignment::Center),
-
-            // Кнопки (должны быть через self.btn и self.btn_secondary)
-            row![
-                self.btn_secondary("Сохранить").on_press(Message::SaveTrackProps),
-                self.btn_secondary("Применить").on_press(Message::ApplyTrackProps),
-                self.btn_secondary("Отмена").on_press(Message::CloseTrackProps),
-            ].spacing(10)
-        ]
-        .spacing(12)    
-        .padding(20);
-
-        container(content)
-            .style(|theme: &Theme| {
-                let palette = theme.extended_palette();
-                container::Style {
-                    background: Some(palette.background.base.color.into()),
-                    border: iced::Border {
-                        color: palette.background.strong.color,
-                        width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(), // <-- Добавили .into()
-                    },
-                    ..Default::default()
-                }
-            })
-            .into()
-    }
 }
 
-// ----- Программа отрисовки карты (фон + тайлы OZF2) -----
 
-struct MapProgram<'a> {
-    app: &'a App,
-}
-
-    fn draw_scale_bar(
-        frame: &mut canvas::Frame,
-        bounds: Rectangle,
-        scale_m_per_px: f64,
-        cx: f64,
-        cy: f64,
-    ) {
-        // Масштаб Mercator → «наземные» метры на широте центра.
-        let (_, lat_c) = lonlat_of(cx, cy);
-        let cos_lat = lat_c.to_radians().cos().abs().max(1e-6);
-        let ground_m_per_px = scale_m_per_px * cos_lat;
-
-        // Ищем «круглую» дистанцию для ширины ~140 px.
-        let target_px = 140.0;
-        let raw = ground_m_per_px * target_px;
-        let exp = raw.log10().floor();
-        let mag = 10f64.powf(exp);
-        let norm = raw / mag;
-        let nice = if norm < 1.5 {
-            1.0
-        } else if norm < 3.5 {
-            2.0
-        } else if norm < 7.5 {
-            5.0
-        } else {
-            10.0
-        };
-        let distance_m = nice * mag;
-        let bar_w = (distance_m / ground_m_per_px) as f32;
-
-        let label = if distance_m >= 1000.0 {
-            format!("{:.0} км", distance_m / 1000.0)
-        } else if distance_m >= 1.0 {
-            format!("{:.0} м", distance_m)
-        } else {
-            format!("{:.0} см", distance_m * 100.0)
-        };
-
-        // Раскладка: нижний левый угол.
-        let margin = 16.0;
-        let bar_h = 8.0;
-        let label_h = 18.0;
-        let bg_pad = 6.0;
-        let x0 = margin;
-        let y0 = bounds.height - margin - label_h - bar_h;
-        let bar_y = y0 + label_h;
-
-        // Полупрозрачная подложка.
-        frame.fill_rectangle(
-            Point::new(x0 - bg_pad, y0 - bg_pad),
-            Size::new(bar_w + 2.0 * bg_pad, label_h + bar_h + 2.0 * bg_pad),
-            Color::from_rgba8(0, 0, 0, 0.55),
-        );
-
-        // 4 сегмента в шахматном порядке.
-        let n_seg = 4;
-        let seg_w = bar_w / n_seg as f32;
-        let color_a = Color::from_rgba8(240, 240, 240, 1.0);
-        let color_b = Color::from_rgba8(60, 60, 60, 1.0);
-        for i in 0..n_seg {
-            let color = if i % 2 == 0 { color_a } else { color_b };
-            frame.fill_rectangle(
-                Point::new(x0 + i as f32 * seg_w, bar_y),
-                Size::new(seg_w, bar_h),
-                color,
-            );
-        }
-
-        // Рамка.
-        let border = canvas::Path::rectangle(Point::new(x0, bar_y), Size::new(bar_w, bar_h));
-        frame.stroke(
-            &border,
-            canvas::Stroke::default()
-                .with_color(Color::WHITE)
-                .with_width(1.0),
-        );
-
-        // Подписи: «0» слева, дистанция справа.
-        frame.fill_text(canvas::Text {
-            content: "0".to_string(),
-            position: Point::new(x0, bar_y - 2.0),
-            color: Color::WHITE,
-            size: iced::Pixels(11.0),
-            align_x: iced::widget::text::Alignment::Left,
-            align_y: iced::alignment::Vertical::Bottom,
-            ..Default::default()
-        });
-        frame.fill_text(canvas::Text {
-            content: label,
-            position: Point::new(x0 + bar_w, bar_y - 2.0),
-            color: Color::WHITE,
-            size: iced::Pixels(11.0),
-            align_x: iced::widget::text::Alignment::Right,
-            align_y: iced::alignment::Vertical::Bottom,
-            ..Default::default()
-        });
-    }
-
-impl<'a> canvas::Program<Message> for MapProgram<'a> {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: iced::mouse::Cursor,
-    ) -> Vec<Geometry> {
-        let app = self.app;
-        let started = Instant::now();
-        app.last_bounds.set(bounds.size());
-
-        let geom = if app.osm_active() {
-            app.osm_canvas_cache
-                .draw(renderer, bounds.size(), |frame| {
-                    frame.fill_rectangle(
-                        Point::ORIGIN,
-                        bounds.size(),
-                        Color::from_rgba8(BG[0], BG[1], BG[2], BG[3] as f32 / 255.0),
-                    );
-
-                    let sz = bounds.size();
-                    let (_z, tiles) = osm::visible_tiles(
-                        app.cx,
-                        app.cy,
-                        app.scale,
-                        sz.width as f64,
-                        sz.height as f64,
-                    );
-
-                    for id in tiles {
-                        let rect = osm::tile_screen_rect(
-                            id,
-                            app.cx,
-                            app.cy,
-                            app.scale,
-                            sz.width as f64,
-                            sz.height as f64,
-                        );
-                        if rect.x + rect.width < 0.0
-                            || rect.y + rect.height < 0.0
-                            || rect.x > bounds.width
-                            || rect.y > bounds.height
-                        {
-                            continue;
-                        }
-                        match app.osm_cache.get(id) {
-                            Some(Some(handle)) => {
-                                frame.draw_image(rect, canvas::Image::new(handle));
-                            }
-                            Some(None) => {
-                                frame.fill_rectangle(
-                                    Point::new(rect.x, rect.y),
-                                    Size::new(rect.width, rect.height),
-                                    Color::from_rgba8(60, 40, 40, 1.0),
-                                );
-                            }
-                            None => {
-                                frame.fill_rectangle(
-                                    Point::new(rect.x, rect.y),
-                                    Size::new(rect.width, rect.height),
-                                    Color::from_rgba8(45, 45, 50, 1.0),
-                                );
-                            }
-                        }
-                    }
-
-                    // Атрибуция OSM/HOT.
-                    let attr_w = 470.0_f32.min(bounds.width);
-                    let attr_h = 20.0_f32;
-                    frame.fill_rectangle(
-                        Point::new(
-                            bounds.width - attr_w - 4.0,
-                            bounds.height - attr_h - 4.0,
-                        ),
-                        Size::new(attr_w, attr_h),
-                        Color::from_rgba8(0, 0, 0, 0.6),
-                    );
-                    frame.fill_text(canvas::Text {
-                        content: "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team"
-                            .to_string(),
-                        position: Point::new(
-                            bounds.width - 8.0,
-                            bounds.height - attr_h / 2.0 - 4.0,
-                        ),
-                        color: Color::WHITE,
-                        size: iced::Pixels(11.0),
-                        align_x: iced::widget::text::Alignment::Right,
-                        align_y: iced::alignment::Vertical::Center,
-                        ..Default::default()
-                    });
-                })
-        } else {
-            app.canvas_cache
-                .draw(renderer, bounds.size(), |frame| {
-                    frame.fill_rectangle(
-                        Point::ORIGIN,
-                        bounds.size(),
-                        Color::from_rgba8(BG[0], BG[1], BG[2], BG[3] as f32 / 255.0),
-                    );
-
-                    if let Some(layer) = app.layers.get(app.active) {
-                        let g = &layer.georef;
-                        let a = affine(g, app.cx, app.cy);
-                        let ppm = (a.ax * a.ax + a.ay * a.ay).sqrt();
-                        let r = app.scale * ppm;
-
-                        if r > 1e-12 && !layer.levels.is_empty() {
-                            let mut pick = layer.levels[0];
-                            for &lv in &layer.levels {
-                                if lv.1 * r >= 0.97 {
-                                    pick = lv;
-                                }
-                            }
-                            let (lidx, fx, fy) = pick;
-
-                            let (lv_w, lv_h, lv_tx, lv_ty) = {
-                                let ozf_r = layer.ozf.borrow();
-                                let lv = &ozf_r.levels[lidx];
-                                (lv.width, lv.height, lv.tiles_x, lv.tiles_y)
-                            };
-
-                            if lv_w > 0 && lv_h > 0 && lv_tx > 0 && lv_ty > 0 {
-                                let hw_f = bounds.width as f64 / 2.0;
-                                let hh_f = bounds.height as f64 / 2.0;
-                                let det = a.ax * a.by - a.bx * a.ay;
-
-                                if det.abs() > 1e-20 {
-                                    let level_px_at =
-                                        |sx: f64, sy: f64| -> (f64, f64) {
-                                            let dx_m = (sx - hw_f) * app.scale;
-                                            let dy_m = -(sy - hh_f) * app.scale;
-                                            let px0 = a.x0 + a.ax * dx_m + a.bx * dy_m;
-                                            let py0 = a.y0 + a.ay * dx_m + a.by * dy_m;
-                                            (px0 * fx, py0 * fy)
-                                        };
-                                    let (px_c0, py_c0) = level_px_at(0.0, 0.0);
-                                    let (px_c1, py_c1) =
-                                        level_px_at(bounds.width as f64, bounds.height as f64);
-
-                                    let px_lo = px_c0.min(px_c1).max(0.0);
-                                    let px_hi = px_c0.max(px_c1).min(lv_w as f64);
-                                    let py_lo = py_c0.min(py_c1).max(0.0);
-                                    let py_hi = py_c0.max(py_c1).min(lv_h as f64);
-
-                                    if px_hi > px_lo && py_hi > py_lo {
-                                        let tile = ozf::TILE as f64;
-                                        let tx0 = (px_lo / tile).floor() as u32;
-                                        let ty0 = (py_lo / tile).floor() as u32;
-                                        let tx1 =
-                                            (((px_hi / tile).floor() as u32) + 1).min(lv_tx);
-                                        let ty1 =
-                                            (((py_hi / tile).floor() as u32) + 1).min(lv_ty);
-
-                                        let inv_scale = 1.0 / app.scale;
-                                        let to_screen =
-                                            |px_l: f64, py_l: f64| -> (f32, f32) {
-                                                let px0 = px_l / fx - a.x0;
-                                                let py0 = py_l / fy - a.y0;
-                                                let dx_m = (a.by * px0 - a.bx * py0) / det;
-                                                let dy_m = (-a.ay * px0 + a.ax * py0) / det;
-                                                (
-                                                    (hw_f + dx_m * inv_scale) as f32,
-                                                    (hh_f - dy_m * inv_scale) as f32,
-                                                )
-                                            };
-
-                                        for ty in ty0..ty1 {
-                                            for tx in tx0..tx1 {
-                                                let (sx_tl, sy_tl) = to_screen(
-                                                    tx as f64 * tile,
-                                                    ty as f64 * tile,
-                                                );
-                                                let (sx_br, sy_br) = to_screen(
-                                                    (tx as f64 + 1.0) * tile,
-                                                    (ty as f64 + 1.0) * tile,
-                                                );
-
-                                                let rect = Rectangle {
-                                                    x: sx_tl.min(sx_br),
-                                                    y: sy_tl.min(sy_br),
-                                                    width: (sx_br - sx_tl).abs(),
-                                                    height: (sy_br - sy_tl).abs(),
-                                                };
-
-                                                if rect.width < 0.5 || rect.height < 0.5 {
-                                                    continue;
-                                                }
-                                                if rect.x + rect.width < 0.0
-                                                    || rect.y + rect.height < 0.0
-                                                    || rect.x > bounds.width
-                                                    || rect.y > bounds.height
-                                                {
-                                                    continue;
-                                                }
-
-                                                let key = (app.active, lidx, tx, ty);
-                                                let cached = app
-                                                    .tile_handles
-                                                    .borrow()
-                                                    .get(&key)
-                                                    .cloned();
-                                                let handle_opt = match cached {
-                                                    Some(h) => h,
-                                                    None => {
-                                                        let rgba = layer
-                                                            .ozf
-                                                            .borrow_mut()
-                                                            .tile_rgba(lidx, tx, ty)
-                                                            .ok();
-                                                        let h = rgba.map(|r| {
-                                                            ImageHandle::from_rgba(
-                                                                ozf::TILE as u32,
-                                                                ozf::TILE as u32,
-                                                                r,
-                                                            )
-                                                        });
-                                                        app.tile_handles
-                                                            .borrow_mut()
-                                                            .insert(key, h.clone());
-                                                        h
-                                                    }
-                                                };
-
-                                                if let Some(handle) = handle_opt {
-                                                    frame.draw_image(
-                                                        rect,
-                                                        canvas::Image::new(handle),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-        };
-
-        app.last_geom_ms
-            .set(started.elapsed().as_secs_f64() * 1000.0);
-        vec![geom]
-    }
-}
-
-// ----- Программа отрисовки сетки (GPX) — отдельный виджет сверху -----
-
-struct GridProgram<'a> {
-    app: &'a App,
-}
-
-impl<'a> canvas::Program<Message> for GridProgram<'a> {
-    type State = ();
-    
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: iced::mouse::Cursor,
-    ) -> Vec<Geometry> {
-        let app = self.app;
-
-        let geom = app.grid_cache.draw(renderer, bounds.size(), |frame| {
-            app.last_bounds.set(bounds.size());
-            if !app.show_grid {
-                let hw_f = bounds.width as f64 / 2.0;
-                let hh_f = bounds.height as f64 / 2.0;
-                let to_screen = |mx: f64, my: f64| -> Point {
-                    Point::new(
-                        (hw_f + (mx - app.cx) / app.scale) as f32,
-                        (hh_f - (my - app.cy) / app.scale) as f32,
-                    )
-                };
-
-                let line_color = Color::from_rgba8(255, 70, 70, 1.0);
-                for line in &app.lines {
-                    let path = CanvasPath::new(|p| {
-                        let mut first = true;
-                        for &(mx, my) in line {
-                            let pt = to_screen(mx, my);
-                            if first {
-                                p.move_to(pt);
-                                first = false;
-                            } else {
-                                p.line_to(pt);
-                            }
-                        }
-                    });
-                    frame.stroke(
-                        &path,
-                        Stroke::default().with_color(line_color).with_width(1.5),
-                    );
-                }
-
-                if let Some(g) = &app.grid {
-                    let node_color = Color::from_rgba8(255, 40, 40, 1.0);
-                    let size_f: f32 = 13.0;
-                    let pad: f32 = 3.0;
-                    let bg_color = Color::from_rgba8(0, 0, 0, 0.7);
-
-                    for n in &g.nodes {
-                        let (mx, my) = merc_of(n.lon, n.lat);
-                        let pt = to_screen(mx, my);
-
-                        // Отсечение по вьюпорту — до любых fill_*.
-                        if pt.x < -200.0
-                            || pt.y < -50.0
-                            || pt.x > bounds.width + 200.0
-                            || pt.y > bounds.height + 50.0
-                        {
-                            continue;
-                        }
-
-                        // Маркер узла
-                        frame.fill_rectangle(
-                            Point::new(pt.x - 1.5, pt.y - 1.5),
-                            Size::new(3.0, 3.0),
-                            node_color,
-                        );
-
-                        // Подпись
-                        if app.show_labels && !n.name.is_empty() {
-                            let n_chars = n.name.chars().count() as f32;
-                            let text_w = n_chars * size_f * 0.55;
-                            let bg_w = text_w + 2.0 * pad;
-                            let bg_h = size_f + 2.0 * pad;
-                            let bg_pos = Point::new(pt.x + 6.0, pt.y - 6.0 - bg_h);
-
-                            frame.fill_rectangle(bg_pos, Size::new(bg_w, bg_h), bg_color);
-                            frame.fill_text(canvas::Text {
-                                content: n.name.clone(),
-                                position: Point::new(bg_pos.x + pad, bg_pos.y + bg_h / 2.0),
-                                color: Color::WHITE,
-                                size: iced::Pixels(size_f),
-                                align_x: iced::widget::text::Alignment::Left,
-                                align_y: iced::alignment::Vertical::Center,
-                                ..Default::default()
-                            });
-                        }
-                    }
-                }
-            } 
-            // Линейка масштаба — рисуется всегда, независимо от сетки.
-            draw_scale_bar(frame, bounds, app.scale, app.cx, app.cy);
-        });
-        vec![geom]
-    }
-}
-
-struct TrackProgram<'a> {
-    app: &'a App,
-}
-
-impl<'a> canvas::Program<Message> for TrackProgram<'a> {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: iced::mouse::Cursor,
-    ) -> Vec<Geometry> {
-        let app = self.app;
-        let geom = app.tracks_cache.draw(renderer, bounds.size(), |frame| {
-            let hw_f = bounds.width as f64 / 2.0;
-            let hh_f = bounds.height as f64 / 2.0;
-            let to_screen = |mx: f64, my: f64| -> Point {
-                Point::new(
-                    (hw_f + (mx - app.cx) / app.scale) as f32,
-                    (hh_f - (my - app.cy) / app.scale) as f32,
-                )
-            };
-
-            // Треки
-            for t in &app.tracks {
-                if !t.visible { continue; }
-                // Берем цвет и ширину из props!
-                let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
-                let width = t.props.line_width;
-                
-                for seg in &t.segments {
-                    if seg.points.len() < 2 { continue; }
-                    
-                    // Создаем path для линии
-                    let path = CanvasPath::new(|p| {
-                        let mut first = true;
-                        for pt in &seg.points {
-                            let (mx, my) = merc_of(pt.lon, pt.lat);
-                            let sp = to_screen(mx, my);
-                            if first {
-                                p.move_to(sp);
-                                first = false;
-                            } else {
-                                p.line_to(sp);
-                            }
-                        }
-                    });
-                    
-                    frame.stroke(&path, Stroke::default().with_color(color).with_width(width));
-                }
-            }
-            for t in &app.tracks {
-                if !t.visible { continue; }
-                let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
-                let width = t.props.line_width;
-                
-                for seg in &t.segments {
-                    if seg.points.len() < 2 { continue; }
-                    
-                    let path = CanvasPath::new(|p| {
-                        let mut first = true;
-                        for pt in &seg.points {
-                            let (mx, my) = merc_of(pt.lon, pt.lat);
-                            let sp = to_screen(mx, my);
-                            if first {
-                                p.move_to(sp);
-                                first = false;
-                            } else {
-                                p.line_to(sp);
-                            }
-                        }
-                        // Если это полигон, замыкаем контур
-                        if t.props.poly_type == document::PolyType::Polygon {
-                            p.close();
-                        }
-                    });
-                    
-                        // Если полигон и есть заливка — заливаем
-                        if t.props.poly_type == document::PolyType::Polygon && t.props.fill_type != document::FillType::None {
-                            // Для штриховки делаем цвет полупрозрачным, чтобы визуально отличать от сплошной заливки
-                            let alpha = if t.props.fill_type == document::FillType::Solid { 1.0 } else { 0.3 };
-                            let fill_c = Color::from_rgba8(
-                                t.props.fill_color[0], 
-                                t.props.fill_color[1], 
-                                t.props.fill_color[2], 
-                                alpha
-                            );
-                            frame.fill(&path, fill_c);
-                        }
-                    
-                    frame.stroke(&path, Stroke::default().with_color(color).with_width(width));
-                }
-            }            
-
-            // Точки
-            for wp in &app.waypoints {
-                if !wp.visible { continue; }
-                let (mx, my) = merc_of(wp.lon, wp.lat);
-                let pt = to_screen(mx, my);
-
-                // Примерная ширина плашки (7 пикселей на символ + отступы)
-                let text_len = wp.name.chars().count() as f32;
-                let box_w = (text_len * 7.0).max(30.0) + 6.0;
-                let box_h = 16.0;
-                let box_x = pt.x - box_w / 2.0;
-                let box_y = pt.y - 24.0;
-
-                // 1. Линия от плашки к точке
-                frame.stroke(
-                    &CanvasPath::line(Point::new(pt.x, box_y + box_h), pt), 
-                    Stroke::default().with_color(Color::BLACK).with_width(1.0)
-                );
-
-                // 2. Прямоугольник фона
-                let bg_color = Color::from_rgb8(wp.bg_color[0], wp.bg_color[1], wp.bg_color[2]);
-                frame.fill_rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h), bg_color);
-                
-                // Рамка прямоугольника
-                let border = CanvasPath::rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h));
-                frame.stroke(&border, Stroke::default().with_color(Color::BLACK).with_width(1.0));
-
-                // 3. Текст
-                let fg_color = Color::from_rgb8(wp.text_color[0], wp.text_color[1], wp.text_color[2]);
-                frame.fill_text(canvas::Text {
-                    content: wp.name.clone(),
-                    position: Point::new(box_x + box_w/2.0, box_y + box_h/2.0),
-                    color: fg_color,
-                    size: iced::Pixels(11.0),
-                    align_x: iced::widget::text::Alignment::Center,
-                    align_y: iced::alignment::Vertical::Center,
-                    ..Default::default()
-                });
-
-                // 4. Кружок с белой заливкой и черной рамкой
-                let circle = CanvasPath::circle(pt, 4.0);
-                frame.fill(&circle, Color::WHITE);
-                frame.stroke(&circle, Stroke::default().with_color(Color::BLACK).with_width(1.5));
-
-                // 5. Черная точка в центре
-                let dot = CanvasPath::circle(pt, 1.5);
-                frame.fill(&dot, Color::BLACK);
-            }
-        });
-        vec![geom]
-    }
-}
 
 
 fn main() -> iced::Result {
     // 1. Читаем сессию заранее
-    let session = load_session(); 
+    let session = session::load_session(); 
     
     let mut window_settings = iced::window::Settings {
         size: Size::new(1130.0, 880.0),
