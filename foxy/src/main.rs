@@ -1,8 +1,11 @@
 mod document;
 mod osm;
+mod util;    
+mod widgets; 
+
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use coord::{format_pair, CoordFormat};
 use iced::mouse::ScrollDelta;
@@ -13,8 +16,8 @@ use iced::widget::tooltip;
 use std::collections::{HashMap, HashSet};
 
 use iced::widget::{
-    button, checkbox, column, container, mouse_area, pick_list, row, scrollable, stack, text,
-    text_input, Space, 
+    button, column, container, mouse_area, pick_list, row, scrollable, stack, text,
+    text_input, Space,
 };
 use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme,
@@ -26,25 +29,13 @@ use serde::{Deserialize, Serialize};
 
 use native_theme_iced::ResolvedTheme; 
 
+use util::geo::{merc_of, lonlat_of, affine};
+use util::coords::{today, date_offset, build_template, parse_coords};
+use widgets::palette::{load_palette, get_extended_palette};
+
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
-const R: f64 = 6_378_137.0;
 const BG: [u8; 4] = [38, 38, 42, 255];
-
-
-pub fn merc_of(lon: f64, lat: f64) -> (f64, f64) {
-    (
-        R * lon.to_radians(),
-        R * (std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0).tan().ln(),
-    )
-}
-
-pub fn lonlat_of(x: f64, y: f64) -> (f64, f64) {
-    (
-        (x / R).to_degrees(),
-        (2.0 * (y / R).exp().atan() - std::f64::consts::FRAC_PI_2).to_degrees(),
-    )
-}
 
 
 #[derive(Default)]
@@ -53,34 +44,6 @@ struct Selection {
     waypoints: HashSet<u64>,
 }
 
-/// Аффинное приближение «Меркатор (м) → пиксель растра уровня 0» в точке (cx, cy).
-struct Affine {
-    x0: f64,
-    y0: f64,
-    ax: f64,
-    ay: f64,
-    bx: f64,
-    by: f64,
-}
-
-fn affine(g: &ozmap::Georef, cx: f64, cy: f64) -> Affine {
-    const D: f64 = 1000.0;
-    let at = |mx: f64, my: f64| {
-        let (lon, lat) = lonlat_of(mx, my);
-        g.lonlat_to_pixel(lon, lat)
-    };
-    let (x0, y0) = at(cx, cy);
-    let (x1, y1) = at(cx + D, cy);
-    let (x2, y2) = at(cx, cy + D);
-    Affine {
-        x0,
-        y0,
-        ax: (x1 - x0) / D,
-        ay: (y1 - y0) / D,
-        bx: (x2 - x0) / D,
-        by: (y2 - y0) / D,
-    }
-}
 
 struct Layer {
     name: String,
@@ -89,103 +52,6 @@ struct Layer {
     georef: ozmap::Georef,
     /// (ozf-индекс_уровня, ratio_x, ratio_y), от крупного к мелкому
     levels: Vec<(usize, f64, f64)>,
-}
-
-fn today() -> (i32, u16) {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0);
-    let (y, m, d, ..) = geoio::time::parts(secs);
-    let ordinal = geoio::time::days_from_civil(y, m, d) - geoio::time::days_from_civil(y, 1, 1) + 1;
-    (y as i32, ordinal as u16)
-}
-
-fn date_offset(days: i64) -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-        + days * 86400;
-    let (y, m, d, ..) = geoio::time::parts(secs as f64);
-    format!("{:04}-{:02}-{:02}", y, m, d)
-}
-
-fn build_template(d: &document::TrackProps) -> String {
-    if d.callsign == "Zadacha" {
-        format!("Zadacha{}_{}", d.num1, d.date_str.replace("-", ""))
-    } else {
-        let n2 = d.num2.map(|n| format!("_{}", n)).unwrap_or_default();
-        let sfx = if d.suffix.is_empty() { String::new() } else { format!("_{}", d.suffix) };
-        format!("{}_{}_{}{}{}", d.date_str.replace("-", ""), d.callsign, d.num1, n2, sfx)
-    }
-}
-
-fn parse_coords(input: &str, grid: Option<&grid::Grid>, declination: f64) -> Option<(f64, f64)> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() { return None; }
-
-    // 1. Проверка на узел сетки (начинается с буквы)
-    if let Some(c) = trimmed.chars().next() {
-        if c.is_alphabetic() {
-            if let Some(g) = grid {
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if parts.is_empty() { return None; }
-                
-                let node_name = parts[0];
-                if let Some(node) = g.find(node_name) {
-                    // Если введены только имя узла — возвращаем его координаты
-                    if parts.len() == 1 {
-                        return Some((node.lat, node.lon));
-                    }
-                    // Если введены имя, азимут и расстояние — вычисляем координаты
-                    if parts.len() >= 3 {
-                        if let (Ok(az), Ok(dist)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
-                            let (lat, lon) = grid::locate_observer(node, az, dist, declination);
-                            return Some((lat, lon));
-                        }
-                    }
-                }
-            }
-            return None;
-        }
-    }
-
-    // 2. Нормализация строки (заменяем запятые на точки, убираем символы градусов)
-    let normalized = trimmed
-        .replace(',', ".")
-        .replace('°', " ")
-        .replace('\'', " ")
-        .replace('"', " ")
-        .replace('″', " ")
-        .replace('′', " ");
-
-    let mut nums = Vec::new();
-    for part in normalized.split_whitespace() {
-        for sub in part.split(|c| c == ' ' || c == '°' || c == '\'' || c == '"') {
-            if sub.is_empty() { continue; }
-            if let Ok(v) = sub.parse::<f64>() {
-                nums.push(v);
-            }
-        }
-    }
-
-    match nums.len() {
-        2 => Some((nums[0], nums[1])), // dd.dddddd dd.dddddd
-        4 => {
-            // dd mm.mmmm dd mm.mmmm
-            let lat = nums[0].signum() * (nums[0].abs() + nums[1] / 60.0);
-            let lon = nums[2].signum() * (nums[2].abs() + nums[3] / 60.0);
-            Some((lat, lon))
-        }
-        6 => {
-            // dd mm ss.ss dd mm ss.ss
-            let lat = nums[0].signum() * (nums[0].abs() + nums[1] / 60.0 + nums[2] / 3600.0);
-            let lon = nums[3].signum() * (nums[3].abs() + nums[4] / 60.0 + nums[5] / 3600.0);
-            Some((lat, lon))
-        }
-        _ => None,
-    }
 }
 
 type GridData = (grid::Grid, Vec<Vec<(f64, f64)>>);
@@ -469,7 +335,6 @@ enum Message {
     DraftDateChanged(String),
     ApplyTrackProps, 
     ToggleColorPicker,
-    ColorChannelChanged(usize, u8), // 0 = R, 1 = G, 2 = B
     WindowResized(Size),
     WindowMoved(Point),
     DividerPressed,
@@ -481,8 +346,6 @@ enum Message {
     
     DraftWpNameChanged(String),
     DraftWpDescChanged(String),
-    DraftWpLatChanged(String),
-    DraftWpLonChanged(String),
     DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]),
     DraftWpBgColorChanged([u8; 3]),
@@ -491,7 +354,6 @@ enum Message {
     AddNewWaypoint,
     ToggleTrackSaveMenu,
     ToggleWpSaveMenu,
-    ThemeChanged(iced::Theme, ResolvedTheme),
     RefreshSystemTheme,
     None,
 }
@@ -525,52 +387,6 @@ fn session_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("foxy")
         .join("session.json")
-}
-
-fn load_palette() -> Vec<[u8; 3]> {
-    let path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("foxy")
-        .join("palette.json");
-
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Ok(arr) = serde_json::from_str::<Vec<[u8; 3]>>(&content) {
-            return arr;
-        }
-    }
-
-    // Дефолтная палитра (как на скриншоте)
-    let default = vec![
-        [255, 0, 0],     // Red
-        [0, 0, 255],     // Blue
-        [0, 128, 0],     // Green
-        [255, 255, 255], // White
-        [0, 255, 255],   // Cyan
-        [255, 255, 0],   // Yellow
-        [255, 0, 255],   // Magenta
-        [0, 255, 0],     // Lime
-        [0, 0, 0],       // Black
-    ];
-
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&path, serde_json::to_string_pretty(&default).unwrap_or_default());
-
-    default
-}
-
-fn get_extended_palette() -> Vec<[u8; 3]> {
-    let mut colors = Vec::new();
-    // Градации серого и базовые
-    colors.extend_from_slice(&[[0,0,0], [85,85,85], [170,170,170], [255,255,255]]);
-    // Основные цвета (6 градаций яркости)
-    for &(r, g, b) in &[(255,0,0), (0,255,0), (0,0,255), (255,255,0), (0,255,255), (255,0,255), (128,0,0), (0,128,0), (0,0,128), (128,128,0), (0,128,128), (128,0,128)] {
-        colors.push([r, g, b]);
-        colors.push([r/2, g/2, b/2]);
-        colors.push([(r as u16 * 3 / 4) as u8, (g as u16 * 3 / 4) as u8, (b as u16 * 3 / 4) as u8]);
-    }
-    colors
 }
 
 fn save_session(app: &App) {
@@ -1833,23 +1649,6 @@ impl App {
             Message::ToggleColorPicker => {
                 self.show_color_picker = !self.show_color_picker;
             }
-            Message::ColorChannelChanged(ch, val) => {
-                let mut tid = None;
-                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
-                    let mut new_c = draft.line_color;
-                    new_c[ch] = val;
-                    
-                    let is_lisa_like = matches!(draft.callsign.as_str(), "Lisa" | "Avtonom" | "Kinolog" | "Pegas");
-                    let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
-                    if is_lisa_like && forbidden.contains(&new_c) {
-                        draft.line_color = [255, 0, 0]; // Принудительно красный
-                    } else {
-                        draft.line_color = new_c;
-                    }
-                    tid = Some(*track_id);
-                }
-                if let Some(id) = tid { self.update_track_preview(id); }
-            }
             Message::DraftFillColorChanged(c) => {
                 let mut tid = None;
                 if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.fill_color = c; tid = Some(*track_id); }
@@ -1969,28 +1768,6 @@ impl App {
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
-            Message::DraftWpLatChanged(s) => {
-                let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
-                    if let Ok(lat) = s.parse::<f64>() {
-                        draft.lat = lat;
-                        draft.ele = None; // Высота сбрасывается при ручном вводе
-                        tid = Some(*waypoint_id);
-                    }
-                }
-                if let Some(id) = tid { self.update_waypoint_preview(id); }
-            }
-            Message::DraftWpLonChanged(s) => {
-                let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
-                    if let Ok(lon) = s.parse::<f64>() {
-                        draft.lon = lon;
-                        draft.ele = None;
-                        tid = Some(*waypoint_id);
-                    }
-                }
-                if let Some(id) = tid { self.update_waypoint_preview(id); }
-            }
             Message::DraftWpEleChanged(s) => {
                 let mut tid = None;
                 if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
@@ -2060,10 +1837,6 @@ impl App {
             Message::ToggleWpSaveMenu => {
                 self.show_wp_save_menu = !self.show_wp_save_menu;
                 self.show_track_save_menu = false;
-            }
-            Message::ThemeChanged(theme, resolved) => {
-                self.theme = theme;
-                self.resolved_theme = resolved;
             }
             Message::RefreshSystemTheme => {
                 if let Ok((theme, resolved, _, _)) = native_theme_iced::from_system() {

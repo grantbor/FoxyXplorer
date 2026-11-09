@@ -207,7 +207,7 @@ pub fn visible_tiles(
     view_w: f64,
     view_h: f64,
 ) -> (u8, Vec<TileId>) {
-    let (_lon_c, lat_c) = crate::lonlat_of(cx, cy);
+    let (_lon_c, lat_c) = crate::util::geo::lonlat_of(cx, cy);
     let z = zoom_for_scale(scale, lat_c);
 
     let half_w_m = view_w / 2.0 * scale;
@@ -221,7 +221,7 @@ pub fn visible_tiles(
     let mut xs = [0.0f64; 2];
     let mut ys = [0.0f64; 2];
     for (i, (mx, my)) in corners.iter().enumerate() {
-        let (lon, lat) = crate::lonlat_of(*mx, *my);
+        let (lon, lat) = crate::util::geo::lonlat_of(*mx, *my);
         let (px, py) = world_px(lon, lat, z);
         xs[i] = px;
         ys[i] = py;
@@ -263,8 +263,8 @@ pub fn tile_screen_rect(
         (ty as f64 + 1.0) * TILE_SIZE,
         z,
     );
-    let (mx_tl, my_tl) = crate::merc_of(lon_tl, lat_tl);
-    let (mx_br, my_br) = crate::merc_of(lon_br, lat_br);
+    let (mx_tl, my_tl) = crate::util::geo::merc_of(lon_tl, lat_tl);
+    let (mx_br, my_br) = crate::util::geo::merc_of(lon_br, lat_br);
     let hw = view_w / 2.0;
     let hh = view_h / 2.0;
     let sx0 = hw + (mx_tl - cx) / scale;
