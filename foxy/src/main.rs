@@ -408,8 +408,8 @@ enum Message {
     ToggleGrid,
     ToggleLabels,
     CycleFormat,
-    Decl(f64),
-    DeclReset,
+    //Decl(f64),
+    //DeclReset,
     Pressed,
     Released,
     Moved(Point),
@@ -501,7 +501,7 @@ struct SessionView {
     show_grid: bool,
     show_labels: bool,
     format_str: String, // "Decimal", "DegMin", "DegMinSec"
-    decl_offset: f64,
+    //decl_offset: f64,
     window_size: Option<(f32, f32)>,
     window_pos: Option<(f32, f32)>,
 }
@@ -587,7 +587,7 @@ fn save_session(app: &App) {
             show_grid: app.show_grid,
             show_labels: app.show_labels,
             format_str,
-            decl_offset: app.decl_offset,
+            //decl_offset: app.decl_offset,
             // ДОБАВЛЕНЫ ЭТИ ДВЕ СТРОКИ:
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
@@ -628,7 +628,7 @@ struct App {
     show_grid: bool,
     show_labels: bool,
     declination: f64,
-    decl_offset: f64,
+    //decl_offset: f64,
     format: CoordFormat,
     cx: f64,
     cy: f64,
@@ -717,7 +717,7 @@ impl App {
         let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]]; // Красный, Aqua, Зеленый, Желтый
 
         let content = column![
-            text("Свойства точки").size(20).color(Color::WHITE),
+            text("Свойства точки").size(20), 
             
             row![text("Имя:").width(100), text_input("Имя", &draft.name).on_input(Message::DraftWpNameChanged).width(250)],
             row![text("Описание:").width(100), text_input("Описание", draft.description.as_deref().unwrap_or("")).on_input(Message::DraftWpDescChanged).width(250)],
@@ -759,11 +759,20 @@ impl App {
             ].spacing(10)
         ].spacing(12).padding(20);
 
-        container(content).style(|_| container::Style {
-            background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
-            border: iced::Border { color: Color::from_rgb(0.3, 0.3, 0.3), width: 1.0, radius: 8.0.into() },
-            ..Default::default()
-        }).into()
+        container(content)
+            .style(|theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .into()
     }
 
 
@@ -807,7 +816,7 @@ impl App {
                     show_grid: true,
                     show_labels: true,
                     declination: 0.0,
-                    decl_offset: 0.0,
+                    //*decl_offset: 0.0*,
                     format: CoordFormat::Decimal,
                     cx: 0.0,
                     cy: 0.0,
@@ -875,7 +884,7 @@ impl App {
                 app.active = session.view.active.min(app.layers.len()); // защита от выхода за границы
                 app.show_grid = session.view.show_grid;
                 app.show_labels = session.view.show_labels;
-                app.decl_offset = session.view.decl_offset;
+                //app.decl_offset = session.view.decl_offset;
                 app.format = match session.view.format_str.as_str() {
                     "DegMin" => CoordFormat::DegMin,
                     "DegMinSec" => CoordFormat::DegMinSec,
@@ -904,7 +913,7 @@ impl App {
             show_grid: true,
             show_labels: true,
             declination: 0.0,
-            decl_offset: 0.0,
+            //*decl_offset: 0.0*,
             format: CoordFormat::Decimal,
             cx: 0.0,
             cy: 0.0,
@@ -1008,19 +1017,24 @@ impl App {
         let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
         lonlat_of(mx, my)
     }
-
+    
     fn refresh_status(&mut self) {
         let Some(p) = self.cursor else { return };
         let (lon, lat) = self.screen_to_lonlat(p);
         let mut s = format!("Курсор: {}", format_pair(lat, lon, self.format));
+        
         if let Some(g) = &self.grid {
-            if let Some(n) = g.nearest(lat, lon, self.declination + self.decl_offset) {
+            if let Some(n) = g.nearest(lat, lon, self.declination) { // <-- Убрали + self.decl_offset
                 s += &format!(
                     "   |   ближайший узел {}: {:.0} м, магнитный азимут {:.0}°",
                     n.node.name, n.distance_m, n.magnetic_azimuth
                 );
             }
         }
+        
+        // ДОБАВЛЯЕМ СКЛОНЕНИЕ В КОНЕЦ СТРОКИ:
+        s += &format!("   |   Склонение: {:.1}°", self.declination);
+        
         self.status = s;
     }
 
@@ -1207,14 +1221,14 @@ impl App {
                 };
                 self.refresh_status();
             }
-            Message::Decl(d) => {
-                self.decl_offset += d;
-                self.refresh_status();
-            }
-            Message::DeclReset => {
-                self.decl_offset = 0.0;
-                self.refresh_status();
-            }
+            // Message::Decl(d) => {
+            //     self.decl_offset += d;
+            //     self.refresh_status();
+            // }
+            // Message::DeclReset => {
+            //     self.decl_offset = 0.0;
+            //     self.refresh_status();
+            // }
             Message::Pressed => self.dragging = true,
             Message::Released => {
                 if self.dragging {
@@ -1997,8 +2011,27 @@ impl App {
         }
     }
 
-        fn view(&self) -> Element<'_, Message> {
-        // 1. Собираем базовый интерфейс (панели, карта, статус-бар)
+    fn view(&self) -> Element<'_, Message> {
+        // Формируем строку с информацией (без геометрии)
+        let name = if self.osm_active() {
+            let pending = self.osm_cache.pending.borrow().len();
+            let cached = self.osm_cache.mem.borrow().len();
+            format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
+        } else {
+            self.layers
+                .get(self.active)
+                .map(|l| l.name.clone())
+                .unwrap_or_else(|| "-".into())
+        };
+        
+        let info = format!(
+            "Склонение: {:.2}° (WMM2025)  |  масштаб: {:.2} м/пикс  |  слой: {}",
+            self.declination,
+            self.scale,
+            name
+        );
+
+        // 1. Собираем базовый интерфейс
         let base_ui = column![
             self.view_top_toolbar(),
             row![
@@ -2023,6 +2056,7 @@ impl App {
             .spacing(4)
             .height(Length::Fill),
             text(self.status.as_str()),
+            text(info),
         ]
         .spacing(4)
         .padding(4)
@@ -2091,9 +2125,9 @@ impl App {
                 .on_press(Message::ToggleLabels),
             button(text("Fit")).on_press(Message::Fit),
             button(text(self.format_name())).on_press(Message::CycleFormat),
-            button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)),
-            button(text("Скл +0.1°")).on_press(Message::Decl(0.1)),
-            button(text("Скл: сброс")).on_press(Message::DeclReset),
+            //button(text("Скл −0.1°")).on_press(Message::Decl(-0.1)),
+            //button(text("Скл +0.1°")).on_press(Message::Decl(0.1)),
+            //button(text("Скл: сброс")).on_press(Message::DeclReset),
         ]
         .spacing(6)
         .align_y(Alignment::Center)
@@ -2239,13 +2273,25 @@ impl App {
                 container(
                     tooltip(
                         button(text(name_text).wrapping(iced::widget::text::Wrapping::None))
-                            .on_press(Message::SelectTrack(t.id)).width(Length::Fill).padding(0),
-                        container(text(t.name.clone())).padding([2, 6]).style(|_| container::Style {
-                            background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
-                            text_color: Some(Color::WHITE),
-                            border: iced::Border { color: Color::from_rgb(0.4, 0.4, 0.4), width: 1.0, radius: 4.0.into() },
-                            ..Default::default()
-                        }),
+                            .on_press(Message::SelectTrack(t.id))
+                            .width(Length::Fill)
+                            .padding(0),
+                        // ИСПРАВЛЕННЫЙ ТУЛТИП (добавлен тип &Theme):
+                        container(text(t.name.clone()))
+                            .padding([2, 6])
+                            .style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.weak.color.into()),
+                                    text_color: Some(palette.background.weak.text),
+                                    border: iced::Border {
+                                        color: palette.background.strong.color,
+                                        width: 1.0,
+                                        radius: 4.0.into(),
+                                    },
+                                    ..Default::default()
+                                }
+                            }),
                         tooltip::Position::Bottom,
                     )
                 ).width(Length::Fill).clip(true),
@@ -2258,6 +2304,7 @@ impl App {
 
         let has_tracks = !self.selection.tracks.is_empty();
         let one_track = self.selection.tracks.len() == 1;
+        let has_wps = !self.selection.waypoints.is_empty();
         let selected_id = self.selection.tracks.iter().next().copied();
 
         // Создаем два варианта нижней панели
@@ -2268,9 +2315,21 @@ impl App {
         ].spacing(4).align_y(Alignment::Center);
 
         let row_save = row![
-            button(text("PLT")).on_press(Message::SaveTracksPlt),
-            button(text("GPX")).on_press(Message::SaveTracksGpx),
-            button(text("MS")).on_press(Message::SaveTracksMs),
+            if has_tracks && !has_wps {
+                button(text("PLT")).on_press(Message::SaveTracksPlt)
+            } else {
+                button(text("PLT"))
+            },
+            if has_tracks || has_wps {
+                button(text("GPX")).on_press(Message::SaveTracksGpx)
+            } else {
+                button(text("GPX"))
+            },
+            if has_tracks || has_wps {
+                button(text("MS")).on_press(Message::SaveTracksMs)
+            } else {
+                button(text("MS"))
+            },
             button(text("✖")).on_press(Message::ToggleTrackSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
 
@@ -2325,12 +2384,21 @@ impl App {
                     tooltip(
                         button(text(w.name.clone()).wrapping(iced::widget::text::Wrapping::None))
                             .on_press(Message::SelectWaypoint(w.id)).width(Length::Fill).padding(0),
-                        container(text(w.name.clone())).padding([2, 6]).style(|_| container::Style {
-                            background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
-                            text_color: Some(Color::WHITE),
-                            border: iced::Border { color: Color::from_rgb(0.4, 0.4, 0.4), width: 1.0, radius: 4.0.into() },
-                            ..Default::default()
-                        }),
+                        container(text(w.name.clone()))
+                            .padding([2, 6])
+                            .style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.weak.color.into()),
+                                    text_color: Some(palette.background.weak.text),
+                                    border: iced::Border {
+                                        color: palette.background.strong.color,
+                                        width: 1.0,
+                                        radius: 4.0.into(),
+                                    },
+                                    ..Default::default()
+                                }
+                            }),
                         tooltip::Position::Bottom,
                     )
                 ).width(Length::Fill).clip(true),
@@ -2342,6 +2410,7 @@ impl App {
 
         let has_wps = !self.selection.waypoints.is_empty();
         let one_wp = self.selection.waypoints.len() == 1;
+        let has_tracks = !self.selection.tracks.is_empty(); // <-- ДОБАВИТЬ ЭТО
         let selected_id = self.selection.waypoints.iter().next().copied();
 
         // Создаем два варианта нижней панели
@@ -2353,10 +2422,26 @@ impl App {
         ].spacing(4).align_y(Alignment::Center);
 
         let row_save = row![
-            button(text("WPT")).on_press(Message::SaveWaypointsWptNew),
-            button(text("WPT+")).on_press(Message::SaveWaypointsWptAppend),
-            button(text("GPX")).on_press(Message::SaveTracksGpx),
-            button(text("MS")).on_press(Message::SaveTracksMs),
+            if has_wps && !has_tracks {
+                button(text("WPT")).on_press(Message::SaveWaypointsWptNew)
+            } else {
+                button(text("WPT"))
+            },
+            if has_wps && !has_tracks {
+                button(text("WPT+")).on_press(Message::SaveWaypointsWptAppend)
+            } else {
+                button(text("WPT+"))
+            },
+            if has_wps || has_tracks {
+                button(text("GPX")).on_press(Message::SaveTracksGpx)
+            } else {
+                button(text("GPX"))
+            },
+            if has_wps || has_tracks {
+                button(text("MS")).on_press(Message::SaveTracksMs)
+            } else {
+                button(text("MS"))
+            },
             button(text("✖")).on_press(Message::ToggleWpSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
 
@@ -2482,7 +2567,7 @@ impl App {
             column![].into()
         };
         let content = column![
-            text("Свойства трека").size(20).color(Color::WHITE),
+            text("Свойства трека").size(20), 
             
             // Description
             row![
@@ -2551,10 +2636,17 @@ impl App {
         .padding(20);
 
         container(content)
-            .style(|_| container::Style {
-                background: Some(Color::from_rgb(0.15, 0.15, 0.18).into()),
-                border: iced::Border { color: Color::from_rgb(0.3, 0.3, 0.3), width: 1.0, radius: 8.0.into() },
-                ..Default::default()
+            .style(|theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                }
             })
             .into()
     }  
