@@ -11,6 +11,7 @@ mod widgets;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use coord::{format_pair, CoordFormat};
 use iced::mouse::ScrollDelta;
@@ -44,6 +45,14 @@ pub(crate) struct Layer {
 }
 
 pub(crate) type GridData = (grid::Grid, Vec<Vec<(f64, f64)>>);
+
+#[derive(Clone)]
+pub(crate) struct UndoState {
+    pub tracks: Vec<Arc<domain::Track>>,
+    pub waypoints: Vec<Arc<domain::Waypoint>>,
+    pub next_id: u64,
+    pub label: String,
+}
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
     let mut notes = Vec::new();
@@ -210,7 +219,8 @@ pub(crate) enum Message {
     OpenWaypointProps(u64), CloseWaypointProps, ApplyWaypointProps,
     DraftWpNameChanged(String), DraftWpDescChanged(String), DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]), DraftWpBgColorChanged([u8; 3]), DraftWpCoordsChanged(String),
-    AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks, ChangeSimplifyTolerance(f64), None,
+    AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks, ChangeSimplifyTolerance(f64),
+    Undo, Redo, None,
 }
 
 pub(crate) fn save_session(app: &App) {
@@ -234,8 +244,9 @@ pub(crate) fn save_session(app: &App) {
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
         },
-        tracks: app.tracks.clone(),
-        waypoints: app.waypoints.clone(),
+        // ИСПОЛЬЗУЕМ .as_ref().clone()
+        tracks: app.tracks.iter().map(|t| t.as_ref().clone()).collect(),
+        waypoints: app.waypoints.iter().map(|w| w.as_ref().clone()).collect(),
         next_id: app.next_id,
     };
 
@@ -267,8 +278,6 @@ pub(crate) struct App {
     pub(crate) osm_cache: osm::OsmCache,
     pub(crate) osm_client: reqwest::Client,
     pub(crate) osm_z: u8,
-    pub(crate) tracks: Vec<domain::Track>,
-    pub(crate) waypoints: Vec<domain::Waypoint>,
     pub(crate) next_id: u64,
     pub(crate) selection: Selection,
     pub(crate) modifiers: Modifiers,
@@ -293,6 +302,10 @@ pub(crate) struct App {
     pub(crate) theme: iced::Theme,
     pub(crate) resolved_theme: ResolvedTheme, 
     pub(crate) simplify_tolerance: f64,
+    pub(crate) tracks: Vec<Arc<domain::Track>>,
+    pub(crate) waypoints: Vec<Arc<domain::Waypoint>>,
+    pub(crate) undo_stack: Vec<UndoState>,
+    pub(crate) redo_stack: Vec<UndoState>,
 }
 
 pub(crate) enum Modal {
@@ -327,8 +340,9 @@ impl App {
                     tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None,
                     status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
                     osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
-                    tracks: session.tracks, waypoints: session.waypoints, next_id: session.next_id,
-                    selection: Selection::default(),
+                    tracks: session.tracks.into_iter().map(Arc::new).collect(), 
+                    waypoints: session.waypoints.into_iter().map(Arc::new).collect(), 
+                    next_id: session.next_id, selection: Selection::default(),
                     last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
                     last_track_clicked: None, last_waypoint_clicked: None,
                     search_tracks: String::new(), search_waypoints: String::new(),
@@ -338,10 +352,12 @@ impl App {
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
                     show_track_save_menu: false, show_wp_save_menu: false,
-                    theme, resolved_theme, simplify_tolerance: 2.0,
+                    theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
                 };
 
-                for t in &mut app.tracks { domain::recompute_track_stats(t); }
+                for t in &mut app.tracks { 
+                    domain::recompute_track_stats(Arc::make_mut(t)); 
+                }
 
                 if let Some(kit_path) = &app.last_kit { app.apply_kit(load_kit(kit_path)); }
 
@@ -375,7 +391,7 @@ impl App {
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
             show_track_save_menu: false, show_wp_save_menu: false,
-            theme, resolved_theme, simplify_tolerance: 2.0,
+            theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -445,6 +461,8 @@ impl App {
     }
 
     pub(crate) fn apply_kit(&mut self, result: Result<(Vec<Layer>, Option<GridData>, Vec<String>), String>) -> bool {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
         match result {
             Ok((layers, gd, notes)) => {
                 let n_layers = layers.len();
@@ -487,6 +505,25 @@ impl App {
                 if let iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) = event {
                     Some(Message::ModifiersChanged(modifiers))
                 } else { None }
+            }),
+            // 5. Горячие клавиши Undo/Redo
+            // 5. Горячие клавиши Undo/Redo
+            iced::event::listen_with(|event, _status, _id| {
+                if let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = event {
+                    if modifiers.command() {
+                        match key {
+                            iced::keyboard::Key::Character(c) if c == "z" => {
+                                if modifiers.shift() { Some(Message::Redo) } else { Some(Message::Undo) }
+                            }
+                            iced::keyboard::Key::Character(c) if c == "y" => Some(Message::Redo),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }),
             iced::window::close_requests().map(|_| Message::WindowCloseRequested),
             iced::window::events().map(|(_id, event)| match event {

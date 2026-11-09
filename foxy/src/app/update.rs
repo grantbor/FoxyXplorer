@@ -11,20 +11,23 @@ use crate::util::coords::{build_template, date_offset, parse_coords};
 use crate::util::geo::lonlat_of;
 use crate::{load_kit, save_session};
 
+use std::sync::Arc;
+use crate::UndoState;
+
 impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             // --- View & Canvas ---
             Message::Pressed | Message::Released | Message::Moved(_) | Message::Scrolled(_)
             | Message::Fit | Message::WindowResized(_) | Message::WindowMoved(_)
-            | Message::DividerPressed | Message::DividerReleased | Message::CursorMoved(_) => {
+            | Message::DividerPressed | Message::DividerReleased | Message::CursorMoved(_)  => {
                 self.update_view(m);
             }
 
             // --- UI (Верхняя панель) ---
             Message::ToggleGrid | Message::ToggleLabels | Message::CycleFormat 
-            | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) => {
-                self.update_ui(m);
+            | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) | Message::Undo | Message::Redo => {
+                self.update_ui(m); 
             }
 
             // --- Треки ---
@@ -78,6 +81,19 @@ impl App {
         }
 
         self.request_osm_tiles()
+    }
+    
+    pub(crate) fn push_undo(&mut self, label: &str) {
+        if self.undo_stack.len() >= 50 {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(UndoState {
+            tracks: self.tracks.clone(),
+            waypoints: self.waypoints.clone(),
+            next_id: self.next_id,
+            label: label.to_string(),
+        });
+        self.redo_stack.clear();
     }
 
     // =========================================================================
@@ -154,7 +170,7 @@ impl App {
                     self.right_panel_width = new_w;
                 }
             }
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -187,7 +203,37 @@ impl App {
                 self.search_waypoints = q;
                 self.tracks_cache.clear();
             }
-            _ => unreachable!(),
+            Message::Undo => {
+                if let Some(prev) = self.undo_stack.pop() {
+                    self.redo_stack.push(UndoState {
+                        tracks: self.tracks.clone(),
+                        waypoints: self.waypoints.clone(),
+                        next_id: self.next_id,
+                        label: prev.label.clone(),
+                    });
+                    self.tracks = prev.tracks;       // Оба типа теперь Vec<Arc<Track>>
+                    self.waypoints = prev.waypoints; // Оба типа теперь Vec<Arc<Waypoint>>
+                    self.next_id = prev.next_id;
+                    self.tracks_cache.clear();
+                    self.status = format!("Отменено: {}", prev.label);
+                }
+            }
+            Message::Redo => {
+                if let Some(next) = self.redo_stack.pop() {
+                    self.undo_stack.push(UndoState {
+                        tracks: self.tracks.clone(),
+                        waypoints: self.waypoints.clone(),
+                        next_id: self.next_id,
+                        label: next.label.clone(),
+                    });
+                    self.tracks = next.tracks;
+                    self.waypoints = next.waypoints;
+                    self.next_id = next.next_id;
+                    self.tracks_cache.clear();
+                    self.status = format!("Повторено: {}", next.label);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -215,7 +261,7 @@ impl App {
                 if is_double_click {
                     self.last_track_click = None;
                     if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
-                        self.track_backup = Some(t.clone());
+                        self.track_backup = Some(t.as_ref().clone());
                         self.modal = Some(Modal::TrackProps { track_id: id, draft: t.props.clone() });
                     }
                 } else {
@@ -251,18 +297,19 @@ impl App {
             }
             Message::ToggleTrackVisible(id, v) => {
                 if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
-                    t.visible = v;
+                    Arc::make_mut(t).visible = v; 
                     self.tracks_cache.clear();
                 }
             }
             Message::ToggleAllTracksVisible => {
                 let all_visible = self.tracks.iter().all(|t| t.visible);
                 for t in &mut self.tracks {
-                    t.visible = !all_visible;
+                    Arc::make_mut(t).visible = !all_visible; 
                 }
                 self.tracks_cache.clear();
             }
-            Message::DeleteSelectedTracks => {
+             Message::DeleteSelectedTracks => {
+                self.push_undo("Удалить треки"); 
                 let ids = self.selection.tracks.clone();
                 self.tracks.retain(|t| !ids.contains(&t.id));
                 self.selection.tracks.clear();
@@ -271,8 +318,14 @@ impl App {
             }
             Message::OpenTrackProps(id) => {
                 if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
-                    self.track_backup = Some(t.clone());
-                    self.modal = Some(Modal::TrackProps { track_id: id, draft: t.props.clone() });
+                    // 1. Сначала извлекаем и клонируем всё, что нужно
+                    let backup = t.as_ref().clone();
+                    let draft = backup.props.clone();
+                    
+                    // 2. Ссылка `t` больше не используется, теперь можно менять self
+                    self.push_undo("Изменить свойства трека");
+                    self.track_backup = Some(backup);
+                    self.modal = Some(Modal::TrackProps { track_id: id, draft });
                 }
             }
             Message::ApplyTrackProps => {
@@ -282,7 +335,7 @@ impl App {
             Message::CloseTrackProps => {
                 if let Some(backup) = self.track_backup.take() {
                     if let Some(t) = self.tracks.iter_mut().find(|t| t.id == backup.id) {
-                        *t = backup;
+                        *t = Arc::new(backup);
                         self.tracks_cache.clear();
                     }
                 }
@@ -297,16 +350,16 @@ impl App {
             }
             Message::SimplifyTracks => {
                 let ids = self.selection.tracks.clone();
+                self.push_undo("Упростить трек"); // <-- ДОБАВЛЕНО
                 for id in ids {
                     if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
-                        // Используем выбранный допуск вместо жестко заданных 2.0
-                        domain::simplify::simplify_track(t, self.simplify_tolerance);
+                        domain::simplify::simplify_track(Arc::make_mut(t), self.simplify_tolerance);
                     }
                 }
                 self.tracks_cache.clear();
                 self.status = format!("Треки упрощены (допуск {} м)", self.simplify_tolerance);
             }
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -435,7 +488,7 @@ impl App {
             Message::ToggleColorPicker => {
                 self.show_color_picker = !self.show_color_picker;
             }
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -453,10 +506,10 @@ impl App {
                 if is_double_click {
                     self.last_waypoint_click = None;
                     if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
-                        self.waypoint_backup = Some(w.clone());
+                        self.waypoint_backup = Some(w.as_ref().clone());
                         self.modal = Some(Modal::WaypointProps { 
                             waypoint_id: id, 
-                            draft: w.clone(),
+                            draft: w.as_ref().clone(),
                             coord_input: format!("{:.6} {:.6}", w.lat, w.lon),
                             is_new: false,
                         });
@@ -494,18 +547,19 @@ impl App {
             }
             Message::ToggleWaypointVisible(id, v) => {
                 if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
-                    w.visible = v;
+                    Arc::make_mut(w).visible = v; 
                     self.tracks_cache.clear();
                 }
             }
             Message::ToggleAllWaypointsVisible => {
                 let all_visible = self.waypoints.iter().all(|w| w.visible);
                 for w in &mut self.waypoints {
-                    w.visible = !all_visible;
+                    Arc::make_mut(w).visible = !all_visible; 
                 }
                 self.tracks_cache.clear();
             }
             Message::DeleteSelectedWaypoints => {
+                self.push_undo("Удалить точки"); 
                 let ids = self.selection.waypoints.clone();
                 self.waypoints.retain(|w| !ids.contains(&w.id));
                 self.selection.waypoints.clear();
@@ -514,16 +568,23 @@ impl App {
             }
             Message::OpenWaypointProps(id) => {
                 if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
-                    self.waypoint_backup = Some(w.clone());
+                    // 1. Сначала извлекаем
+                    let backup = w.as_ref().clone();
+                    let coord_input = format!("{:.6} {:.6}", backup.lat, backup.lon);
+                    
+                    // 2. Теперь можно менять self
+                    self.push_undo("Изменить свойства точки");
+                    self.waypoint_backup = Some(backup.clone());
                     self.modal = Some(Modal::WaypointProps { 
                         waypoint_id: id, 
-                        draft: w.clone(),
-                        coord_input: format!("{:.6} {:.6}", w.lat, w.lon),
+                        draft: backup,
+                        coord_input,
                         is_new: false,
                     });
                 }
             }
             Message::AddNewWaypoint => {
+                self.push_undo("Добавить точку");
                 let (lon, lat) = lonlat_of(self.cx, self.cy);
                 let new_wp = domain::Waypoint {
                     id: self.next_id,
@@ -537,7 +598,7 @@ impl App {
                     bg_color: [0, 255, 255],
                 };
                 self.next_id += 1;
-                self.waypoints.push(new_wp.clone());
+                self.waypoints.push(Arc::new(new_wp.clone()));
                 self.waypoint_backup = Some(new_wp.clone());
                 self.modal = Some(Modal::WaypointProps {
                     waypoint_id: new_wp.id,
@@ -560,7 +621,7 @@ impl App {
                 }
                 if let Some(backup) = self.waypoint_backup.take() {
                     if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == backup.id) {
-                        *w = backup;
+                        *w = Arc::new(backup);
                     }
                 }
                 self.tracks_cache.clear();
@@ -570,7 +631,7 @@ impl App {
                 self.show_wp_save_menu = !self.show_wp_save_menu;
                 self.show_track_save_menu = false;
             }
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -629,7 +690,7 @@ impl App {
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -655,8 +716,8 @@ impl App {
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksPltPicked);
             }
             Message::SaveTracksPltPicked(Some(path)) => {
-                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
-                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
@@ -682,8 +743,8 @@ impl App {
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksGpxPicked);
             }
             Message::SaveTracksGpxPicked(Some(path)) => {
-                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
-                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()) .collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
@@ -709,8 +770,8 @@ impl App {
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksMsPicked);
             }
             Message::SaveTracksMsPicked(Some(path)) => {
-                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).collect();
-                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
@@ -736,7 +797,7 @@ impl App {
                 );
             }
             Message::SaveWaypointsWptNewPicked(Some(path)) => {
-                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&[], &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
@@ -761,7 +822,7 @@ impl App {
                 }
                 for w in &self.waypoints {
                     if self.selection.waypoints.contains(&w.id) {
-                        all_wps.push(w.clone());
+                        all_wps.push(w.as_ref().clone());
                     }
                 }
                 let refs: Vec<_> = all_wps.iter().collect();
@@ -796,27 +857,44 @@ impl App {
                 }
             }
             Message::SaveTrackPropsPicked(Some(path)) => {
-                if let Some(Modal::TrackProps { track_id, .. }) = &self.modal {
-                    if let Some(t) = self.tracks.iter().find(|t| t.id == *track_id) {
-                        if let Err(e) = io::save_plt(t, &path) {
-                            self.status = format!("Ошибка сохранения: {e}");
-                        } else {
-                            self.status = format!("Сохранено в {}", path.display());
-                            if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == *track_id) {
-                                t_mut.source = domain::FileSource::File { 
-                                    path: path.clone(), 
-                                    read_only: false 
-                                };
-                                t_mut.name = t_mut.props.description.clone();
-                            }
-                            self.modal = None;
-                            self.track_backup = None;
+                // 1. Достаем id, чтобы освободить self.modal
+                let track_id = if let Some(Modal::TrackProps { track_id, .. }) = &self.modal {
+                    *track_id
+                } else {
+                    return Task::none(); // или можно просто ничего не делать
+                };
+
+                // 2. Сохраняем на диск (только читаем данные)
+                let save_result = if let Some(t) = self.tracks.iter().find(|t| t.id == track_id) {
+                    io::save_plt(t, &path)
+                } else {
+                    Err("Трек не найден".to_string())
+                };
+
+                // 3. Обрабатываем результат и меняем self
+                match save_result {
+                    Err(e) => {
+                        self.status = format!("Ошибка сохранения: {e}");
+                    }
+                    Ok(_) => {
+                        self.push_undo("Сохранение трека в файл");
+                        self.status = format!("Сохранено в {}", path.display());
+                        
+                        if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == track_id) {
+                            let t_m = Arc::make_mut(t_mut);
+                            t_m.source = domain::FileSource::File { 
+                                path: path.clone(), 
+                                read_only: false 
+                            };
+                            t_m.name = t_m.props.description.clone();
                         }
+                        self.modal = None;
+                        self.track_backup = None;
                     }
                 }
-            } 
+            }
             Message::SaveTrackPropsPicked(None) => {}
-            _ => unreachable!(),
+            _ => {}
         }
         Task::none()
     }
@@ -862,8 +940,8 @@ impl App {
                 for path in paths {
                     match io::load_user_file(&path, &mut self.next_id) {
                         Ok(content) => {
-                            self.tracks.extend(content.tracks);
-                            self.waypoints.extend(content.waypoints);
+                            self.tracks.extend(content.tracks.into_iter().map(Arc::new));
+                            self.waypoints.extend(content.waypoints.into_iter().map(Arc::new));
                             let mut s = format!("Загружено: {}", path.file_name().unwrap_or_default().to_string_lossy());
                             if !content.notes.is_empty() {
                                 s += &format!(" (предупреждения: {})", content.notes.join("; "));
@@ -901,7 +979,7 @@ impl App {
                 }
             }
             Message::None => {}
-            _ => unreachable!(),
+            _ => {}
         }
         Task::none()
     }
@@ -912,9 +990,10 @@ impl App {
     pub(crate) fn update_track_preview(&mut self, id: u64) {
         if let Some(Modal::TrackProps { draft, .. }) = &self.modal {
             if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
-                t.props = draft.clone();
-                t.name = draft.description.clone();
-                t.color = draft.line_color;
+                let t_mut = Arc::make_mut(t);
+                t_mut.props = draft.clone();
+                t_mut.name = draft.description.clone();
+                t_mut.color = draft.line_color;
                 self.tracks_cache.clear();
             }
         }
@@ -923,7 +1002,7 @@ impl App {
     pub(crate) fn update_waypoint_preview(&mut self, id: u64) {
         if let Some(Modal::WaypointProps { draft, .. }) = &self.modal {
             if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
-                *w = draft.clone();
+                *w = Arc::new(draft.clone());
                 self.tracks_cache.clear();
             }
         }
