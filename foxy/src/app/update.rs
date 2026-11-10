@@ -30,7 +30,8 @@ impl App {
 
             // --- UI (Верхняя панель) ---
             Message::ToggleGrid | Message::ToggleLabels | Message::CycleFormat 
-            | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) | Message::Undo | Message::Redo => {
+            | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) | Message::Undo | Message::Redo 
+            | Message::ModalDragStart | Message::ModalDragEnd=> {
                 self.update_ui(m); 
             }
 
@@ -174,13 +175,31 @@ impl App {
             Message::WindowResized(size) => self.window_size = size,
             Message::WindowMoved(pos) => self.window_pos = pos,
             Message::DividerPressed => self.resizing_panel = true,
-            Message::DividerReleased => self.resizing_panel = false,
             Message::CursorMoved(p) => {
+                if self.modal_dragging {
+                    // Если это первое движение мыши после клика — запоминаем точку старта
+                    if self.modal_drag_start_cursor.is_none() {
+                        self.modal_drag_start_cursor = Some(p);
+                    }
+                    
+                    if let Some(start) = self.modal_drag_start_cursor {
+                        let dx = p.x - start.x;
+                        let dy = p.y - start.y;
+                        self.modal_drag_offset = Point::new(
+                            self.modal_drag_start_offset.x + dx,
+                            self.modal_drag_start_offset.y + dy,
+                        );
+                    }
+                }
                 if self.resizing_panel {
                     let win_w = self.window_size.width;
                     let new_w = (win_w - p.x).clamp(200.0, win_w * 0.6);
                     self.right_panel_width = new_w;
                 }
+            }
+            Message::DividerReleased => {
+                self.resizing_panel = false;
+                self.modal_dragging = false;
             }
             _ => {}
         }
@@ -245,6 +264,16 @@ impl App {
                     self.status = format!("Повторено: {}", next.label);
                 }
             }
+            Message::ModalDragStart => {
+                if self.modal.is_some() {
+                    self.modal_dragging = true;
+                    self.modal_drag_start_cursor = None;
+                    self.modal_drag_start_offset = self.modal_drag_offset;
+                }
+            }
+            Message::ModalDragEnd => {
+                self.modal_dragging = false;
+            }
             _ => {}
         }
     }
@@ -271,6 +300,7 @@ impl App {
                 });
 
                 if is_double_click {
+                    self.modal_drag_offset = Point::ORIGIN;
                     self.last_track_click = None;
                     if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
                         self.track_backup = Some(t.as_ref().clone());
@@ -329,6 +359,7 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::OpenTrackProps(id) => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
                     // 1. Сначала извлекаем и клонируем всё, что нужно
                     let backup = t.as_ref().clone();
@@ -341,10 +372,12 @@ impl App {
                 }
             }
             Message::ApplyTrackProps => {
+                self.modal_drag_offset = Point::ORIGIN;
                 self.track_backup = None;
                 self.modal = None;
             }
             Message::CloseTrackProps => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(backup) = self.track_backup.take() {
                     if let Some(t) = self.tracks.iter_mut().find(|t| t.id == backup.id) {
                         *t = Arc::new(backup);
@@ -513,6 +546,7 @@ impl App {
                 });
 
                 if is_double_click {
+                    self.modal_drag_offset = Point::ORIGIN;
                     self.last_waypoint_click = None;
                     if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
                         self.waypoint_backup = Some(w.as_ref().clone());
@@ -576,6 +610,7 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::OpenWaypointProps(id) => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
                     // 1. Сначала извлекаем
                     let backup = w.as_ref().clone();
@@ -593,6 +628,7 @@ impl App {
                 }
             }
             Message::AddNewWaypoint => {
+                self.modal_drag_offset = Point::ORIGIN;
                 self.push_undo("Добавить точку");
                 let (lon, lat) = lonlat_of(self.cx, self.cy);
                 let new_wp = domain::Waypoint {
@@ -618,10 +654,12 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::ApplyWaypointProps => {
+                self.modal_drag_offset = Point::ORIGIN;
                 self.waypoint_backup = None;
                 self.modal = None;
             }
             Message::CloseWaypointProps => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(Modal::WaypointProps { waypoint_id, is_new, .. }) = &self.modal {
                     if *is_new {
                         let id = *waypoint_id;
@@ -866,6 +904,7 @@ impl App {
                 }
             }
             Message::SaveTrackPropsPicked(Some(path)) => {
+                self.modal_drag_offset = Point::ORIGIN;
                 // 1. Достаем id, чтобы освободить self.modal
                 let track_id = if let Some(Modal::TrackProps { track_id, .. }) = &self.modal {
                     *track_id
@@ -996,6 +1035,7 @@ impl App {
     fn update_track_list(&mut self, m: Message) {
         match m {
             Message::OpenTrackList(id) => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
                     let mut rows = Vec::new();
                     let mut pid = 1;
@@ -1033,6 +1073,7 @@ impl App {
                 }
             }
             Message::CloseTrackList => {
+                self.modal_drag_offset = Point::ORIGIN;
                 self.modal = None;
             }
             Message::SelectTrackPoint(sect, pt_idx) => {
@@ -1076,6 +1117,7 @@ impl App {
                 }
             }
             Message::DeleteSelectedTrackPoints => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(Modal::TrackList(state)) = &self.modal {
                     let id = state.track_id;
                     let selected = state.selected_points.clone();
@@ -1117,6 +1159,7 @@ impl App {
                 }
             }
             Message::SplitTrackAtPoint(sect, pt_idx) => {
+                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(Modal::TrackList(state)) = &self.modal {
                     let id = state.track_id;
                     self.push_undo("Разделить трек");

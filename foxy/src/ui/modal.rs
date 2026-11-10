@@ -79,7 +79,24 @@ impl App {
         }
 
         let content = column![
-            text(format!("Track List - {}", track_name)).size(18),
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text(format!("Список точек - {}", track_name)).size(18))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseTrackList)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
             
             // Заголовок и таблица в скролле
             container(header).padding(2),
@@ -144,7 +161,24 @@ impl App {
         let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
         
         let content = column![
-            text("Свойства точки").size(20),
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text("Свойства точки").size(20))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseWaypointProps)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
                 text("Имя:").width(100), 
@@ -202,6 +236,7 @@ impl App {
             ..Default::default()
             }
         })
+         .width(Length::Fixed(500.0))
         .into()
     }
 
@@ -313,7 +348,24 @@ impl App {
         let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
         
         let content = column![
-            text("Свойства трека").size(20),
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text("Свойства трека").size(20))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseTrackProps)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
                 text("Описание:").width(120),
@@ -391,6 +443,7 @@ impl App {
             ..Default::default()
             }
         })
+         .width(Length::Fixed(600.0))
         .into()
     }
 }

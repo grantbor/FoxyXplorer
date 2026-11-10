@@ -247,7 +247,8 @@ pub(crate) enum Message {
     DeleteSelectedTrackPoints,
     CenterOnTrackPoint(usize, usize),
     SplitTrackAtPoint(usize, usize),
-    SelectPointsOutsideGrid,None,
+    SelectPointsOutsideGrid,
+    ModalDragStart, ModalDragEnd, None,
 }
 
 pub(crate) fn save_session(app: &App) {
@@ -333,12 +334,23 @@ pub(crate) struct App {
     pub(crate) waypoints: Vec<Arc<domain::Waypoint>>,
     pub(crate) undo_stack: Vec<UndoState>,
     pub(crate) redo_stack: Vec<UndoState>,
+    pub(crate) modal_drag_offset: Point,
+    pub(crate) modal_dragging: bool,
+    pub(crate) modal_drag_start_cursor: Option<Point>,
+    pub(crate) modal_drag_start_offset: Point,
 }
 
 pub(crate) enum Modal {
     TrackProps { track_id: u64, draft: domain::TrackProps },
     WaypointProps { waypoint_id: u64, draft: domain::Waypoint, coord_input: String, is_new: bool },
     TrackList(TrackListState),
+}
+
+fn modal_drag_padding(offset: Point) -> iced::Padding {
+    let mut pad = iced::Padding::new(0.0);
+    if offset.y > 0.0 { pad = pad.top(offset.y * 2.0); } else { pad = pad.bottom(-offset.y * 2.0); }
+    if offset.x > 0.0 { pad = pad.left(offset.x * 2.0); } else { pad = pad.right(-offset.x * 2.0); }
+    pad
 }
 
 impl App {
@@ -381,6 +393,8 @@ impl App {
                     right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
                     show_track_save_menu: false, show_wp_save_menu: false,
                     theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
+                    modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
+                    modal_drag_start_offset: Point::new(0.0, 0.0),
                 };
 
                 for t in &mut app.tracks { 
@@ -420,6 +434,8 @@ impl App {
             right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
             show_track_save_menu: false, show_wp_save_menu: false,
             theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
+            modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
+            modal_drag_start_offset: Point::new(0.0, 0.0),
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -563,11 +579,15 @@ impl App {
             iced::system::theme_changes().map(|_| Message::RefreshSystemTheme),
         ];
 
-        if self.resizing_panel {
+        if self.resizing_panel || self.modal_dragging {
             subs.push(iced::event::listen_with(|event, _status, _id| {
                 match event {
-                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::CursorMoved(position)),
-                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => Some(Message::DividerReleased),
+                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                        Some(Message::CursorMoved(position))
+                    }
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                        Some(Message::DividerReleased)
+                    }
                     _ => None,
                 }
             }));
@@ -684,12 +704,14 @@ impl App {
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
                         ..Default::default()
                     }),
                 container(modal_ui)
                     .center_x(Length::Fill)
                     .center_y(Length::Fill)
+                    .style(|_| container::Style::default()) // чтобы фон не растягивался
+                    .padding(modal_drag_padding(self.modal_drag_offset))
             ]
             .into()
         } else if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input, .. }) = &self.modal {
@@ -701,12 +723,14 @@ impl App {
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
                         ..Default::default()
                     }),
                 container(modal_ui)
                     .center_x(Length::Fill)
                     .center_y(Length::Fill)
+                    .style(|_| container::Style::default()) // чтобы фон не растягивался
+                    .padding(modal_drag_padding(self.modal_drag_offset))
             ]
             .into()
         } else if let Some(Modal::TrackList(state)) = &self.modal {
@@ -719,12 +743,14 @@ impl App {
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
                         ..Default::default()
                     }),
                 container(modal_ui)
                     .center_x(Length::Fill)
                     .center_y(Length::Fill)
+                    .style(|_| container::Style::default()) // чтобы фон не растягивался
+                    .padding(modal_drag_padding(self.modal_drag_offset))
             ]
             .into()
         } else {
