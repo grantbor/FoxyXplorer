@@ -806,19 +806,29 @@ impl App {
                 }
 
                 // 5. Горячие клавиши с Ctrl/Cmd (работают всегда)
+                // 5. Ctrl+Z, Ctrl+Y, Ctrl+A (с учётом русской раскладки)
                 if modifiers.command() {
                     match &key {
-                        iced::keyboard::Key::Character(c) if c == "z" => {
+                        // Z | Я (или заглавные при Shift)
+                        iced::keyboard::Key::Character(c) 
+                            if c == "z" || c == "Z" || c == "я" || c == "Я" => 
+                        {
                             if modifiers.shift() { 
                                 self.perform_redo(); 
                             } else { 
                                 self.perform_undo(); 
                             }
                         }
-                        iced::keyboard::Key::Character(c) if c == "y" => {
+                        // Y | Н (или заглавные)
+                        iced::keyboard::Key::Character(c) 
+                            if c == "y" || c == "Y" || c == "н" || c == "Н" => 
+                        {
                             self.perform_redo();
                         }
-                        iced::keyboard::Key::Character(c) if c == "a" => {
+                        // A | Ф (или заглавные)
+                        iced::keyboard::Key::Character(c) 
+                            if c == "a" || c == "A" || c == "ф" || c == "Ф" => 
+                        {
                             if let Some(Modal::TrackList(state)) = &mut self.modal {
                                 state.selected_points.clear();
                                 for r in &state.rows {
@@ -1066,6 +1076,60 @@ impl App {
                 self.last_point_clicked = None;
                 self.tracks_cache.clear();
                 self.status = "Удалено выделенных точек".into();
+            }
+            Message::FitTrackToScreen => {
+                let ids: Vec<u64> = if !self.selection.tracks.is_empty() {
+                    self.selection.tracks.iter().copied().collect()
+                } else {
+                    self.tracks.iter().filter(|t| t.visible).map(|t| t.id).collect()
+                };
+
+                let mut min_x = f64::INFINITY;
+                let mut max_x = f64::NEG_INFINITY;
+                let mut min_y = f64::INFINITY;
+                let mut max_y = f64::NEG_INFINITY;
+                let mut found = false;
+
+                for id in ids {
+                    if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
+                        for seg in &t.segments {
+                            for pt in &seg.points {
+                                let (mx, my) = merc_of(pt.lon, pt.lat);
+                                if mx < min_x { min_x = mx; }
+                                if mx > max_x { max_x = mx; }
+                                if my < min_y { min_y = my; }
+                                if my > max_y { max_y = my; }
+                                found = true;
+                            }
+                        }
+                    }
+                }
+
+                if found {
+                    let w = (max_x - min_x).max(0.001);
+                    let h = (max_y - min_y).max(0.001);
+                    let sz = self.last_bounds.get();
+                    let vw = sz.width as f64;
+                    let vh = sz.height as f64;
+
+                    // Паддинг 100px на узкую сторону
+                    let (pad_x, pad_y) = if vw < vh { (100.0, 0.0) } else { (0.0, 100.0) };
+
+                    let scale_x = w / (vw - pad_x).max(1.0);
+                    let scale_y = h / (vh - pad_y).max(1.0);
+
+                    self.scale = scale_x.max(scale_y).max(0.1).min(10000.0);
+                    self.cx = (min_x + max_x) / 2.0;
+                    self.cy = (min_y + max_y) / 2.0;
+
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+                    self.status = format!("Fit: масштаб {:.2} м/пикс", self.scale);
+                } else {
+                    self.status = "Fit: нет треков для отображения".into();
+                }
             }
             _ => {}
         }
