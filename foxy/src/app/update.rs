@@ -3,7 +3,7 @@ use iced::mouse::ScrollDelta;
 use iced::{Point, Task};
 use coord::CoordFormat;
 
-use crate::{App, Message, Modal};
+use crate::{App, Message, Modal, DrawingTrack};
 use crate::domain;
 use crate::io;
 use crate::session;
@@ -533,6 +533,58 @@ impl App {
         self.point_is_dragging = false;
         self.tracks_cache.clear();
     }
+    
+    fn finish_drawing(&mut self) {
+        let Some(dt) = self.drawing_track.take() else { return };
+        if dt.points.len() < 2 {
+            self.status = "Слишком мало точек для трека".into();
+            return;
+        }
+        
+        self.push_undo("Нарисовать трек");
+        
+        let new_pts: Vec<domain::TrackPoint> = dt.points.iter()
+            .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None })
+            .collect();
+        
+        if let Some(target_id) = dt.target_track_id {
+            if let Some(t) = self.tracks.iter_mut().find(|t| t.id == target_id) {
+                let t_m = Arc::make_mut(t);
+                // Стираем лишнюю инфу у всех существующих точек
+                for seg in &mut t_m.segments {
+                    for pt in &mut seg.points {
+                        pt.ele = None;
+                        pt.time = None;
+                    }
+                }
+                // Добавляем новые точки к последнему сегменту
+                if let Some(last_seg) = t_m.segments.last_mut() {
+                    last_seg.points.extend(new_pts);
+                } else {
+                    t_m.segments.push(domain::TrackSegment { points: new_pts });
+                }
+                domain::recompute_track_stats(t_m);
+                self.status = format!("Добавлено {} точек к треку", dt.points.len());
+            }
+        } else {
+            let new_track = domain::Track {
+                id: self.next_id,
+                name: format!("Track{}", self.next_id),
+                color: [0x2a, 0x7f, 0xff],
+                visible: true,
+                segments: vec![domain::TrackSegment { points: new_pts }],
+                source: domain::FileSource::New,
+                props: domain::TrackProps::default(),
+                cached_points: 0,
+                cached_distance_m: 0.0,
+            };
+            self.next_id += 1;
+            self.tracks.push(Arc::new(new_track));
+            self.status = format!("Создан новый трек ({} точек)", dt.points.len());
+        }
+        
+        self.tracks_cache.clear();
+    }
 
     // =========================================================================
     // 1. Логика View (Панорамирование, зум, ресайз окна)
@@ -551,7 +603,28 @@ impl App {
                     self.handle_select_points_press(p);
                 } else if self.active_tool == crate::Tool::SelectObjects {
                     self.handle_select_objects_press(p);
-                }
+                
+                } else if self.active_tool == crate::Tool::DrawTrack {
+                    let sz = self.last_bounds.get();
+                    let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+                    let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
+                    let (lon, lat) = lonlat_of(mx, my);
+
+                    if self.drawing_track.is_none() {
+                        // Если выделен ровно один трек — добавляем в него, иначе создаем новый
+                        let target = if self.selection.tracks.len() == 1 {
+                            self.selection.tracks.iter().next().copied()
+                        } else {
+                            None
+                        };
+                        self.drawing_track = Some(DrawingTrack { points: Vec::new(), target_track_id: target });
+                    }
+                    
+                    if let Some(dt) = &mut self.drawing_track {
+                        dt.points.push((lon, lat));
+                        self.tracks_cache.clear(); 
+                    }
+                }                
             }
             
             Message::Moved(p) => {
@@ -663,6 +736,23 @@ impl App {
             Message::KeyPressed(key, modifiers) => {
                 // Если открыто модальное окно — игнорируем всё, кроме Ctrl+Z/Ctrl+Y/Ctrl+A и стрелок
                 let is_modal_open = self.modal.is_some();
+
+                // Управление рисованием
+                if self.active_tool == crate::Tool::DrawTrack && self.drawing_track.is_some() {
+                    match &key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                            self.drawing_track = None;
+                            self.tracks_cache.clear();
+                            self.status = "Рисование отменено".into();
+                            return;
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
+                            self.finish_drawing();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
 
                 if !is_modal_open {
                     // 1. Инструменты (без модификаторов, с учетом обеих раскладок)
@@ -778,14 +868,23 @@ impl App {
                 }
             }
             Message::SelectTool(tool) => {
+                // Если уходим с DrawTrack и что-то нарисовано — завершаем
+                if tool != crate::Tool::DrawTrack && self.drawing_track.is_some() {
+                    if let Some(dt) = &self.drawing_track {
+                        if dt.points.len() >= 2 {
+                            self.finish_drawing();
+                        } else {
+                            self.drawing_track = None;
+                        }
+                    }
+                }
                 self.active_tool = tool;
                 self.dragging = false;
                 self.modal = None;
-
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
                 self.osm_canvas_cache.clear();
-                self.tracks_cache.clear(); 
+                self.tracks_cache.clear();
             }
             _ => {}
         }

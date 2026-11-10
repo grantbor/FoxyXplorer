@@ -268,6 +268,11 @@ pub(crate) enum Tool {
     Ruler,
 }
 
+pub(crate) struct DrawingTrack {
+    pub points: Vec<(f64, f64)>, // (lon, lat)
+    pub target_track_id: Option<u64>,
+}
+
 pub(crate) fn save_session(app: &App) {
     let format_str = match app.format {
         CoordFormat::Decimal => "Decimal",
@@ -366,6 +371,7 @@ pub(crate) struct App {
     pub(crate) rubber_band_start: Option<Point>,
     pub(crate) rubber_band_end: Option<Point>,
     pub(crate) last_point_clicked: Option<(u64, usize, usize)>,
+    pub(crate) drawing_track: Option<DrawingTrack>,
 }
 
 pub(crate) enum Modal {
@@ -425,7 +431,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None,   
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None  
                 };
 
                 for t in &mut app.tracks { 
@@ -469,7 +475,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None,
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -593,7 +599,6 @@ impl App {
                        iced::keyboard::Event::ModifiersChanged(modifiers) => {
                             Some(Message::ModifiersChanged(modifiers))
                        }
-                        _ => None,
                     }
                 } else {
                     None

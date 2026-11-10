@@ -286,7 +286,81 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                 let (mx, my) = merc_of(lon, lat);
                 draw_crosshair(frame, to_screen(mx, my));
             }
-
+            // Рисуемый трек (rubber band)
+            if let Some(dt) = &app.drawing_track {
+                if !dt.points.is_empty() {
+                    let color = Color::from_rgb8(0x2a, 0x7f, 0xff);
+                    
+                    let screen_pts: Vec<Point> = dt.points.iter().map(|&(lon, lat)| {
+                        let (mx, my) = merc_of(lon, lat);
+                        to_screen(mx, my)
+                    }).collect();
+                    
+                    // Линия между уже поставленными точками
+                    if screen_pts.len() >= 2 {
+                        let path = CanvasPath::new(|p| {
+                            let mut first = true;
+                            for pt in &screen_pts {
+                                if first { p.move_to(*pt); first = false; }
+                                else { p.line_to(*pt); }
+                            }
+                        });
+                        frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(2.0));
+                    }
+                    
+                    // "Резиновая нить" от последней точки к курсору
+                    if let Some(cursor) = app.cursor {
+                        let last = *screen_pts.last().unwrap();
+                        let line = CanvasPath::line(last, cursor);
+                        frame.stroke(&line, canvas::Stroke::default().with_color(color).with_width(1.5));
+                    }
+                    
+                    // Маркеры точек
+                    for pt in &screen_pts {
+                        let circle = CanvasPath::circle(*pt, 5.0);
+                        frame.fill(&circle, Color::WHITE);
+                        frame.stroke(&circle, canvas::Stroke::default().with_color(color).with_width(1.5));
+                    }
+                }
+            }
+            
+            // Рисуемый трек (rubber band)
+            if let Some(dt) = &app.drawing_track {
+                if !dt.points.is_empty() {
+                    let color = Color::from_rgb8(0x2a, 0x7f, 0xff);
+                    
+                    let screen_pts: Vec<Point> = dt.points.iter().map(|&(lon, lat)| {
+                        let (mx, my) = merc_of(lon, lat);
+                        to_screen(mx, my)
+                    }).collect();
+                    
+                    // Линия между уже поставленными точками
+                    if screen_pts.len() >= 2 {
+                        let path = CanvasPath::new(|p| {
+                            let mut first = true;
+                            for pt in &screen_pts {
+                                if first { p.move_to(*pt); first = false; }
+                                else { p.line_to(*pt); }
+                            }
+                        });
+                        frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(2.0));
+                    }
+                    
+                    // "Резиновая нить" от последней точки к курсору
+                    if let Some(cursor) = app.cursor {
+                        let last = *screen_pts.last().unwrap();
+                        let line = CanvasPath::line(last, cursor);
+                        frame.stroke(&line, canvas::Stroke::default().with_color(color).with_width(1.5));
+                    }
+                    
+                    // Маркеры точек
+                    for pt in &screen_pts {
+                        let circle = CanvasPath::circle(*pt, 5.0);
+                        frame.fill(&circle, Color::WHITE);
+                        frame.stroke(&circle, canvas::Stroke::default().with_color(color).with_width(1.5));
+                    }
+                }
+            }            
             // 2. Прицел от открытой таблицы треков
             if let Some(crate::Modal::TrackList(state)) = &app.modal {
                 if let Some((sect, pt_idx)) = state.last_clicked {
