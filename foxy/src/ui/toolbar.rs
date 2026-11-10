@@ -68,7 +68,6 @@ impl App {
             make_tool_btn(crate::Tool::DrawTrack, lucide_iced::bytes::PEN_TOOL, "Draw Track (T)"),
             make_tool_btn(crate::Tool::Freehand, lucide_iced::bytes::PENCIL, "Freehand (F)"),
             make_tool_btn(crate::Tool::AddWaypoint, lucide_iced::bytes::CIRCLE_PLUS, "Add Waypoint (W)"),
-            make_tool_btn(crate::Tool::MoveTrack, lucide_iced::bytes::MOVE, "Move Track (M)"),
             make_tool_btn(crate::Tool::Ruler, lucide_iced::bytes::RULER, "Ruler (R)"),
         ]
         .spacing(4)

@@ -674,7 +674,6 @@ impl App {
                             iced::keyboard::Key::Character(c) if c == "t" || c == "е" => Some(crate::Tool::DrawTrack),
                             iced::keyboard::Key::Character(c) if c == "f" || c == "а" => Some(crate::Tool::Freehand),
                             iced::keyboard::Key::Character(c) if c == "w" || c == "ц" => Some(crate::Tool::AddWaypoint),
-                            iced::keyboard::Key::Character(c) if c == "m" || c == "ь" => Some(crate::Tool::MoveTrack),
                             iced::keyboard::Key::Character(c) if c == "r" || c == "к" => Some(crate::Tool::Ruler),
                             _ => None,
                         };

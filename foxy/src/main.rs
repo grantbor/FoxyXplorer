@@ -265,7 +265,6 @@ pub(crate) enum Tool {
     DrawTrack,
     Freehand,
     AddWaypoint,
-    MoveTrack,
     Ruler,
 }
 

@@ -153,9 +153,7 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
             // ==========================================
             // ПРОХОД 2: Рисуем только точки (ромбы)
             // ==========================================
-            let is_editing_tool = app.active_tool == crate::Tool::SelectPoints 
-                || app.active_tool == crate::Tool::MoveTrack;
-
+            let is_editing_tool = app.active_tool == crate::Tool::SelectPoints;
             for t in &app.tracks {
                 if !t.visible { continue; }
                 let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
