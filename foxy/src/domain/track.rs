@@ -87,7 +87,7 @@ pub struct Track {
     pub cached_distance_m: f64,
 }
 
-fn haversine_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+pub fn haversine_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     const R: f64 = 6_371_000.0;
     let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
     let dp = (lat2 - lat1).to_radians();

@@ -165,6 +165,11 @@ impl App {
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
             },
+            if one_track {
+                self.icon_button(lucide_iced::bytes::LIST, Message::OpenTrackList(selected_id.unwrap()))
+            } else {
+                self.icon_button_disabled(lucide_iced::bytes::LIST)
+            },
             if has_tracks { 
                 self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks) 
             } else { 

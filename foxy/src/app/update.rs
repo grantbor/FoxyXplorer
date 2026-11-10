@@ -14,6 +14,10 @@ use crate::{load_kit, save_session};
 use std::sync::Arc;
 use crate::UndoState;
 
+use std::collections::HashSet; 
+use crate::{TrackRowData, TrackListState}; 
+use crate::util::geo::merc_of; 
+
 impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
@@ -77,6 +81,14 @@ impl App {
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(_, _)
             | Message::RefreshSystemTheme | Message::None => {
                 return self.update_system(m);
+            }
+            
+            // --- Tracklist ----
+            Message::OpenTrackList(_) | Message::CloseTrackList | Message::SelectTrackPoint(_, _)
+            | Message::SelectAllTrackPoints | Message::DeleteSelectedTrackPoints
+            | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _)
+            | Message::SelectPointsOutsideGrid => {
+                self.update_track_list(m);
             }
         }
 
@@ -979,6 +991,172 @@ impl App {
             _ => {}
         }
         Task::none()
+    }
+    
+    fn update_track_list(&mut self, m: Message) {
+        match m {
+            Message::OpenTrackList(id) => {
+                if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
+                    let mut rows = Vec::new();
+                    let mut pid = 1;
+                    
+                    for (sect_idx, seg) in t.segments.iter().enumerate() {
+                        let mut prev_pt: Option<&domain::TrackPoint> = None;
+                        for (pt_idx, pt) in seg.points.iter().enumerate() {
+                            let mut dist_m = 0.0;
+                            let mut kph = 0.0;
+                            if let Some(prev) = prev_pt {
+                                dist_m = domain::haversine_m(prev.lat, prev.lon, pt.lat, pt.lon);
+                                if let (Some(t1), Some(t2)) = (prev.time, pt.time) {
+                                    let dt = t2 - t1;
+                                    if dt > 0.0 {
+                                        kph = (dist_m / dt) * 3.6;
+                                    }
+                                }
+                            }
+                            rows.push(TrackRowData {
+                                pid, sect: sect_idx + 1, pt_idx,
+                                lat: pt.lat, lon: pt.lon, ele: pt.ele, time: pt.time,
+                                dist_m, kph,
+                            });
+                            pid += 1;
+                            prev_pt = Some(pt);
+                        }
+                    }
+
+                    self.modal = Some(Modal::TrackList(TrackListState {
+                        track_id: id,
+                        rows,
+                        selected_points: HashSet::new(),
+                        last_clicked: None,
+                    }));
+                }
+            }
+            Message::CloseTrackList => {
+                self.modal = None;
+            }
+            Message::SelectTrackPoint(sect, pt_idx) => {
+                if let Some(Modal::TrackList(state)) = &mut self.modal {
+                    let ctrl = self.modifiers.control() || self.modifiers.command();
+                    let shift = self.modifiers.shift();
+                    let clicked = (sect, pt_idx);
+
+                    if shift {
+                        if let Some(last) = state.last_clicked {
+                            if let (Some(start), Some(end)) = (
+                                state.rows.iter().position(|r| r.sect == last.0 && r.pt_idx == last.1),
+                                state.rows.iter().position(|r| r.sect == sect && r.pt_idx == pt_idx),
+                            ) {
+                                let (min, max) = if start < end { (start, end) } else { (end, start) };
+                                for i in min..=max {
+                                    state.selected_points.insert((state.rows[i].sect, state.rows[i].pt_idx));
+                                }
+                            }
+                        } else {
+                            state.selected_points.insert(clicked);
+                        }
+                    } else if ctrl {
+                        if !state.selected_points.remove(&clicked) {
+                            state.selected_points.insert(clicked);
+                        }
+                        state.last_clicked = Some(clicked);
+                    } else {
+                        state.selected_points.clear();
+                        state.selected_points.insert(clicked);
+                        state.last_clicked = Some(clicked);
+                    }
+                }
+            }
+            Message::SelectAllTrackPoints => {
+                if let Some(Modal::TrackList(state)) = &mut self.modal {
+                    state.selected_points.clear();
+                    for r in &state.rows {
+                        state.selected_points.insert((r.sect, r.pt_idx));
+                    }
+                }
+            }
+            Message::DeleteSelectedTrackPoints => {
+                if let Some(Modal::TrackList(state)) = &self.modal {
+                    let id = state.track_id;
+                    let selected = state.selected_points.clone();
+                    
+                    self.push_undo("Удалить точки трека");
+                    if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
+                        let t_m = Arc::make_mut(t_mut);
+                        for (sect_idx, seg) in t_m.segments.iter_mut().enumerate() {
+                            let mut new_pts = Vec::new();
+                            for (pt_idx, pt) in seg.points.iter().enumerate() {
+                                if !selected.contains(&(sect_idx + 1, pt_idx)) {
+                                    new_pts.push(pt.clone());
+                                }
+                            }
+                            seg.points = new_pts;
+                        }
+                        // Удаляем пустые сегменты
+                        t_m.segments.retain(|s| !s.points.is_empty());
+                        domain::recompute_track_stats(t_m);
+                    }
+                    
+                    // Переоткрываем таблицу, чтобы обновить PID и индексы
+                    self.modal = None;
+                    self.update_track_list(Message::OpenTrackList(id));
+                    self.tracks_cache.clear();
+                }
+            }
+            Message::CenterOnTrackPoint(sect, pt_idx) => {
+                if let Some(Modal::TrackList(state)) = &self.modal {
+                    if let Some(row) = state.rows.iter().find(|r| r.sect == sect && r.pt_idx == pt_idx) {
+                        let (cx, cy) = merc_of(row.lon, row.lat);
+                        self.cx = cx;
+                        self.cy = cy;
+                        self.canvas_cache.clear();
+                        self.grid_cache.clear();
+                        self.osm_canvas_cache.clear();
+                        self.tracks_cache.clear();
+                    }
+                }
+            }
+            Message::SplitTrackAtPoint(sect, pt_idx) => {
+                if let Some(Modal::TrackList(state)) = &self.modal {
+                    let id = state.track_id;
+                    self.push_undo("Разделить трек");
+                    
+                    if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
+                        let t_m = Arc::make_mut(t_mut);
+                        
+                        if sect > 0 && sect <= t_m.segments.len() {
+                            let seg_idx = sect - 1; 
+                            let seg = &mut t_m.segments[seg_idx];
+                            
+                            if pt_idx > 0 && pt_idx < seg.points.len() - 1 {
+                                let right_half = seg.points.split_off(pt_idx + 1);
+                                t_m.segments.insert(seg_idx + 1, domain::TrackSegment { points: right_half });
+                            }
+                        }
+                        domain::recompute_track_stats(t_m);
+                    }
+                    self.modal = None;
+                    self.update_track_list(Message::OpenTrackList(id));
+                    self.tracks_cache.clear();
+                }
+            }
+            Message::SelectPointsOutsideGrid => {
+                if let Some(Modal::TrackList(state)) = &mut self.modal {
+                    state.selected_points.clear();
+                    if let Some(g) = &self.grid {
+                        for r in &state.rows {
+                            // Простейшая эвристика: если дальше 500 метров от ближайшего узла сетки
+                            if let Some(n) = g.nearest(r.lat, r.lon, self.declination) {
+                                if n.distance_m > 500.0 {
+                                    state.selected_points.insert((r.sect, r.pt_idx));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     // =========================================================================

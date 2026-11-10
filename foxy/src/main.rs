@@ -54,6 +54,25 @@ pub(crate) struct UndoState {
     pub label: String,
 }
 
+pub(crate) struct TrackRowData {
+    pub pid: usize,
+    pub sect: usize,
+    pub pt_idx: usize,
+    pub lat: f64,
+    pub lon: f64,
+    pub ele: Option<f64>,
+    pub time: Option<f64>,
+    pub dist_m: f64,
+    pub kph: f64,
+}
+
+pub(crate) struct TrackListState {
+    pub track_id: u64,
+    pub rows: Vec<TrackRowData>,
+    pub selected_points: HashSet<(usize, usize)>, // (sect, pt_idx)
+    pub last_clicked: Option<(usize, usize)>,
+}
+
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
     let mut notes = Vec::new();
 
@@ -220,7 +239,15 @@ pub(crate) enum Message {
     DraftWpNameChanged(String), DraftWpDescChanged(String), DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]), DraftWpBgColorChanged([u8; 3]), DraftWpCoordsChanged(String),
     AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks,
-    Undo, Redo, None,
+    Undo, Redo,
+    OpenTrackList(u64),
+    CloseTrackList,
+    SelectTrackPoint(usize, usize), // (sect, pt_idx)
+    SelectAllTrackPoints,
+    DeleteSelectedTrackPoints,
+    CenterOnTrackPoint(usize, usize),
+    SplitTrackAtPoint(usize, usize),
+    SelectPointsOutsideGrid,None,
 }
 
 pub(crate) fn save_session(app: &App) {
@@ -311,6 +338,7 @@ pub(crate) struct App {
 pub(crate) enum Modal {
     TrackProps { track_id: u64, draft: domain::TrackProps },
     WaypointProps { waypoint_id: u64, draft: domain::Waypoint, coord_input: String, is_new: bool },
+    TrackList(TrackListState),
 }
 
 impl App {
@@ -516,6 +544,7 @@ impl App {
                                 if modifiers.shift() { Some(Message::Redo) } else { Some(Message::Undo) }
                             }
                             iced::keyboard::Key::Character(c) if c == "y" => Some(Message::Redo),
+                            iced::keyboard::Key::Character(c) if c == "a" => Some(Message::SelectAllTrackPoints),
                             _ => None,
                         }
                     } else {
@@ -594,59 +623,110 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        // Формируем строку с информацией (без геометрии)
         let name = if self.osm_active() {
             let pending = self.osm_cache.pending.borrow().len();
             let cached = self.osm_cache.mem.borrow().len();
             format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
         } else {
-            self.layers.get(self.active).map(|l| l.name.clone()).unwrap_or_else(|| "-".into())
+            self.layers
+                .get(self.active)
+                .map(|l| l.name.clone())
+                .unwrap_or_else(|| "-".into())
         };
         
         let info = format!(
             "Склонение: {:.2}° (WMM2025)  |  масштаб: {:.2} м/пикс  |  слой: {}",
-            self.declination, self.scale, name
+            self.declination,
+            self.scale,
+            name
         );
 
+        // 1. Собираем базовый интерфейс
         let base_ui = column![
             self.view_top_toolbar(),
             row![
                 container(self.view_tool_palette()).width(Length::Fixed(56.0)).height(Length::Fill),
                 container(self.view_map()).width(Length::Fill).height(Length::Fill),
+                // Разделитель
                 mouse_area(
-                    container(text("")).width(Length::Fixed(6.0)).height(Length::Fill)
+                    container(text(""))
+                        .width(Length::Fixed(6.0))
+                        .height(Length::Fill)
                         .style(|_| container::Style {
                             background: Some(Color::from_rgb(0.2, 0.2, 0.25).into()),
                             ..Default::default()
                         })
-                ).on_press(Message::DividerPressed).on_release(Message::DividerReleased),
-                container(self.view_right_panel()).width(Length::Fixed(self.right_panel_width)).height(Length::Fill),
-            ].spacing(4).height(Length::Fill),
+                )
+                .on_press(Message::DividerPressed)
+                .on_release(Message::DividerReleased),
+                container(self.view_right_panel())
+                    .width(Length::Fixed(self.right_panel_width))
+                    .height(Length::Fill),
+            ]
+            .spacing(4)
+            .height(Length::Fill),
             text(self.status.as_str()),
             text(info),
-        ].spacing(4).padding(4).width(Length::Fill).height(Length::Fill);
+        ]
+        .spacing(4)
+        .padding(4)
+        .width(Length::Fill)
+        .height(Length::Fill);
 
+        // 2. Накладываем модальные окна (если они открыты)
         if let Some(Modal::TrackProps { track_id, draft }) = &self.modal {
             let modal_ui = self.view_track_props_modal(*track_id, draft);
+            
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
+                container(text(""))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
                     .style(|_| container::Style {
                         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
                         ..Default::default()
                     }),
-                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
-            ].into()
+                container(modal_ui)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+            ]
+            .into()
         } else if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input, .. }) = &self.modal {
             let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft, coord_input);
+            
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
+                container(text(""))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
                     .style(|_| container::Style {
                         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
                         ..Default::default()
                     }),
-                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
-            ].into()
+                container(modal_ui)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+            ]
+            .into()
+        } else if let Some(Modal::TrackList(state)) = &self.modal {
+            // НОВЫЙ БЛОК ДЛЯ ТАБЛИЦЫ ТОЧЕК
+            let modal_ui = self.view_track_list_modal(state);
+            
+            stack![
+                base_ui,
+                container(text(""))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.6).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+            ]
+            .into()
         } else {
             base_ui.into()
         }

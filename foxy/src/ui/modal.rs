@@ -1,13 +1,118 @@
 use iced::widget::{
-    button, column, container, pick_list, row, text, text_input,
+    button, column, container, mouse_area, pick_list, row, scrollable, text, text_input, Space,
 };
-use iced::{Alignment, Color, Element, Theme};
+use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
 use crate::util::coords::build_template;
 use crate::widgets::palette::get_extended_palette;
 use crate::{App, Message};
 
+
+
+fn format_date_time(unix: Option<f64>) -> (String, String) {
+    if let Some(t) = unix {
+        let (y, m, d, h, min, sec, _) = geoio::time::parts(t);
+        let months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+        let month_str = months.get((m - 1) as usize).unwrap_or(&"???");
+        let date = format!("{:02}-{}-{:02}", d, month_str, y % 100);
+        let time = format!("{:02}:{:02}:{:02}", h, min, sec);
+        (date, time)
+    } else {
+        ("-".into(), "-".into())
+    }
+}
+
 impl App {
+    pub(crate) fn view_track_list_modal<'a>(&'a self, state: &'a crate::TrackListState) -> Element<'a, Message> {
+        let track_name = self.tracks.iter().find(|t| t.id == state.track_id).map(|t| t.name.as_str()).unwrap_or("Unknown");
+        
+        // Заголовки колонок
+        let header = container(
+            row![
+                text("#").width(40),
+                text("Сег").width(40),
+                text("Latitude").width(90),
+                text("Longitude").width(90),
+                text("Alt(м)").width(50),
+                text("Дата").width(80),
+                text("Время").width(60),
+                text("Расст(м)").width(60),
+                text("Км/ч").width(50),
+            ].spacing(4).padding(4)
+        ).style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+            container::Style { background: Some(palette.background.strong.color.into()), ..Default::default() }
+        });
+
+        let mut list = column![].spacing(1);
+        
+        for r in &state.rows {
+            let selected = state.selected_points.contains(&(r.sect, r.pt_idx));
+            let (d_str, t_str) = format_date_time(r.time);
+            
+            let row_style = if selected {
+                move |theme: &Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style { background: Some(palette.primary.weak.color.into()), ..Default::default() }
+                }
+            } else {
+                move |_: &Theme| container::Style::default()
+            };
+
+            let r_ui = container(
+                mouse_area(
+                    row![
+                        text(r.pid.to_string()).width(40),
+                        text(r.sect.to_string()).width(40),
+                        text(format!("{:.6}", r.lat)).width(90),
+                        text(format!("{:.6}", r.lon)).width(90),
+                        text(r.ele.map(|e| format!("{:.1}", e)).unwrap_or_default()).width(50),
+                        text(d_str).width(80),
+                        text(t_str).width(60),
+                        text(format!("{:.1}", r.dist_m)).width(60),
+                        text(format!("{:.1}", r.kph)).width(50),
+                    ].spacing(4).padding([2, 4])
+                ).on_press(Message::SelectTrackPoint(r.sect, r.pt_idx))
+            ).style(row_style);
+
+            list = list.push(r_ui);
+        }
+
+        let content = column![
+            text(format!("Track List - {}", track_name)).size(18),
+            
+            // Заголовок и таблица в скролле
+            container(header).padding(2),
+            container(scrollable(list).height(Length::Fixed(400.0))).padding(2),
+
+            // Кнопки управления
+            row![
+                self.btn_secondary("В центр").on_press_maybe(
+                    state.last_clicked.map(|(s, p)| Message::CenterOnTrackPoint(s, p))
+                ),
+                self.btn_secondary("Разделить").on_press_maybe(
+                    state.last_clicked.map(|(s, p)| Message::SplitTrackAtPoint(s, p))
+                ),
+                self.btn_secondary("Вне сетки").on_press(Message::SelectPointsOutsideGrid),
+                self.btn_secondary("Удалить").on_press(Message::DeleteSelectedTrackPoints),
+                Space::new().width(Length::Fill),
+                self.btn_secondary("Закрыть").on_press(Message::CloseTrackList),
+            ].spacing(8).padding([10, 0])
+        ].spacing(10).padding(20);
+
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 8.0.into() },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(750.0))
+            .into()
+    }
+    
     pub(crate) fn view_waypoint_props_modal<'a>(
         &'a self, 
         _id: u64, 
