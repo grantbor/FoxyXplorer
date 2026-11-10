@@ -248,7 +248,7 @@ pub(crate) enum Message {
     CenterOnTrackPoint(usize, usize),
     SplitTrackAtPoint(usize, usize),
     SelectPointsOutsideGrid,
-    ModalDragStart, ModalDragEnd, None,
+    ModalDragStart, ModalDragEnd, TrackListUp, TrackListDown,None,
 }
 
 pub(crate) fn save_session(app: &App) {
@@ -554,6 +554,18 @@ impl App {
             // 5. Горячие клавиши Undo/Redo
             iced::event::listen_with(|event, _status, _id| {
                 if let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = event {
+                    // 1. Сначала обрабатываем стрелки (работают без модификаторов)
+                    match key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                            return Some(Message::TrackListUp);
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                            return Some(Message::TrackListDown);
+                        }
+                        _ => {}
+                    }
+
+                    // 2. Затем обрабатываем горячие клавиши с Ctrl/Cmd
                     if modifiers.command() {
                         match key {
                             iced::keyboard::Key::Character(c) if c == "z" => {

@@ -87,7 +87,7 @@ impl App {
             // --- Tracklist ----
             Message::OpenTrackList(_) | Message::CloseTrackList | Message::SelectTrackPoint(_, _)
             | Message::SelectAllTrackPoints | Message::DeleteSelectedTrackPoints
-            | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _)
+            | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
             | Message::SelectPointsOutsideGrid => {
                 self.update_track_list(m);
             }
@@ -1075,6 +1075,7 @@ impl App {
             Message::CloseTrackList => {
                 self.modal_drag_offset = Point::ORIGIN;
                 self.modal = None;
+                self.tracks_cache.clear();
             }
             Message::SelectTrackPoint(sect, pt_idx) => {
                 if let Some(Modal::TrackList(state)) = &mut self.modal {
@@ -1107,6 +1108,7 @@ impl App {
                         state.last_clicked = Some(clicked);
                     }
                 }
+                self.tracks_cache.clear();
             }
             Message::SelectAllTrackPoints => {
                 if let Some(Modal::TrackList(state)) = &mut self.modal {
@@ -1115,6 +1117,7 @@ impl App {
                         state.selected_points.insert((r.sect, r.pt_idx));
                     }
                 }
+                self.tracks_cache.clear();
             }
             Message::DeleteSelectedTrackPoints => {
                 self.modal_drag_offset = Point::ORIGIN;
@@ -1197,6 +1200,40 @@ impl App {
                         }
                     }
                 }
+            }
+            Message::TrackListUp | Message::TrackListDown => {
+                if let Some(Modal::TrackList(state)) = &mut self.modal {
+                    if state.rows.is_empty() { return; }
+
+                    // Находим текущий индекс выделенной точки
+                    let mut current_idx = state.last_clicked.and_then(|(s, p)| {
+                        state.rows.iter().position(|r| r.sect == s && r.pt_idx == p)
+                    });
+
+                    // Если ничего не выделено — ставим на первую
+                    let next_idx = match current_idx {
+                        None => 0,
+                        Some(idx) => {
+                            if matches!(m, Message::TrackListUp) {
+                                idx.saturating_sub(1)
+                            } else {
+                                (idx + 1).min(state.rows.len() - 1)
+                            }
+                        }
+                    };
+
+                    let row = &state.rows[next_idx];
+                    let new_clicked = (row.sect, row.pt_idx);
+                    
+                    // Если зажат Shift, добавляем к выделению, иначе сбрасываем
+                    let shift = self.modifiers.shift();
+                    if !shift {
+                        state.selected_points.clear();
+                    }
+                    state.selected_points.insert(new_clicked);
+                    state.last_clicked = Some(new_clicked);
+                }
+                self.tracks_cache.clear();
             }
             _ => {}
         }
