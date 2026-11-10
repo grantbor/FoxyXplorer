@@ -18,11 +18,23 @@ use std::collections::HashSet;
 use crate::{TrackRowData, TrackListState}; 
 use crate::util::geo::merc_of; 
 
+fn dist_to_segment(p: Point, a: Point, b: Point) -> f32 {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let l2 = dx * dx + dy * dy;
+    if l2 == 0.0 { return (p.x - a.x).hypot(p.y - a.y); }
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+    let t = t.clamp(0.0, 1.0);
+    let proj_x = a.x + t * dx;
+    let proj_y = a.y + t * dy;
+    (p.x - proj_x).hypot(p.y - proj_y)
+}
+
 impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             // --- View & Canvas ---
-            Message::Pressed | Message::Released | Message::Moved(_) | Message::Scrolled(_)
+            Message::MapPressed(_) | Message::MapReleased(_) | Message::Moved(_) | Message::Scrolled(_)
             | Message::Fit | Message::WindowResized(_) | Message::WindowMoved(_)
             | Message::DividerPressed | Message::DividerReleased | Message::CursorMoved(_)  => {
                 self.update_view(m);
@@ -30,8 +42,9 @@ impl App {
 
             // --- UI (Верхняя панель) ---
             Message::ToggleGrid | Message::ToggleLabels | Message::CycleFormat 
-            | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) | Message::Undo | Message::Redo 
-            | Message::ModalDragStart | Message::ModalDragEnd=> {
+            | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) 
+            | Message::ModalDragStart | Message::SelectTool(_) 
+            | Message::KeyPressed(_, _) | Message::KeyReleased(_) => {
                 self.update_ui(m); 
             }
 
@@ -39,7 +52,7 @@ impl App {
             Message::Layer(_) | Message::SelectTrack(_) | Message::ToggleTrackVisible(_, _)
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
-            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen=> {
+            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen | Message::DeleteSelectedPoints => {
                 self.update_tracks(m);
             }
 
@@ -87,7 +100,7 @@ impl App {
             
             // --- Tracklist ----
             Message::OpenTrackList(_) | Message::CloseTrackList | Message::SelectTrackPoint(_, _)
-            | Message::SelectAllTrackPoints | Message::DeleteSelectedTrackPoints
+            | Message::DeleteSelectedTrackPoints
             | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
             | Message::SelectPointsOutsideGrid => {
                 self.update_track_list(m);
@@ -95,6 +108,38 @@ impl App {
         }
 
         self.request_osm_tiles()
+    }
+    
+    fn perform_undo(&mut self) {
+        if let Some(prev) = self.undo_stack.pop() {
+            self.redo_stack.push(UndoState {
+                tracks: self.tracks.clone(),
+                waypoints: self.waypoints.clone(),
+                next_id: self.next_id,
+                label: prev.label.clone(),
+            });
+            self.tracks = prev.tracks;
+            self.waypoints = prev.waypoints;
+            self.next_id = prev.next_id;
+            self.tracks_cache.clear();
+            self.status = format!("Отменено: {}", prev.label);
+        }
+    }
+
+    fn perform_redo(&mut self) {
+        if let Some(next) = self.redo_stack.pop() {
+            self.undo_stack.push(UndoState {
+                tracks: self.tracks.clone(),
+                waypoints: self.waypoints.clone(),
+                next_id: self.next_id,
+                label: next.label.clone(),
+            });
+            self.tracks = next.tracks;
+            self.waypoints = next.waypoints;
+            self.next_id = next.next_id;
+            self.tracks_cache.clear();
+            self.status = format!("Повторено: {}", next.label);
+        }
     }
     
     pub(crate) fn push_undo(&mut self, label: &str) {
@@ -109,23 +154,406 @@ impl App {
         });
         self.redo_stack.clear();
     }
+    
+    fn select_point_range(&mut self, from: (u64, usize, usize), to: (u64, usize, usize)) {
+        // Идём по всем выделенным трекам в порядке и находим индексы from и to в плоском списке
+        let mut flat: Vec<(u64, usize, usize)> = Vec::new();
+        for track_id in &self.selection.tracks {
+            if let Some(t) = self.tracks.iter().find(|t| t.id == *track_id) {
+                for (seg_idx, seg) in t.segments.iter().enumerate() {
+                    for pt_idx in 0..seg.points.len() {
+                        flat.push((*track_id, seg_idx, pt_idx));
+                    }
+                }
+            }
+        }
+        if let (Some(a), Some(b)) = (flat.iter().position(|k| *k == from), flat.iter().position(|k| *k == to)) {
+            let (min, max) = if a < b { (a, b) } else { (b, a) };
+            for i in min..=max {
+                self.selection.points.insert(flat[i]);
+            }
+        }
+    }
+
+    fn select_points_in_rect(&mut self, start: Point, end: Point) {
+        let (x_min, x_max) = (start.x.min(end.x), start.x.max(end.x));
+        let (y_min, y_max) = (start.y.min(end.y), start.y.max(end.y));
+        let sz = self.last_bounds.get();
+
+        // Если есть выделенные треки — ищем только в них.
+        // Если нет — ищем во всех видимых треках.
+        let track_ids: Vec<u64> = if !self.selection.tracks.is_empty() {
+            self.selection.tracks.iter().copied().collect()
+        } else {
+            self.tracks.iter().filter(|t| t.visible).map(|t| t.id).collect()
+        };
+
+        for track_id in track_ids {
+            if let Some(t) = self.tracks.iter().find(|t| t.id == track_id) {
+                for (seg_idx, seg) in t.segments.iter().enumerate() {
+                    for (pt_idx, pt) in seg.points.iter().enumerate() {
+                        let (mx, my) = merc_of(pt.lon, pt.lat);
+                        let sx = (sz.width as f64 / 2.0 + (mx - self.cx) / self.scale) as f32;
+                        let sy = (sz.height as f64 / 2.0 - (my - self.cy) / self.scale) as f32;
+                        if sx >= x_min && sx <= x_max && sy >= y_min && sy <= y_max {
+                            self.selection.points.insert((track_id, seg_idx, pt_idx));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn recompute_affected_tracks(&mut self) {
+        let mut affected: HashSet<u64> = HashSet::new();
+        for (track_id, _, _) in &self.selection.points {
+            affected.insert(*track_id);
+        }
+        for track_id in affected {
+            if let Some(t) = self.tracks.iter_mut().find(|t| t.id == track_id) {
+                domain::recompute_track_stats(Arc::make_mut(t));
+            }
+        }
+    }
+
+        fn handle_add_waypoint(&mut self, p: Point) {
+        let sz = self.last_bounds.get();
+        let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+        let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
+        let (lon, lat) = lonlat_of(mx, my);
+
+        let new_wp = domain::Waypoint {
+            id: self.next_id,
+            name: format!("WP{}", self.next_id),
+            lon, lat,
+            ele: None, time: None, symbol: None, description: None,
+            visible: true,
+            source: domain::FileSource::New,
+            text_color: [0, 0, 0],
+            bg_color: [0, 255, 255],
+        };
+        
+        self.next_id += 1;
+        self.push_undo("Добавить точку на карте");
+        self.waypoints.push(Arc::new(new_wp.clone()));
+        
+        self.waypoint_backup = Some(new_wp.clone());
+        self.modal = Some(Modal::WaypointProps {
+            waypoint_id: new_wp.id,
+            draft: new_wp,
+            coord_input: format!("{:.6} {:.6}", lat, lon),
+            is_new: true,
+        });
+        
+        self.active_tool = crate::Tool::SelectPoints;
+        self.tracks_cache.clear();
+    }
+
+    fn handle_select_points_press(&mut self, p: Point) {
+        self.point_press_start = Some(p);
+        self.point_is_dragging = false;
+        self.point_pressed_key = None;
+
+        let sz = self.last_bounds.get();
+        let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+        let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
+
+        let mut closest_pt = None;
+        let mut min_dist = 15.0;
+
+        for track_id in &self.selection.tracks {
+            if let Some(t) = self.tracks.iter().find(|t| t.id == *track_id) {
+                for (seg_idx, seg) in t.segments.iter().enumerate() {
+                    for (pt_idx, pt) in seg.points.iter().enumerate() {
+                        let (pt_mx, pt_my) = merc_of(pt.lon, pt.lat);
+                        let dx = (pt_mx - mx) / self.scale;
+                        let dy = (pt_my - my) / self.scale;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < min_dist {
+                            min_dist = dist;
+                            closest_pt = Some((*track_id, seg_idx, pt_idx));
+                        }
+                    }
+                }
+            }
+        }
+
+        self.point_pressed_key = closest_pt;
+        if closest_pt.is_none() {
+            self.rubber_band_start = Some(p);
+            self.rubber_band_end = Some(p);
+        }
+    }
+
+    fn handle_select_objects_press(&mut self, p: Point) {
+        self.point_press_start = Some(p);
+        self.point_is_dragging = false;
+        self.rubber_band_start = None;
+        self.rubber_band_end = None;
+        
+        let sz = self.last_bounds.get();
+        let hw = sz.width as f64 / 2.0;
+        let hh = sz.height as f64 / 2.0;
+
+        // 1. Ищем waypoint
+        let mut hit_wp = None;
+        for wp in &self.waypoints {
+            if !wp.visible { continue; }
+            let (mx, my) = merc_of(wp.lon, wp.lat);
+            let sx = (hw + (mx - self.cx) / self.scale) as f32;
+            let sy = (hh - (my - self.cy) / self.scale) as f32;
+            let dist = (p.x - sx).hypot(p.y - sy);
+            if dist < 20.0 {
+                hit_wp = Some(wp.id);
+                break;
+            }
+        }
+
+        // 2. Ищем трек (если не попали в точку)
+        let mut hit_track = None;
+        if hit_wp.is_none() {
+            let mut best_dist = 15.0;
+            for t in &self.tracks {
+                if !t.visible { continue; }
+                for seg in &t.segments {
+                    for w in seg.points.windows(2) {
+                        let (mx1, my1) = merc_of(w[0].lon, w[0].lat);
+                        let (mx2, my2) = merc_of(w[1].lon, w[1].lat);
+                        let p1 = Point::new((hw + (mx1 - self.cx) / self.scale) as f32, (hh - (my1 - self.cy) / self.scale) as f32);
+                        let p2 = Point::new((hw + (mx2 - self.cx) / self.scale) as f32, (hh - (my2 - self.cy) / self.scale) as f32);
+                        let d = dist_to_segment(p, p1, p2);
+                        if d < best_dist {
+                            best_dist = d;
+                            hit_track = Some(t.id);
+                        }
+                    }
+                }
+            }
+        }
+
+        let ctrl = self.modifiers.control() || self.modifiers.command();
+        let shift = self.modifiers.shift();
+
+        if let Some(id) = hit_wp {
+            if !ctrl && !shift {
+                self.selection.tracks.clear();
+                self.selection.waypoints.clear();
+            }
+            if ctrl {
+                if !self.selection.waypoints.remove(&id) { self.selection.waypoints.insert(id); }
+            } else {
+                self.selection.waypoints.insert(id);
+            }
+            self.point_is_dragging = true;
+        } else if let Some(id) = hit_track {
+            if !ctrl && !shift {
+                self.selection.tracks.clear();
+                self.selection.waypoints.clear();
+            }
+            if ctrl {
+                if !self.selection.tracks.remove(&id) { self.selection.tracks.insert(id); }
+            } else {
+                self.selection.tracks.insert(id);
+            }
+            self.point_is_dragging = true;
+        } else {
+            self.rubber_band_start = Some(p);
+            self.rubber_band_end = Some(p);
+        }
+        self.tracks_cache.clear();
+    }
+
+    fn handle_select_points_move(&mut self, p: Point) {
+        if let Some(start) = self.point_press_start {
+            let dx = p.x - start.x;
+            let dy = p.y - start.y;
+            let moved = (dx * dx + dy * dy).sqrt();
+
+            if moved > 3.0 && !self.point_is_dragging {
+                self.point_is_dragging = true;
+                self.move_start_cursor = Some(start);
+
+                if let Some(pt_key) = self.point_pressed_key {
+                    let ctrl = self.modifiers.control() || self.modifiers.command();
+                    if !self.selection.points.contains(&pt_key) {
+                        if !ctrl {
+                            self.selection.points.clear();
+                        }
+                        self.selection.points.insert(pt_key);
+                    }
+                    self.push_undo("Перемещение точек");
+                    self.moving_points = true;
+                }
+            }
+
+            if self.moving_points {
+                if let Some(prev) = self.move_start_cursor {
+                    let dx_m = (p.x - prev.x) as f64 * self.scale;
+                    let dy_m = -(p.y - prev.y) as f64 * self.scale;
+                    
+                    let points: Vec<_> = self.selection.points.iter().copied().collect();
+                    for (track_id, seg_idx, pt_idx) in points {
+                        if let Some(t) = self.tracks.iter_mut().find(|t| t.id == track_id) {
+                            let t_m = Arc::make_mut(t);
+                            if let Some(seg) = t_m.segments.get_mut(seg_idx) {
+                                if let Some(pt) = seg.points.get_mut(pt_idx) {
+                                    let (mx, my) = merc_of(pt.lon, pt.lat);
+                                    let (nl, nat) = lonlat_of(mx + dx_m, my + dy_m);
+                                    pt.lon = nl;
+                                    pt.lat = nat;
+                                }
+                            }
+                        }
+                    }
+                    self.move_start_cursor = Some(p);
+                    self.tracks_cache.clear();
+                }
+            } else if self.rubber_band_start.is_some() {
+                self.rubber_band_end = Some(p);
+                self.tracks_cache.clear();
+            }
+        }
+    }
+
+    fn handle_select_points_release(&mut self) {
+        let ctrl = self.modifiers.control() || self.modifiers.command();
+        let shift = self.modifiers.shift();
+
+        // 1. ПРИОРИТЕТ: Завершение рамки выделения
+        if let (Some(s), Some(e)) = (self.rubber_band_start, self.rubber_band_end) {
+            if !ctrl && !shift {
+                self.selection.points.clear();
+            }
+            self.select_points_in_rect(s, e);
+        }
+        // 2. Клик без движения
+        else if !self.point_is_dragging {
+            if let Some(pt_key) = self.point_pressed_key {
+                if ctrl {
+                    if !self.selection.points.remove(&pt_key) {
+                        self.selection.points.insert(pt_key);
+                    }
+                } else if shift {
+                    if let Some(last) = self.last_point_clicked {
+                        self.select_point_range(last, pt_key);
+                    } else {
+                        self.selection.points.clear();
+                        self.selection.points.insert(pt_key);
+                    }
+                } else {
+                    self.selection.points.clear();
+                    self.selection.points.insert(pt_key);
+                }
+                self.last_point_clicked = Some(pt_key);
+            } else if !ctrl && !shift {
+                self.selection.points.clear();
+            }
+        }
+        // 3. Завершение перемещения точек
+        else if self.moving_points {
+            self.moving_points = false;
+            self.move_start_cursor = None;
+            self.recompute_affected_tracks();
+        }
+
+        self.point_press_start = None;
+        self.point_pressed_key = None;
+        self.point_is_dragging = false;
+        self.rubber_band_start = None;
+        self.rubber_band_end = None;
+        self.tracks_cache.clear();
+    }
+
+    fn handle_select_objects_move(&mut self, p: Point) {
+        if let Some(start) = self.point_press_start {
+            let dx = p.x - start.x;
+            let dy = p.y - start.y;
+            if (dx * dx + dy * dy).sqrt() > 3.0 {
+                self.point_is_dragging = true;
+                if self.rubber_band_start.is_some() {
+                    self.rubber_band_end = Some(p);
+                    self.tracks_cache.clear();
+                }
+            }
+        }
+    }
+
+    fn handle_select_objects_release(&mut self) {
+        if let (Some(s), Some(e)) = (self.rubber_band_start, self.rubber_band_end) {
+            let ctrl = self.modifiers.control() || self.modifiers.command();
+            let shift = self.modifiers.shift();
+            if !ctrl && !shift {
+                self.selection.tracks.clear();
+                self.selection.waypoints.clear();
+            }
+            
+            let (x_min, x_max) = (s.x.min(e.x), s.x.max(e.x));
+            let (y_min, y_max) = (s.y.min(e.y), s.y.max(e.y));
+            let sz = self.last_bounds.get();
+            let hw = sz.width as f64 / 2.0;
+            let hh = sz.height as f64 / 2.0;
+
+            // Выделяем waypoints
+            for wp in &self.waypoints {
+                if !wp.visible { continue; }
+                let (mx, my) = merc_of(wp.lon, wp.lat);
+                let sx = (hw + (mx - self.cx) / self.scale) as f32;
+                let sy = (hh - (my - self.cy) / self.scale) as f32;
+                if sx >= x_min && sx <= x_max && sy >= y_min && sy <= y_max {
+                    self.selection.waypoints.insert(wp.id);
+                }
+            }
+
+            // Выделяем треки, которые ЦЕЛИКОМ внутри рамки
+            for t in &self.tracks {
+                if !t.visible { continue; }
+                let mut fully_inside = true;
+                let mut has_pts = false;
+                for seg in &t.segments {
+                    for pt in &seg.points {
+                        has_pts = true;
+                        let (mx, my) = merc_of(pt.lon, pt.lat);
+                        let sx = (hw + (mx - self.cx) / self.scale) as f32;
+                        let sy = (hh - (my - self.cy) / self.scale) as f32;
+                        if sx < x_min || sx > x_max || sy < y_min || sy > y_max {
+                            fully_inside = false;
+                            break;
+                        }
+                    }
+                    if !fully_inside { break; }
+                }
+                if fully_inside && has_pts {
+                    self.selection.tracks.insert(t.id);
+                }
+            }
+        }
+        self.rubber_band_start = None;
+        self.rubber_band_end = None;
+        self.point_press_start = None;
+        self.point_is_dragging = false;
+        self.tracks_cache.clear();
+    }
 
     // =========================================================================
     // 1. Логика View (Панорамирование, зум, ресайз окна)
     // =========================================================================
     fn update_view(&mut self, m: Message) {
         match m {
-            Message::Pressed => self.dragging = true,
-            Message::Released => {
-                if self.dragging {
-                    self.dragging = false;
-                    self.canvas_cache.clear();
-                    self.grid_cache.clear();
-                    self.osm_canvas_cache.clear();
-                    self.tracks_cache.clear();
-                    self.refresh_status();
+             
+            Message::MapPressed(p) => {
+                self.cursor = Some(p);
+                
+                if self.active_tool == crate::Tool::Pan || self.space_pan_active {
+                    self.dragging = true;
+                } else if self.active_tool == crate::Tool::AddWaypoint {
+                    self.handle_add_waypoint(p);
+                } else if self.active_tool == crate::Tool::SelectPoints {
+                    self.handle_select_points_press(p);
+                } else if self.active_tool == crate::Tool::SelectObjects {
+                    self.handle_select_objects_press(p);
                 }
             }
+            
             Message::Moved(p) => {
                 if self.dragging {
                     if let Some(prev) = self.cursor {
@@ -137,11 +565,32 @@ impl App {
                         self.tracks_cache.clear();
                     }
                     self.cursor = Some(p);
+                } else if self.active_tool == crate::Tool::SelectPoints {
+                    self.handle_select_points_move(p);
+                } else if self.active_tool == crate::Tool::SelectObjects {
+                    self.handle_select_objects_move(p);
                 } else {
                     self.cursor = Some(p);
                     self.refresh_status();
                 }
             }
+            Message::MapReleased(p) => {
+                self.cursor = Some(p);
+                
+                if self.dragging {
+                    self.dragging = false;
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+                    self.refresh_status();
+                } else if self.active_tool == crate::Tool::SelectPoints {
+                    self.handle_select_points_release();
+                } else if self.active_tool == crate::Tool::SelectObjects {
+                    self.handle_select_objects_release();
+                }
+            }
+            
             Message::Scrolled(d) => {
                 let steps = match d {
                     ScrollDelta::Lines { y, .. } => y as f64,
@@ -211,6 +660,93 @@ impl App {
     // =========================================================================
     fn update_ui(&mut self, m: Message) {
         match m {
+            Message::KeyPressed(key, modifiers) => {
+                // Если открыто модальное окно — игнорируем всё, кроме Ctrl+Z/Ctrl+Y/Ctrl+A и стрелок
+                let is_modal_open = self.modal.is_some();
+
+                if !is_modal_open {
+                    // 1. Инструменты (без модификаторов, с учетом обеих раскладок)
+                    if !modifiers.command() && !modifiers.control() && !modifiers.alt() {
+                        let tool = match &key {
+                            iced::keyboard::Key::Character(c) if c == "q" || c == "й" => Some(crate::Tool::Pan),
+                            iced::keyboard::Key::Character(c) if c == "s" || c == "ы" => Some(crate::Tool::SelectObjects),
+                            iced::keyboard::Key::Character(c) if c == "d" || c == "в" => Some(crate::Tool::SelectPoints),
+                            iced::keyboard::Key::Character(c) if c == "t" || c == "е" => Some(crate::Tool::DrawTrack),
+                            iced::keyboard::Key::Character(c) if c == "f" || c == "а" => Some(crate::Tool::Freehand),
+                            iced::keyboard::Key::Character(c) if c == "w" || c == "ц" => Some(crate::Tool::AddWaypoint),
+                            iced::keyboard::Key::Character(c) if c == "m" || c == "ь" => Some(crate::Tool::MoveTrack),
+                            iced::keyboard::Key::Character(c) if c == "r" || c == "к" => Some(crate::Tool::Ruler),
+                            _ => None,
+                        };
+                        if let Some(t) = tool {
+                            self.active_tool = t;
+                            self.dragging = false;
+                            self.canvas_cache.clear();
+                            self.grid_cache.clear();
+                            self.osm_canvas_cache.clear();
+                            self.tracks_cache.clear();
+                            return; // выходим, чтобы не обрабатывать дальше
+                        }
+                    }
+
+                    // 2. Space (только если не печатаем в поле)
+                    if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) = key {
+                        self.space_pan_active = true;
+                        return;
+                    }
+
+                    // 3. Удаление точек (только если активен SelectPoints)
+                    if self.active_tool == crate::Tool::SelectPoints && !self.selection.points.is_empty() {
+                        if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) 
+                            | iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) = key {
+                            self.update_tracks(Message::DeleteSelectedPoints);
+                            return;
+                        }
+                    }
+                }
+
+                // 4. Стрелки для таблицы точек (работают всегда, если открыта TrackList)
+                match &key {
+                    iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                        self.update_track_list(Message::TrackListUp);
+                    }
+                    iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                        self.update_track_list(Message::TrackListDown);
+                    }
+                    _ => {}
+                }
+
+                // 5. Горячие клавиши с Ctrl/Cmd (работают всегда)
+                if modifiers.command() {
+                    match &key {
+                        iced::keyboard::Key::Character(c) if c == "z" => {
+                            if modifiers.shift() { 
+                                self.perform_redo(); 
+                            } else { 
+                                self.perform_undo(); 
+                            }
+                        }
+                        iced::keyboard::Key::Character(c) if c == "y" => {
+                            self.perform_redo();
+                        }
+                        iced::keyboard::Key::Character(c) if c == "a" => {
+                            if let Some(Modal::TrackList(state)) = &mut self.modal {
+                                state.selected_points.clear();
+                                for r in &state.rows {
+                                    state.selected_points.insert((r.sect, r.pt_idx));
+                                }
+                                self.tracks_cache.clear();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Message::KeyReleased(key) => {
+                if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) = key {
+                    self.space_pan_active = false;
+                }
+            }
             Message::ToggleGrid => {
                 self.show_grid = !self.show_grid;
                 self.grid_cache.clear();
@@ -235,36 +771,6 @@ impl App {
                 self.search_waypoints = q;
                 self.tracks_cache.clear();
             }
-            Message::Undo => {
-                if let Some(prev) = self.undo_stack.pop() {
-                    self.redo_stack.push(UndoState {
-                        tracks: self.tracks.clone(),
-                        waypoints: self.waypoints.clone(),
-                        next_id: self.next_id,
-                        label: prev.label.clone(),
-                    });
-                    self.tracks = prev.tracks;       // Оба типа теперь Vec<Arc<Track>>
-                    self.waypoints = prev.waypoints; // Оба типа теперь Vec<Arc<Waypoint>>
-                    self.next_id = prev.next_id;
-                    self.tracks_cache.clear();
-                    self.status = format!("Отменено: {}", prev.label);
-                }
-            }
-            Message::Redo => {
-                if let Some(next) = self.redo_stack.pop() {
-                    self.undo_stack.push(UndoState {
-                        tracks: self.tracks.clone(),
-                        waypoints: self.waypoints.clone(),
-                        next_id: self.next_id,
-                        label: next.label.clone(),
-                    });
-                    self.tracks = next.tracks;
-                    self.waypoints = next.waypoints;
-                    self.next_id = next.next_id;
-                    self.tracks_cache.clear();
-                    self.status = format!("Повторено: {}", next.label);
-                }
-            }
             Message::ModalDragStart => {
                 if self.modal.is_some() {
                     self.modal_dragging = true;
@@ -272,8 +778,15 @@ impl App {
                     self.modal_drag_start_offset = self.modal_drag_offset;
                 }
             }
-            Message::ModalDragEnd => {
-                self.modal_dragging = false;
+            Message::SelectTool(tool) => {
+                self.active_tool = tool;
+                self.dragging = false;
+                self.modal = None;
+
+                self.canvas_cache.clear();
+                self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
+                self.tracks_cache.clear(); 
             }
             _ => {}
         }
@@ -394,56 +907,67 @@ impl App {
             }
             Message::SimplifyTracks => {
                 let ids = self.selection.tracks.clone();
-                self.push_undo("Упростить трек"); // <-- ДОБАВЛЕНО
+                if ids.is_empty() { return; }
+
+                // 1. ОБЯЗАТЕЛЬНО сохраняем состояние ДО изменений
+                self.push_undo("Упростить треки");
+                
+                // 2. Применяем фильтр
                 for id in ids {
                     if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
                         domain::simplify::simplify_track(Arc::make_mut(t), self.simplify_tolerance);
                     }
                 }
+                
+                // 3. Обновляем UI
                 self.tracks_cache.clear();
                 self.status = format!("Треки упрощены (допуск {} м)", self.simplify_tolerance);
             }
-                        Message::FitTrackToScreen => {
-                let ids = self.selection.tracks.clone();
-                let mut min_x = f64::INFINITY;
-                let mut max_x = f64::NEG_INFINITY;
-                let mut min_y = f64::INFINITY;
-                let mut max_y = f64::NEG_INFINITY;
-                let mut found = false;
-
-                for id in ids {
-                    if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
-                        for seg in &t.segments {
-                            for pt in &seg.points {
-                                let (mx, my) = merc_of(pt.lon, pt.lat);
-                                min_x = min_x.min(mx); max_x = max_x.max(mx);
-                                min_y = min_y.min(my); max_y = max_y.max(my);
-                                found = true;
-                            }
-                        }
+            Message::DeleteSelectedPoints => {
+                // Защита: не удаляем, если открыто модальное окно (например, редактируется текст)
+                if self.modal.is_some() { return; }
+                // Защита: не удаляем, если не активен инструмент выделения точек
+                if self.active_tool != crate::Tool::SelectPoints { return; }
+                // Защита: нечего удалять
+                if self.selection.points.is_empty() { return; }
+                
+                self.push_undo("Удалить выделенные точки");
+                
+                // Группируем выделенные точки по (track_id, seg_idx)
+                let mut by_track: std::collections::HashMap<u64, Vec<(usize, Vec<usize>)>> = std::collections::HashMap::new();
+                for (track_id, seg_idx, pt_idx) in &self.selection.points {
+                    let segs = by_track.entry(*track_id).or_default();
+                    if let Some(entry) = segs.iter_mut().find(|(s, _)| s == seg_idx) {
+                        entry.1.push(*pt_idx);
+                    } else {
+                        segs.push((*seg_idx, vec![*pt_idx]));
                     }
                 }
-
-                if found {
-                    let w = max_x - min_x;
-                    let h = max_y - min_y;
-                    let sz = self.last_bounds.get();
-                    
-                    let pad_x = if sz.width < sz.height { 100.0 } else { 0.0 };
-                    let pad_y = if sz.height <= sz.width { 100.0 } else { 0.0 };
-
-                    let scale_x = if w > 0.0 { w / (sz.width as f64 - pad_x as f64) } else { 0.0 };
-                    let scale_y = if h > 0.0 { h / (sz.height as f64 - pad_y as f64) } else { 0.0 };
-                    
-                    self.scale = scale_x.max(scale_y).max(0.1);
-                    self.cx = (min_x + max_x) / 2.0;
-                    self.cy = (min_y + max_y) / 2.0;
-                    
-                    self.canvas_cache.clear();
-                    self.grid_cache.clear();
-                    self.osm_canvas_cache.clear();
-                    self.tracks_cache.clear();
+                
+                for (track_id, seg_updates) in by_track {
+                    if let Some(t) = self.tracks.iter_mut().find(|t| t.id == track_id) {
+                        let t_m = Arc::make_mut(t);
+                        for (seg_idx, mut indices) in seg_updates {
+                            if let Some(seg) = t_m.segments.get_mut(seg_idx) {
+                                // Удаляем в обратном порядке, чтобы не сбить индексы
+                                indices.sort_unstable_by(|a, b| b.cmp(a));
+                                for &idx in &indices {
+                                    if idx < seg.points.len() {
+                                        seg.points.remove(idx);
+                                    }
+                                }
+                            }
+                        }
+                        // Удаляем пустые сегменты (0 точек)
+                        t_m.segments.retain(|s| !s.points.is_empty());
+                        domain::recompute_track_stats(t_m);
+                    }
                 }
+                
+                self.selection.points.clear();
+                self.last_point_clicked = None;
+                self.tracks_cache.clear();
+                self.status = "Удалено выделенных точек".into();
             }
             _ => {}
         }
@@ -1179,15 +1703,6 @@ impl App {
                         state.selected_points.clear();
                         state.selected_points.insert(clicked);
                         state.last_clicked = Some(clicked);
-                    }
-                }
-                self.tracks_cache.clear();
-            }
-            Message::SelectAllTrackPoints => {
-                if let Some(Modal::TrackList(state)) = &mut self.modal {
-                    state.selected_points.clear();
-                    for r in &state.rows {
-                        state.selected_points.insert((r.sect, r.pt_idx));
                     }
                 }
                 self.tracks_cache.clear();

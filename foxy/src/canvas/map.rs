@@ -15,6 +15,26 @@ pub struct MapProgram<'a> {
 impl<'a> canvas::Program<Message> for MapProgram<'a> {
     type State = ();
 
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: &iced::Event,
+        bounds: Rectangle,
+        cursor: iced::mouse::Cursor,
+    ) -> Option<iced::widget::Action<Message>> {
+        if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) = event {
+            if let Some(pos) = cursor.position_in(bounds) {
+                return Some(iced::widget::Action::publish(Message::MapPressed(pos)));
+            }
+        }
+        if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) = event {
+            if let Some(pos) = cursor.position_in(bounds) {
+                return Some(iced::widget::Action::publish(Message::MapReleased(pos)));
+            }
+        }
+        None
+    }
+    
     fn draw(
         &self,
         _state: &Self::State,

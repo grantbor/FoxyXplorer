@@ -34,6 +34,7 @@ const VIEW_H: f32 = 720.0;
 pub(crate) struct Selection {
     pub(crate) tracks: HashSet<u64>,
     pub(crate) waypoints: HashSet<u64>,
+    pub(crate) points: HashSet<(u64, usize, usize)>,
 }
 
 pub(crate) struct Layer {
@@ -213,7 +214,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
     Layer(usize), ToggleGrid, ToggleLabels, CycleFormat,
-    Pressed, Released, Moved(Point), Scrolled(ScrollDelta), Fit,
+    Moved(Point), Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
     PickTrack, TracksPicked(Option<Vec<PathBuf>>),
@@ -239,17 +240,33 @@ pub(crate) enum Message {
     DraftWpNameChanged(String), DraftWpDescChanged(String), DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]), DraftWpBgColorChanged([u8; 3]), DraftWpCoordsChanged(String),
     AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks,
-    Undo, Redo,
     OpenTrackList(u64),
     CloseTrackList,
     SelectTrackPoint(usize, usize), // (sect, pt_idx)
-    SelectAllTrackPoints,
     DeleteSelectedTrackPoints,
     CenterOnTrackPoint(usize, usize),
     SplitTrackAtPoint(usize, usize),
     SelectPointsOutsideGrid,
-    ModalDragStart, ModalDragEnd, TrackListUp, TrackListDown, FitTrackToScreen,CenterOnWaypoint(u64),
-    ClearWaypointCrosshair,None,
+    ModalDragStart, TrackListUp, TrackListDown, FitTrackToScreen,CenterOnWaypoint(u64),
+    ClearWaypointCrosshair,
+    SelectTool(Tool),
+    MapPressed(Point), MapReleased(Point),
+    DeleteSelectedPoints,
+    KeyPressed(iced::keyboard::Key, Modifiers),
+    KeyReleased(iced::keyboard::Key),
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tool {
+    Pan,
+    SelectObjects,
+    SelectPoints,
+    DrawTrack,
+    Freehand,
+    AddWaypoint,
+    MoveTrack,
+    Ruler,
 }
 
 pub(crate) fn save_session(app: &App) {
@@ -340,6 +357,16 @@ pub(crate) struct App {
     pub(crate) modal_drag_start_cursor: Option<Point>,
     pub(crate) modal_drag_start_offset: Point,
     pub(crate) waypoint_crosshair: Option<(f64, f64)>,
+    pub(crate) active_tool: Tool,
+    pub(crate) space_pan_active: bool,
+    pub(crate) moving_points: bool, 
+    pub(crate) move_start_cursor: Option<Point>,
+    pub(crate) point_press_start: Option<Point>,
+    pub(crate) point_pressed_key: Option<(u64, usize, usize)>,
+    pub(crate) point_is_dragging: bool,
+    pub(crate) rubber_band_start: Option<Point>,
+    pub(crate) rubber_band_end: Option<Point>,
+    pub(crate) last_point_clicked: Option<(u64, usize, usize)>,
 }
 
 pub(crate) enum Modal {
@@ -396,7 +423,10 @@ impl App {
                     show_track_save_menu: false, show_wp_save_menu: false,
                     theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
                     modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
-                    modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None,
+                    modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
+                    moving_points: false, move_start_cursor: None,  point_press_start: None, 
+                    point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
+                    rubber_band_end: None, last_point_clicked: None,   
                 };
 
                 for t in &mut app.tracks { 
@@ -437,7 +467,10 @@ impl App {
             show_track_save_menu: false, show_wp_save_menu: false,
             theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
             modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
-            modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None,
+            modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
+            moving_points: false, move_start_cursor: None,  point_press_start: None, 
+            point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
+            rubber_band_end: None, last_point_clicked: None,
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -547,52 +580,44 @@ impl App {
     
     fn subscription(&self) -> Subscription<Message> {
         let mut subs: Vec<Subscription<Message>> = vec![
+            // 1. Отслеживаем нажатия клавиш
+            // 1. Транслируем все нажатия клавиш в update
             iced::event::listen_with(|event, _status, _id| {
-                if let iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) = event {
-                    Some(Message::ModifiersChanged(modifiers))
-                } else { None }
-            }),
-            // 5. Горячие клавиши Undo/Redo
-            // 5. Горячие клавиши Undo/Redo
-            iced::event::listen_with(|event, _status, _id| {
-                if let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = event {
-                    // 1. Сначала обрабатываем стрелки (работают без модификаторов)
-                    match key {
-                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                            return Some(Message::TrackListUp);
+                if let iced::Event::Keyboard(kb_event) = event {
+                    match kb_event {
+                        iced::keyboard::Event::KeyPressed { key, modifiers, .. } => {
+                            Some(Message::KeyPressed(key, modifiers))
                         }
-                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                            return Some(Message::TrackListDown);
+                        iced::keyboard::Event::KeyReleased { key, .. } => {
+                            Some(Message::KeyReleased(key))
                         }
-                        _ => {}
-                    }
-
-                    // 2. Затем обрабатываем горячие клавиши с Ctrl/Cmd
-                    if modifiers.command() {
-                        match key {
-                            iced::keyboard::Key::Character(c) if c == "z" => {
-                                if modifiers.shift() { Some(Message::Redo) } else { Some(Message::Undo) }
-                            }
-                            iced::keyboard::Key::Character(c) if c == "y" => Some(Message::Redo),
-                            iced::keyboard::Key::Character(c) if c == "a" => Some(Message::SelectAllTrackPoints),
-                            _ => None,
-                        }
-                    } else {
-                        None
+                       iced::keyboard::Event::ModifiersChanged(modifiers) => {
+                            Some(Message::ModifiersChanged(modifiers))
+                       }
+                        _ => None,
                     }
                 } else {
                     None
                 }
             }),
+
+            // 2. Отслеживаем запрос на закрытие окна
             iced::window::close_requests().map(|_| Message::WindowCloseRequested),
-            iced::window::events().map(|(_id, event)| match event {
-                iced::window::Event::Resized(size) => Message::WindowResized(size),
-                iced::window::Event::Moved(pos) => Message::WindowMoved(pos),
-                _ => Message::None,
+
+            // 3. Отслеживаем изменение размера и позиции окна
+            iced::window::events().map(|(_id, event)| {
+                match event {
+                    iced::window::Event::Resized(size) => Message::WindowResized(size),
+                    iced::window::Event::Moved(pos) => Message::WindowMoved(pos),
+                    _ => Message::None,
+                }
             }),
+
+            // 4. Отслеживаем смену системной темы
             iced::system::theme_changes().map(|_| Message::RefreshSystemTheme),
         ];
 
+        // 5. Ловим мышь только пока тянем разделитель или перетаскиваем модальное окно
         if self.resizing_panel || self.modal_dragging {
             subs.push(iced::event::listen_with(|event, _status, _id| {
                 match event {
@@ -606,6 +631,7 @@ impl App {
                 }
             }));
         }
+
         Subscription::batch(subs)
     }
 
@@ -664,7 +690,7 @@ impl App {
             format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
         } else {
             self.layers
-                .get(self.active)
+                .get(   self.active)
                 .map(|l| l.name.clone())
                 .unwrap_or_else(|| "-".into())
         };
@@ -680,8 +706,19 @@ impl App {
         let base_ui = column![
             self.view_top_toolbar(),
             row![
-                container(self.view_tool_palette()).width(Length::Fixed(56.0)).height(Length::Fill),
-                container(self.view_map()).width(Length::Fill).height(Length::Fill),
+                // Накладываем панель инструментов поверх карты
+                stack![
+                    container(self.view_map())
+                        .width(Length::Fill)
+                        .height(Length::Fill),
+                    container(self.view_tool_palette())
+                        .width(Length::Fixed(56.0))
+                        .height(Length::Fill)
+                        .style(|_| container::Style::default()), // Полностью прозрачный фон
+                ]
+                .width(Length::Fill)
+                .height(Length::Fill),
+
                 // Разделитель
                 mouse_area(
                     container(text(""))
@@ -694,6 +731,8 @@ impl App {
                 )
                 .on_press(Message::DividerPressed)
                 .on_release(Message::DividerReleased),
+                
+                // Правая панель
                 container(self.view_right_panel())
                     .width(Length::Fixed(self.right_panel_width))
                     .height(Length::Fill),
@@ -778,7 +817,7 @@ impl App {
         let grid_canvas = Canvas::new(canvas::GridProgram { app: self }).width(Length::Fill).height(Length::Fill);
 
         mouse_area(stack![map_canvas, tracks_canvas, grid_canvas])
-            .on_press(Message::Pressed).on_release(Message::Released).on_move(Message::Moved).on_scroll(Message::Scrolled).into()
+            .on_move(Message::Moved).on_scroll(Message::Scrolled).into()
     }
 }
 

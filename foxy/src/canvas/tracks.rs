@@ -143,7 +143,6 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                                 .with_width(width + 2.0),
                         );
                     }
-
                     // 2. Рисуем сам трек в его цвете и с его толщиной
                     frame.stroke(
                         &path,
@@ -151,6 +150,74 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     );
                 }
             }
+            // ==========================================
+            // ПРОХОД 2: Рисуем только точки (ромбы)
+            // ==========================================
+            let is_editing_tool = app.active_tool == crate::Tool::SelectPoints 
+                || app.active_tool == crate::Tool::MoveTrack;
+
+            for t in &app.tracks {
+                if !t.visible { continue; }
+                let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
+                
+                // Условие: трек выделен И выбран инструмент редактирования
+                let draw_points = app.selection.tracks.contains(&t.id) && is_editing_tool;
+
+                if draw_points {
+                    for (seg_idx, seg) in t.segments.iter().enumerate() {
+                        for (pt_idx, pt) in seg.points.iter().enumerate() {
+                            let (mx, my) = merc_of(pt.lon, pt.lat);
+                            let sp = to_screen(mx, my);
+
+                            if sp.x < -10.0 || sp.x > bounds.width + 10.0 || sp.y < -10.0 || sp.y > bounds.height + 10.0 {
+                                continue;
+                            }
+
+                            let is_pt_selected = app.selection.points.contains(&(t.id, seg_idx, pt_idx));
+                            
+                            let fill_color = if is_pt_selected {
+                                Color::from_rgb8(0x2a, 0x7f, 0xff)
+                            } else {
+                                Color::WHITE
+                            };
+
+                            // Ваши новые размеры (8.0 и 2.0)
+                            let r = 8.0; 
+                            let diamond = CanvasPath::new(|p| {
+                                p.move_to(Point::new(sp.x, sp.y - r));
+                                p.line_to(Point::new(sp.x + r, sp.y));
+                                p.line_to(Point::new(sp.x, sp.y + r));
+                                p.line_to(Point::new(sp.x - r, sp.y));
+                                p.close();
+                            });
+
+                            frame.fill(&diamond, fill_color);
+                            frame.stroke(&diamond, canvas::Stroke::default().with_color(color).with_width(2.0));
+                        }
+                    }
+                }
+            }
+            // Рамка выделения
+            if let (Some(start), Some(end)) = (app.rubber_band_start, app.rubber_band_end) {
+                let rect = Rectangle {
+                    x: start.x.min(end.x),
+                    y: start.y.min(end.y),
+                    width: (end.x - start.x).abs(),
+                    height: (end.y - start.y).abs(),
+                };
+                frame.fill_rectangle(
+                    rect.position(),
+                    rect.size(),
+                    Color::from_rgba8(0x2a, 0x7f, 0xff, 0.15),
+                );
+                let rect_path = CanvasPath::rectangle(rect.position(), rect.size());
+                frame.stroke(
+                    &rect_path,
+                    canvas::Stroke::default()
+                        .with_color(Color::from_rgb8(0x2a, 0x7f, 0xff))
+                        .with_width(1.0),
+                );
+            }          
 
             // Отрисовка точек (Waypoints)
             for wp in &app.waypoints {
@@ -181,11 +248,15 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     bg_color,
                 );
 
-                // Рамка плашки
+                // Рамка плашки (синяя, если выделена)
+                let is_wp_selected = app.selection.waypoints.contains(&wp.id);
+                let border_color = if is_wp_selected { Color::from_rgb8(0x2a, 0x7f, 0xff) } else { Color::BLACK };
+                let border_width = if is_wp_selected { 2.5 } else { 1.5 };
+                
                 let border = CanvasPath::rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h));
                 frame.stroke(
                     &border,
-                    canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5),
+                    canvas::Stroke::default().with_color(border_color).with_width(border_width),
                 );
 
                 // Текст (увеличенный шрифт)
