@@ -248,7 +248,8 @@ pub(crate) enum Message {
     CenterOnTrackPoint(usize, usize),
     SplitTrackAtPoint(usize, usize),
     SelectPointsOutsideGrid,
-    ModalDragStart, ModalDragEnd, TrackListUp, TrackListDown,None,
+    ModalDragStart, ModalDragEnd, TrackListUp, TrackListDown, FitTrackToScreen,CenterOnWaypoint(u64),
+    ClearWaypointCrosshair,None,
 }
 
 pub(crate) fn save_session(app: &App) {
@@ -338,6 +339,7 @@ pub(crate) struct App {
     pub(crate) modal_dragging: bool,
     pub(crate) modal_drag_start_cursor: Option<Point>,
     pub(crate) modal_drag_start_offset: Point,
+    pub(crate) waypoint_crosshair: Option<(f64, f64)>,
 }
 
 pub(crate) enum Modal {
@@ -394,7 +396,7 @@ impl App {
                     show_track_save_menu: false, show_wp_save_menu: false,
                     theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
                     modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
-                    modal_drag_start_offset: Point::new(0.0, 0.0),
+                    modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None,
                 };
 
                 for t in &mut app.tracks { 
@@ -435,7 +437,7 @@ impl App {
             show_track_save_menu: false, show_wp_save_menu: false,
             theme, resolved_theme, simplify_tolerance: 2.0, undo_stack: Vec::new(), redo_stack: Vec::new(),
             modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
-            modal_drag_start_offset: Point::new(0.0, 0.0),
+            modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None,
         };
 
         let kit_path: Option<PathBuf> = if force_osm {

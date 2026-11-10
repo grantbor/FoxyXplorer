@@ -19,3 +19,4 @@ serde_json = "1.0"
 native-theme = { version = "0.6", features = ["native"] }
 native-theme-iced = "0.6" 
 lucide-iced = "0.4"
+tokio = { version = "1", features = ["time"] }

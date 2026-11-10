@@ -33,6 +33,23 @@ fn create_dashed_path(points: &[Point], dash_len: f32, gap_len: f32) -> CanvasPa
     })
 }
 
+fn draw_crosshair(frame: &mut canvas::Frame, pt: Point) {
+    let circle = CanvasPath::circle(pt, 16.0);
+    frame.stroke(&circle, canvas::Stroke::default().with_color(Color::WHITE).with_width(3.0));
+    frame.stroke(&circle, canvas::Stroke::default().with_color(Color::from_rgb(1.0, 0.2, 0.2)).with_width(2.0));
+    
+    let c1 = CanvasPath::line(Point::new(pt.x - 24.0, pt.y), Point::new(pt.x + 24.0, pt.y));
+    let c2 = CanvasPath::line(Point::new(pt.x, pt.y - 24.0), Point::new(pt.x, pt.y + 24.0));
+    
+    let white_cross = canvas::Stroke::default().with_color(Color::WHITE).with_width(3.0);
+    frame.stroke(&c1, white_cross);
+    frame.stroke(&c2, white_cross);
+
+    let red_cross = canvas::Stroke::default().with_color(Color::from_rgb(1.0, 0.2, 0.2)).with_width(1.5);
+    frame.stroke(&c1, red_cross);
+    frame.stroke(&c2, red_cross);
+}
+
 impl<'a> canvas::Program<Message> for TrackProgram<'a> {
     type State = ();
 
@@ -74,13 +91,13 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                         continue;
                     }
 
-                    // Сначала переводим все точки в экранные координаты
+                    // Переводим все точки в экранные координаты
                     let screen_pts: Vec<Point> = seg.points.iter().map(|pt| {
                         let (mx, my) = merc_of(pt.lon, pt.lat);
                         to_screen(mx, my)
                     }).collect();
 
-                    // Заливка для полигона
+                    // Заливка для полигона (рисуется под линией)
                     if is_polygon && t.props.fill_type != crate::domain::FillType::None {
                         let path = CanvasPath::new(|p| {
                             let mut first = true;
@@ -100,28 +117,38 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                         frame.fill(&path, fill_c);
                     }
 
-                    // Отрисовка линии (пунктир или сплошная)
-                    if is_dashed && !is_polygon {
-                        // 10 px штрих, 8 px пробел
-                        let dashed_path = create_dashed_path(&screen_pts, 10.0, 8.0);
-                        frame.stroke(
-                            &dashed_path,
-                            canvas::Stroke::default().with_color(color).with_width(width),
-                        );
+                    // Создаем путь для линии (пунктир или сплошная)
+                    let path = if is_dashed && !is_polygon {
+                        create_dashed_path(&screen_pts, 10.0, 8.0)
                     } else {
-                        let path = CanvasPath::new(|p| {
+                        CanvasPath::new(|p| {
                             let mut first = true;
                             for &pt in &screen_pts {
                                 if first { p.move_to(pt); first = false; }
                                 else { p.line_to(pt); }
                             }
                             if is_polygon { p.close(); }
-                        });
+                        })
+                    };
+
+                    // Проверяем, выделен ли этот трек
+                    let is_selected = app.selection.tracks.contains(&t.id);
+
+                    // 1. Если трек выделен, сначала рисуем белую обводку (толщина + 2px)
+                    if is_selected {
                         frame.stroke(
                             &path,
-                            canvas::Stroke::default().with_color(color).with_width(width),
+                            canvas::Stroke::default()
+                                .with_color(Color::WHITE)
+                                .with_width(width + 2.0),
                         );
                     }
+
+                    // 2. Рисуем сам трек в его цвете и с его толщиной
+                    frame.stroke(
+                        &path,
+                        canvas::Stroke::default().with_color(color).with_width(width),
+                    );
                 }
             }
 
@@ -185,7 +212,13 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                 frame.fill(&dot, Color::BLACK);
             }
 
-            // Рисуем прицел, если открыта таблица точек (ваш код)
+            // 1. Прицел от кнопки "В центр" (исчезает через 3 сек)
+            if let Some((lon, lat)) = app.waypoint_crosshair {
+                let (mx, my) = merc_of(lon, lat);
+                draw_crosshair(frame, to_screen(mx, my));
+            }
+
+            // 2. Прицел от открытой таблицы треков
             if let Some(crate::Modal::TrackList(state)) = &app.modal {
                 if let Some((sect, pt_idx)) = state.last_clicked {
                     if let Some(t) = app.tracks.iter().find(|t| t.id == state.track_id) {
@@ -194,22 +227,7 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                             if pt_idx < seg.points.len() {
                                 let pt = &seg.points[pt_idx];
                                 let (mx, my) = merc_of(pt.lon, pt.lat);
-                                let sp = to_screen(mx, my);
-
-                                let circle = CanvasPath::circle(sp, 16.0);
-                                frame.stroke(&circle, canvas::Stroke::default().with_color(Color::WHITE).with_width(3.0));
-                                frame.stroke(&circle, canvas::Stroke::default().with_color(Color::from_rgb(1.0, 0.2, 0.2)).with_width(2.0));
-                                
-                                let c1 = CanvasPath::line(Point::new(sp.x - 24.0, sp.y), Point::new(sp.x + 24.0, sp.y));
-                                let c2 = CanvasPath::line(Point::new(sp.x, sp.y - 24.0), Point::new(sp.x, sp.y + 24.0));
-                                
-                                let white_cross = canvas::Stroke::default().with_color(Color::WHITE).with_width(3.0);
-                                frame.stroke(&c1, white_cross);
-                                frame.stroke(&c2, white_cross);
-
-                                let red_cross = canvas::Stroke::default().with_color(Color::from_rgb(1.0, 0.2, 0.2)).with_width(1.5);
-                                frame.stroke(&c1, red_cross);
-                                frame.stroke(&c2, red_cross);
+                                draw_crosshair(frame, to_screen(mx, my));
                             }
                         }
                     }

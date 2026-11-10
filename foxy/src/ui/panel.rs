@@ -146,20 +146,13 @@ impl App {
         let has_wps = !self.selection.waypoints.is_empty();
         let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
-        
-        // Создаем список пресетов для допуска
-//         let tolerances = vec![1.0, 2.0, 3.0, 4.0, 5.0, 7.5, 10.0];
-//         let tol_options: Vec<String> = tolerances.iter().map(|t| format!("{:.1} м", t)).collect();
-//         let current_tol = format!("{:.1} м", self.simplify_tolerance);
-//         
-//         let tol_picker = pick_list(tol_options, Some(current_tol), move |s: String| {
-//             let val = s.trim_end_matches(" м").parse::<f64>().unwrap_or(2.0);
-//             Message::ChangeSimplifyTolerance(val)
-//         })
-        // .padding(native_theme_iced::button_padding(&self.resolved_theme))
-        // .style(native_theme_iced::styles::pick_list(&self.resolved_theme));
-        
+        let btn_fit_track = if has_tracks {
+            self.icon_button(lucide_iced::bytes::SCAN_EYE, Message::FitTrackToScreen)
+        } else {
+            self.icon_button_disabled(lucide_iced::bytes::SCAN_EYE)
+        };        
         let row_normal = row![
+            btn_fit_track,
             if one_track { 
                 self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap())) 
             } else { 
@@ -287,6 +280,12 @@ impl App {
         let has_tracks = !self.selection.tracks.is_empty();
         let one_wp = self.selection.waypoints.len() == 1;
         let selected_id = self.selection.waypoints.iter().next().copied();
+ 
+        let btn_center = if one_wp {
+            self.icon_button(lucide_iced::bytes::DIAMOND_PLUS, Message::CenterOnWaypoint(selected_id.unwrap()))
+        } else {
+            self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
+        };
         
         let row_normal = row![
             self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
@@ -295,6 +294,7 @@ impl App {
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
             },
+            btn_center,
             if has_wps { 
                 self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedWaypoints) 
             } else { 

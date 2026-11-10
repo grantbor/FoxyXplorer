@@ -39,7 +39,7 @@ impl App {
             Message::Layer(_) | Message::SelectTrack(_) | Message::ToggleTrackVisible(_, _)
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
-            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks => {
+            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen=> {
                 self.update_tracks(m);
             }
 
@@ -57,8 +57,9 @@ impl App {
             Message::SelectWaypoint(_) | Message::ToggleWaypointVisible(_, _)
             | Message::ToggleAllWaypointsVisible | Message::DeleteSelectedWaypoints
             | Message::OpenWaypointProps(_) | Message::AddNewWaypoint | Message::ApplyWaypointProps
-            | Message::CloseWaypointProps | Message::ToggleWpSaveMenu => {
-                self.update_waypoints(m);
+            | Message::CloseWaypointProps | Message::ToggleWpSaveMenu | Message::CenterOnWaypoint(_)
+            | Message::ClearWaypointCrosshair => {
+                return self.update_waypoints(m);
             }
 
             // --- Модальное окно точки ---
@@ -335,6 +336,7 @@ impl App {
                         self.selection.tracks.insert(id);
                     }
                     self.last_track_clicked = Some(id);
+                    self.tracks_cache.clear(); 
                 }
             }
             Message::ToggleTrackVisible(id, v) => {
@@ -400,6 +402,48 @@ impl App {
                 }
                 self.tracks_cache.clear();
                 self.status = format!("Треки упрощены (допуск {} м)", self.simplify_tolerance);
+            }
+                        Message::FitTrackToScreen => {
+                let ids = self.selection.tracks.clone();
+                let mut min_x = f64::INFINITY;
+                let mut max_x = f64::NEG_INFINITY;
+                let mut min_y = f64::INFINITY;
+                let mut max_y = f64::NEG_INFINITY;
+                let mut found = false;
+
+                for id in ids {
+                    if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
+                        for seg in &t.segments {
+                            for pt in &seg.points {
+                                let (mx, my) = merc_of(pt.lon, pt.lat);
+                                min_x = min_x.min(mx); max_x = max_x.max(mx);
+                                min_y = min_y.min(my); max_y = max_y.max(my);
+                                found = true;
+                            }
+                        }
+                    }
+                }
+
+                if found {
+                    let w = max_x - min_x;
+                    let h = max_y - min_y;
+                    let sz = self.last_bounds.get();
+                    
+                    let pad_x = if sz.width < sz.height { 100.0 } else { 0.0 };
+                    let pad_y = if sz.height <= sz.width { 100.0 } else { 0.0 };
+
+                    let scale_x = if w > 0.0 { w / (sz.width as f64 - pad_x as f64) } else { 0.0 };
+                    let scale_y = if h > 0.0 { h / (sz.height as f64 - pad_y as f64) } else { 0.0 };
+                    
+                    self.scale = scale_x.max(scale_y).max(0.1);
+                    self.cx = (min_x + max_x) / 2.0;
+                    self.cy = (min_y + max_y) / 2.0;
+                    
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+                }
             }
             _ => {}
         }
@@ -537,7 +581,7 @@ impl App {
     // =========================================================================
     // 5. Точки (Логика списка)
     // =========================================================================
-    fn update_waypoints(&mut self, m: Message) {
+    fn update_waypoints(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::SelectWaypoint(id) => {
                 let now = Instant::now();
@@ -586,6 +630,7 @@ impl App {
                         self.selection.waypoints.insert(id);
                     }
                     self.last_waypoint_clicked = Some(id);
+                    self.tracks_cache.clear();
                 }
             }
             Message::ToggleWaypointVisible(id, v) => {
@@ -657,6 +702,7 @@ impl App {
                 self.modal_drag_offset = Point::ORIGIN;
                 self.waypoint_backup = None;
                 self.modal = None;
+                self.waypoint_crosshair = None;
             }
             Message::CloseWaypointProps => {
                 self.modal_drag_offset = Point::ORIGIN;
@@ -673,13 +719,40 @@ impl App {
                 }
                 self.tracks_cache.clear();
                 self.modal = None;
+                self.waypoint_crosshair = None;
             }
             Message::ToggleWpSaveMenu => {
                 self.show_wp_save_menu = !self.show_wp_save_menu;
                 self.show_track_save_menu = false;
             }
+            Message::ClearWaypointCrosshair => {
+                self.waypoint_crosshair = None;
+                self.tracks_cache.clear();
+            }
+            Message::CenterOnWaypoint(id) => {
+                if let Some(w) = self.waypoints.iter().find(|w| w.id == id) {
+                    let (mx, my) = merc_of(w.lon, w.lat);
+                    self.cx = mx;
+                    self.cy = my;
+                    self.waypoint_crosshair = Some((w.lon, w.lat));
+                    
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+
+                    // ОБЯЗАТЕЛЬНО return, иначе таймер не запустится!
+                    return Task::perform(
+                        async {
+                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        },
+                        |_| Message::ClearWaypointCrosshair,
+                    );
+                }
+            }
             _ => {}
         }
+        Task::none()        
     }
 
     // =========================================================================
@@ -1206,7 +1279,7 @@ impl App {
                     if state.rows.is_empty() { return; }
 
                     // Находим текущий индекс выделенной точки
-                    let mut current_idx = state.last_clicked.and_then(|(s, p)| {
+                    let current_idx = state.last_clicked.and_then(|(s, p)| {
                         state.rows.iter().position(|r| r.sect == s && r.pt_idx == p)
                     });
 
