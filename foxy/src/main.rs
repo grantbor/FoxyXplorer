@@ -219,7 +219,7 @@ pub(crate) enum Message {
     OpenWaypointProps(u64), CloseWaypointProps, ApplyWaypointProps,
     DraftWpNameChanged(String), DraftWpDescChanged(String), DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]), DraftWpBgColorChanged([u8; 3]), DraftWpCoordsChanged(String),
-    AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks, ChangeSimplifyTolerance(f64),
+    AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks,
     Undo, Redo, None,
 }
 
@@ -301,7 +301,7 @@ pub(crate) struct App {
     pub(crate) show_wp_save_menu: bool,
     pub(crate) theme: iced::Theme,
     pub(crate) resolved_theme: ResolvedTheme, 
-    pub(crate) simplify_tolerance: f64,
+    pub(crate) simplify_tolerance: f64,     // Значение по умолчанию 2.0. В будущем будет меняться через настройки.
     pub(crate) tracks: Vec<Arc<domain::Track>>,
     pub(crate) waypoints: Vec<Arc<domain::Waypoint>>,
     pub(crate) undo_stack: Vec<UndoState>,

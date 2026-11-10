@@ -34,7 +34,7 @@ impl App {
             Message::Layer(_) | Message::SelectTrack(_) | Message::ToggleTrackVisible(_, _)
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
-            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks | Message::ChangeSimplifyTolerance(_) => {
+            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks => {
                 self.update_tracks(m);
             }
 
@@ -344,9 +344,6 @@ impl App {
             Message::ToggleTrackSaveMenu => {
                 self.show_track_save_menu = !self.show_track_save_menu;
                 self.show_wp_save_menu = false;
-            }
-            Message::ChangeSimplifyTolerance(val) => {
-                self.simplify_tolerance = val;
             }
             Message::SimplifyTracks => {
                 let ids = self.selection.tracks.clone();
