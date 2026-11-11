@@ -254,6 +254,7 @@ pub(crate) enum Message {
     DeleteSelectedPoints,
     KeyPressed(iced::keyboard::Key, Modifiers),
     KeyReleased(iced::keyboard::Key),
+    FreehandReleased,
     None,
 }
 
@@ -372,6 +373,7 @@ pub(crate) struct App {
     pub(crate) rubber_band_end: Option<Point>,
     pub(crate) last_point_clicked: Option<(u64, usize, usize)>,
     pub(crate) drawing_track: Option<DrawingTrack>,
+    pub(crate) freehand_is_drawing: bool,
 }
 
 pub(crate) enum Modal {
@@ -431,7 +433,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None  
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false  
                 };
 
                 for t in &mut app.tracks { 
@@ -475,7 +477,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -633,6 +635,14 @@ impl App {
                     }
                     _ => None,
                 }
+            }));
+        }
+        if self.freehand_is_drawing {
+            subs.push(iced::event::listen_with(|event, _status, _id| {
+                if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) = event {
+                    return Some(Message::FreehandReleased);
+                }
+                None
             }));
         }
 

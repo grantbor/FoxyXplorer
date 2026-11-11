@@ -52,7 +52,8 @@ impl App {
             Message::Layer(_) | Message::SelectTrack(_) | Message::ToggleTrackVisible(_, _)
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
-            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen | Message::DeleteSelectedPoints => {
+            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen 
+            | Message::DeleteSelectedPoints | Message::FreehandReleased => {
                 self.update_tracks(m);
             }
 
@@ -533,6 +534,64 @@ impl App {
         self.point_is_dragging = false;
         self.tracks_cache.clear();
     }
+
+    fn finish_freehand(&mut self) {
+        if !self.freehand_is_drawing { return; }
+        self.freehand_is_drawing = false;
+        
+        let Some(dt) = self.drawing_track.take() else { return };
+        if dt.points.len() < 2 {
+            self.status = "Слишком мало точек для трека".into();
+            self.tracks_cache.clear();
+            return;
+        }
+
+        // Упрощаем через Дуглас-Пекер
+        let raw_pts: Vec<domain::TrackPoint> = dt.points.iter()
+            .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None })
+            .collect();
+        let before = raw_pts.len();
+        let simplified = domain::simplify::simplify_points(&raw_pts, self.simplify_tolerance);
+        let after = simplified.len();
+        
+        self.push_undo("Freehand трек");
+        
+        if let Some(target_id) = dt.target_track_id {
+            if let Some(t) = self.tracks.iter_mut().find(|t| t.id == target_id) {
+                let t_m = Arc::make_mut(t);
+                for seg in &mut t_m.segments {
+                    for pt in &mut seg.points {
+                        pt.ele = None;
+                        pt.time = None;
+                    }
+                }
+                if let Some(last_seg) = t_m.segments.last_mut() {
+                    last_seg.points.extend(simplified);
+                } else {
+                    t_m.segments.push(domain::TrackSegment { points: simplified });
+                }
+                domain::recompute_track_stats(t_m);
+                self.status = format!("Freehand: добавлено {after} точек (упрощено {before} → {after})");
+            }
+        } else {
+            let new_track = domain::Track {
+                id: self.next_id,
+                name: format!("Track{}", self.next_id),
+                color: [0x2a, 0x7f, 0xff],
+                visible: true,
+                segments: vec![domain::TrackSegment { points: simplified }],
+                source: domain::FileSource::New,
+                props: domain::TrackProps::default(),
+                cached_points: 0,
+                cached_distance_m: 0.0,
+            };
+            self.next_id += 1;
+            self.tracks.push(Arc::new(new_track));
+            self.status = format!("Freehand: создан трек (упрощено {before} → {after})");
+        }
+        
+        self.tracks_cache.clear();
+    }
     
     fn finish_drawing(&mut self) {
         let Some(dt) = self.drawing_track.take() else { return };
@@ -624,7 +683,26 @@ impl App {
                         dt.points.push((lon, lat));
                         self.tracks_cache.clear(); 
                     }
-                }                
+                } else if self.active_tool == crate::Tool::Freehand {
+                    let sz = self.last_bounds.get();
+                    let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+                    let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
+                    let (lon, lat) = lonlat_of(mx, my);
+
+                    // Если вдруг остались "висящие" точки от предыдущего штриха — финишируем
+                    if self.drawing_track.is_some() {
+                        self.finish_freehand();
+                    }
+
+                    let target = if self.selection.tracks.len() == 1 {
+                        self.selection.tracks.iter().next().copied()
+                    } else {
+                        None
+                    };
+                    self.drawing_track = Some(DrawingTrack { points: vec![(lon, lat)], target_track_id: target });
+                    self.freehand_is_drawing = true;
+                    self.tracks_cache.clear();
+                }
             }
             
             Message::Moved(p) => {
@@ -642,6 +720,32 @@ impl App {
                     self.handle_select_points_move(p);
                 } else if self.active_tool == crate::Tool::SelectObjects {
                     self.handle_select_objects_move(p);
+                } else if self.active_tool == crate::Tool::Freehand {
+                    if self.freehand_is_drawing {
+                        if let Some(dt) = &mut self.drawing_track {
+                            let sz = self.last_bounds.get();
+                            let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+                            let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
+                            let (lon, lat) = lonlat_of(mx, my);
+                            
+                            // Добавляем точку только если сдвиг >= 3 пикселей
+                            let should_add = if let Some(&(last_lon, last_lat)) = dt.points.last() {
+                                let (lmx, lmy) = merc_of(last_lon, last_lat);
+                                let dx_px = (lmx - mx) / self.scale;
+                                let dy_px = (lmy - my) / self.scale;
+                                (dx_px * dx_px + dy_px * dy_px).sqrt() >= 3.0
+                            } else {
+                                true
+                            };
+                            
+                            if should_add {
+                                dt.points.push((lon, lat));
+                                self.tracks_cache.clear();
+                            }
+                        }
+                    }
+                    self.cursor = Some(p);
+                    self.refresh_status();
                 } else {
                     self.cursor = Some(p);
                     self.refresh_status();
@@ -661,6 +765,8 @@ impl App {
                     self.handle_select_points_release();
                 } else if self.active_tool == crate::Tool::SelectObjects {
                     self.handle_select_objects_release();
+                } else if self.active_tool == crate::Tool::Freehand {
+                    self.finish_freehand();
                 }
             }
             
@@ -738,16 +844,23 @@ impl App {
                 let is_modal_open = self.modal.is_some();
 
                 // Управление рисованием
-                if self.active_tool == crate::Tool::DrawTrack && self.drawing_track.is_some() {
+                if (self.active_tool == crate::Tool::DrawTrack || self.active_tool == crate::Tool::Freehand) 
+                    && self.drawing_track.is_some() 
+                {
                     match &key {
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                            self.freehand_is_drawing = false;
                             self.drawing_track = None;
                             self.tracks_cache.clear();
                             self.status = "Рисование отменено".into();
                             return;
                         }
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
-                            self.finish_drawing();
+                            if self.freehand_is_drawing {
+                                self.finish_freehand();
+                            } else {
+                                self.finish_drawing();
+                            }
                             return;
                         }
                         _ => {}
@@ -878,16 +991,19 @@ impl App {
                 }
             }
             Message::SelectTool(tool) => {
-                // Если уходим с DrawTrack и что-то нарисовано — завершаем
-                if tool != crate::Tool::DrawTrack && self.drawing_track.is_some() {
-                    if let Some(dt) = &self.drawing_track {
-                        if dt.points.len() >= 2 {
-                            self.finish_drawing();
-                        } else {
-                            self.drawing_track = None;
-                        }
+                // Если было активное рисование — завершаем
+                if self.freehand_is_drawing {
+                    self.finish_freehand();
+                } else if self.drawing_track.is_some() {
+                    // Это был DrawTrack
+                    let needs_finish = self.drawing_track.as_ref().map_or(false, |dt| dt.points.len() >= 2);
+                    if needs_finish {
+                        self.finish_drawing();
+                    } else {
+                        self.drawing_track = None;
                     }
                 }
+                
                 self.active_tool = tool;
                 self.dragging = false;
                 self.modal = None;
@@ -1130,6 +1246,9 @@ impl App {
                 } else {
                     self.status = "Fit: нет треков для отображения".into();
                 }
+            }
+            Message::FreehandReleased => {
+                self.finish_freehand();
             }
             _ => {}
         }

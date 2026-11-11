@@ -74,3 +74,11 @@ pub fn simplify_track(track: &mut Track, tolerance_m: f64) {
     // После упрощения нужно пересчитать кэш (количество точек и расстояние)
     recompute_track_stats(track);
 }
+
+
+pub fn simplify_points(pts: &[TrackPoint], tolerance_m: f64) -> Vec<TrackPoint> {
+    if pts.len() <= 2 {
+        return pts.to_vec();
+    }
+    douglas_peucker(pts, tolerance_m * tolerance_m)
+}
