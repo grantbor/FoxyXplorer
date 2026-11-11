@@ -257,6 +257,16 @@ pub(crate) enum Message {
     FreehandReleased,
     MeasureWaypoints,
     CloseWaypointMeasure,
+    SaveSessionAs,
+    SaveSessionAsPicked(Option<PathBuf>),
+    LoadSessionPrompt,
+    LoadSessionNoPrompt,
+    LoadSessionPicked(Option<PathBuf>),
+    SaveAndLoadSession, 
+    SaveAndLoadSessionSaved(Option<PathBuf>),
+    ConfirmClearAll,
+    ExecuteClearAll,
+    CancelClearAll,
     None,
 }
 
@@ -276,14 +286,15 @@ pub(crate) struct DrawingTrack {
     pub target_track_id: Option<u64>,
 }
 
-pub(crate) fn save_session(app: &App) {
+// В src/main.rs
+pub(crate) fn build_session(app: &App) -> session::Session {
     let format_str = match app.format {
         CoordFormat::Decimal => "Decimal",
         CoordFormat::DegMin => "DegMin",
         CoordFormat::DegMinSec => "DegMinSec",
     }.to_string();
 
-    let sess = session::Session {
+    session::Session {
         version: 1,
         last_kit: app.last_kit.clone(),
         view: session::SessionView {
@@ -297,12 +308,14 @@ pub(crate) fn save_session(app: &App) {
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
         },
-        // ИСПОЛЬЗУЕМ .as_ref().clone()
         tracks: app.tracks.iter().map(|t| t.as_ref().clone()).collect(),
         waypoints: app.waypoints.iter().map(|w| w.as_ref().clone()).collect(),
         next_id: app.next_id,
-    };
+    }
+}
 
+pub(crate) fn save_session(app: &App) {
+    let sess = build_session(app);
     session::write_session(&sess);
 }
 
@@ -393,6 +406,8 @@ pub(crate) enum Modal {
         mag_az: f64,
     },
     TrackList(TrackListState),
+    ConfirmClearAll,
+    ConfirmLoadSession,
 }
 
 fn modal_drag_padding(offset: Point) -> iced::Padding {
@@ -835,6 +850,46 @@ impl App {
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ]
             .into()
+        } else if let Some(Modal::TrackList(state)) = &self.modal {
+            let modal_ui = self.view_track_list_modal(state);
+            
+            stack![
+                base_ui,
+                container(text(""))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                    .padding(modal_drag_padding(self.modal_drag_offset))
+            ]
+            .into()
+        } else if let Some(Modal::ConfirmClearAll) = &self.modal {
+            let modal_ui = self.view_confirm_clear_all_modal();
+            stack![ base_ui, container(text(""))
+                .width(Length::Fill).height(Length::Fill)
+                .style(|_| container::Style {
+                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                    ..Default::default()
+                }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+                    .padding(modal_drag_padding(self.modal_drag_offset))
+            ].into()
+        } else if let Some(Modal::ConfirmLoadSession) = &self.modal {
+            let modal_ui = self.view_confirm_load_session_modal();
+            stack![ base_ui, container(text(""))
+                .width(Length::Fill).height(Length::Fill)
+                .style(|_| container::Style {
+                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                    ..Default::default()
+                }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+                    .padding(modal_drag_padding(self.modal_drag_offset))
+            ].into()
         } else {
             base_ui.into()
         }

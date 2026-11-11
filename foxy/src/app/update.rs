@@ -3,7 +3,7 @@ use iced::mouse::ScrollDelta;
 use iced::{Point, Task};
 use coord::CoordFormat;
 
-use crate::{App, Message, Modal, DrawingTrack};
+use crate::{App, Message, Modal, DrawingTrack, Selection};
 use crate::domain;
 use crate::io;
 use crate::session;
@@ -44,8 +44,13 @@ impl App {
             Message::ToggleGrid | Message::ToggleLabels | Message::CycleFormat 
             | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) 
             | Message::ModalDragStart | Message::SelectTool(_) 
-            | Message::KeyPressed(_, _) | Message::KeyReleased(_) => {
-                self.update_ui(m); 
+            | Message::KeyPressed(_, _) | Message::KeyReleased(_) 
+            | Message::SaveSessionAs | Message::SaveSessionAsPicked(_)
+            | Message::LoadSessionPrompt | Message::LoadSessionNoPrompt
+            | Message::LoadSessionPicked(_)
+            | Message::SaveAndLoadSession | Message::SaveAndLoadSessionSaved(_) 
+            | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll => {
+                return self.update_ui(m); 
             }
 
             // --- Треки ---
@@ -154,6 +159,39 @@ impl App {
             label: label.to_string(),
         });
         self.redo_stack.clear();
+    }
+    fn apply_session(&mut self, sess: session::Session) {
+        self.tracks = sess.tracks.into_iter().map(Arc::new).collect();
+        self.waypoints = sess.waypoints.into_iter().map(Arc::new).collect();
+        self.next_id = sess.next_id;
+        for t in &mut self.tracks {
+            domain::recompute_track_stats(Arc::make_mut(t));
+        }
+        self.last_kit = sess.last_kit.clone();
+        if let Some(kit) = &self.last_kit {
+            self.apply_kit(crate::load_kit(kit));
+        }
+        self.cx = sess.view.cx;
+        self.cy = sess.view.cy;
+        self.scale = sess.view.scale;
+        self.active = sess.view.active.min(self.layers.len());
+        self.show_grid = sess.view.show_grid;
+        self.show_labels = sess.view.show_labels;
+        self.format = match sess.view.format_str.as_str() {
+            "DegMin" => CoordFormat::DegMin,
+            "DegMinSec" => CoordFormat::DegMinSec,
+            _ => CoordFormat::Decimal,
+        };
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.canvas_cache.clear();
+        self.grid_cache.clear();
+        self.osm_canvas_cache.clear();
+        self.tracks_cache.clear();
+        self.status = format!(
+            "Сессия загружена ({} треков, {} точек)",
+            self.tracks.len(), self.waypoints.len()
+        );
     }
     
     fn select_point_range(&mut self, from: (u64, usize, usize), to: (u64, usize, usize)) {
@@ -847,7 +885,7 @@ impl App {
     // =========================================================================
     // 2. UI (Сетка, формат)
     // =========================================================================
-    fn update_ui(&mut self, m: Message) {
+    fn update_ui(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::KeyPressed(key, modifiers) => {
                 // Если открыто модальное окно — игнорируем всё, кроме Ctrl+Z/Ctrl+Y/Ctrl+A и стрелок
@@ -864,7 +902,7 @@ impl App {
                             self.drawing_track = None;
                             self.tracks_cache.clear();
                             self.status = "Рисование отменено".into();
-                            return;
+                            return Task::none();
                         }
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
                             if self.freehand_is_drawing {
@@ -872,7 +910,7 @@ impl App {
                             } else {
                                 self.finish_drawing();
                             }
-                            return;
+                            return Task::none();
                         }
                         _ => {}
                     }
@@ -885,7 +923,7 @@ impl App {
                             self.ruler_points.clear();
                             self.tracks_cache.clear();
                             self.status = "Линейка очищена".into();
-                            return;
+                            return Task::none();
                         }
                     }
                     if !modifiers.command() && !modifiers.control() && !modifiers.alt() {
@@ -906,14 +944,14 @@ impl App {
                             self.grid_cache.clear();
                             self.osm_canvas_cache.clear();
                             self.tracks_cache.clear();
-                            return; // выходим, чтобы не обрабатывать дальше
+                            return Task::none();
                         }
                     }
 
                     // 2. Space (только если не печатаем в поле)
                     if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) = key {
                         self.space_pan_active = true;
-                        return;
+                        return Task::none();
                     }
 
                     // 3. Удаление точек (только если активен SelectPoints)
@@ -921,7 +959,7 @@ impl App {
                         if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) 
                             | iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) = key {
                             self.update_tracks(Message::DeleteSelectedPoints);
-                            return;
+                            return Task::none();
                         }
                     }
                 }
@@ -1038,8 +1076,156 @@ impl App {
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
             }
+            Message::SaveSessionAs => {
+                let dialog = rfd::AsyncFileDialog::new()
+                    .set_file_name("session.foxy")
+                    .add_filter("Foxy Session", &["foxy"]);
+                return Task::perform(
+                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
+                    Message::SaveSessionAsPicked,
+                );
+            }
+            Message::SaveSessionAsPicked(Some(path)) => {
+                let sess = crate::build_session(self);
+                session::write_session_to(&sess, &path);
+                self.status = format!("Сессия сохранена: {}", path.display());
+            }
+            Message::SaveSessionAsPicked(None) => {}
+
+            Message::LoadSessionPrompt => {
+                // Если сессия пустая — сразу открываем диалог
+                if self.tracks.is_empty() && self.waypoints.is_empty() && self.layers.is_empty() {
+                    return self.update_ui(Message::LoadSessionNoPrompt);
+                }
+                self.modal = Some(Modal::ConfirmLoadSession);
+            }
+            Message::LoadSessionNoPrompt => {
+                self.modal = None;
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .add_filter("Foxy Session", &["foxy", "json"])
+                            .pick_file().await
+                            .map(|h| h.path().to_path_buf())
+                    },
+                    Message::LoadSessionPicked,
+                );
+            }
+            Message::SaveAndLoadSession => {
+                // Сначала сохраняем текущее состояние, потом загружаем бэкап
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .set_file_name("session.foxy")
+                            .add_filter("Foxy Session", &["foxy"])
+                            .save_file().await
+                            .map(|h| h.path().to_path_buf())
+                    },
+                    Message::SaveAndLoadSessionSaved,
+                );
+            }
+            Message::SaveAndLoadSessionSaved(Some(save_path)) => {
+                let sess = crate::build_session(self);
+                session::write_session_to(&sess, &save_path);
+                self.modal = None;
+                // После сохранения сразу открываем диалог загрузки
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .add_filter("Foxy Session", &["foxy", "json"])
+                            .pick_file().await
+                            .map(|h| h.path().to_path_buf())
+                    },
+                    Message::LoadSessionPicked,
+                );
+            }
+            Message::SaveAndLoadSessionSaved(None) => { self.modal = None; }
+
+            Message::LoadSessionPicked(Some(path)) => {
+                if let Some(sess) = session::load_session_from(&path) {
+                    self.apply_session(sess);
+                } else {
+                    self.status = format!("Не удалось загрузить: {}", path.display());
+                }
+            }
+            Message::LoadSessionPicked(None) => {}
+            Message::ConfirmClearAll => {
+                self.modal = Some(Modal::ConfirmClearAll);
+            }
+            Message::CancelClearAll => {
+                self.modal = None;
+            }
+            Message::ExecuteClearAll => {
+                self.modal = None;
+                
+                // --- Данные ---
+                self.layers.clear();
+                self.active = 0;
+                self.grid = None;
+                self.lines.clear();
+                self.tracks.clear();
+                self.waypoints.clear();
+                self.selection = Selection::default();
+                self.next_id = 0;
+                self.last_kit = None;
+                self.undo_stack.clear();
+                self.redo_stack.clear();
+                
+                // --- Временные состояния инструментов ---
+                self.dragging = false;
+                self.resizing_panel = false;
+                self.moving_points = false;
+                self.point_is_dragging = false;
+                self.point_press_start = None;
+                self.point_pressed_key = None;
+                self.last_point_clicked = None;
+                self.last_track_click = None;
+                self.last_waypoint_click = None;
+                self.last_track_clicked = None;
+                self.last_waypoint_clicked = None;
+                self.rubber_band_start = None;
+                self.rubber_band_end = None;
+                self.drawing_track = None;
+                self.freehand_is_drawing = false;
+                self.ruler_points.clear();
+                self.waypoint_crosshair = None;
+                self.track_backup = None;
+                self.waypoint_backup = None;
+                self.show_color_picker = false;
+                self.show_track_save_menu = false;
+                self.show_wp_save_menu = false;
+                self.space_pan_active = false;
+                self.active_tool = crate::Tool::Pan;
+                
+                // --- Вид: дефолтный центр (Москва) ---
+                let (lon, lat) = (82.945971, 55.016359);
+                let (cx, cy) = crate::util::geo::merc_of(lon, lat);
+                self.cx = cx;
+                self.cy = cy;
+                self.scale = 20.0;
+                
+                // --- Пересчёт магнитного склонения для нового центра ---
+                let (y, ord) = crate::util::coords::today();
+                self.declination = declination::declination_deg(lat, lon, y, ord).unwrap_or(0.0);
+                
+                // --- Кэши ---
+                self.canvas_cache.clear();
+                self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
+                self.tracks_cache.clear();
+                self.tile_handles.borrow_mut().clear();
+                
+                // --- Файлы сессии на диске ---
+                session::clear_session_files();
+                
+                self.status = "Сессия очищена. Приложение в исходном состоянии.".into();
+                
+                // --- Запрашиваем тайлы OSM для нового центра ---
+                return self.request_osm_tiles();
+            }
             _ => {}
         }
+        Task::none() // <-- в самом конце
     }
 
     // =========================================================================

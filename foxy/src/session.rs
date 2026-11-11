@@ -71,3 +71,23 @@ pub fn write_session(session: &Session) {
         let _ = std::fs::write(path, json);
     }
 }
+
+pub fn write_session_to(session: &Session, path: &std::path::Path) {
+    if let Ok(json) = serde_json::to_string_pretty(session) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, json);
+    }
+}
+
+pub fn load_session_from(path: &std::path::Path) -> Option<Session> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let session: Session = serde_json::from_str(&content).ok()?;
+    if session.version == 1 { Some(session) } else { None }
+}
+
+pub fn clear_session_files() {
+    let _ = std::fs::remove_file(session_path());
+    let _ = std::fs::remove_file(last_kit_path());
+}

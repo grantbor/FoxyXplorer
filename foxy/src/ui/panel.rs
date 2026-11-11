@@ -300,6 +300,8 @@ impl App {
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
             },
+            btn_center,   
+            btn_measure,  
             if one_wp {
                 self.icon_button(lucide_iced::bytes::DIAMOND_PLUS, Message::CenterOnWaypoint(selected_id.unwrap()))
             } else {

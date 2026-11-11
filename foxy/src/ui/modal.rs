@@ -498,4 +498,69 @@ impl App {
             .width(Length::Fixed(550.0))
             .into()
     }
+    pub(crate) fn view_confirm_clear_all_modal<'a>(&'a self) -> Element<'a, Message> {
+        let content = column![
+            text("Очистить сессию?").size(20),
+            text("Все загруженные карты, треки и точки будут удалены.\nЭто действие нельзя отменить.").size(14),
+            Space::new().height(10),
+            row![
+                self.btn("Да, очистить").on_press(Message::ExecuteClearAll),
+                self.btn_secondary("Отмена").on_press(Message::CancelClearAll),
+            ].spacing(10)
+        ]
+        .spacing(12)
+        .padding(20);
+
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(400.0))
+            .into()
+    }
+    pub(crate) fn view_confirm_load_session_modal<'a>(&'a self) -> Element<'a, Message> {
+        let content = column![
+            text("Загрузить сессию из файла?").size(20),
+            text("Текущее рабочее состояние будет заменено.\nЕсли оно важно — сохраните его в файл .foxy.")
+                .size(14),
+            Space::new().height(10),
+            
+            self.btn("Сохранить текущее и загрузить")
+                .on_press(Message::SaveAndLoadSession)
+                .width(Length::Fill),
+            self.btn_secondary("Загрузить без сохранения")
+                .on_press(Message::LoadSessionNoPrompt)
+                .width(Length::Fill),
+            self.btn_secondary("Отмена")
+                .on_press(Message::CancelClearAll)
+                .width(Length::Fill),
+        ]
+        .spacing(8)
+        .padding(20);
+
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(400.0))
+            .into()
+    }
 }

@@ -1,21 +1,29 @@
-use iced::widget::{button, column, container, row, text, tooltip};
+use iced::widget::{button, column, container, row, text, tooltip, Space};
 use iced::{Alignment, Element, Length, Theme};
 use crate::{App, Message};
 
 impl App {
     pub(crate) fn view_top_toolbar(&self) -> Element<'_, Message> {
-        // Переменная source_label полностью удалена
-
         row![
             self.btn("Карты").on_press(Message::PickKit),
             self.btn("Данные").on_press(Message::PickTrack),
-            // Удален разделитель и текст с названием карты
             self.btn_secondary(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" })
                 .on_press(Message::ToggleGrid),
             self.btn_secondary(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" })
                 .on_press(Message::ToggleLabels),
             self.btn_secondary("Fit").on_press(Message::Fit),
             self.btn_secondary(self.format_name()).on_press(Message::CycleFormat),
+            
+            Space::new().width(Length::Fill),
+            
+            // Группа «сессия»
+            self.icon_button(lucide_iced::bytes::FOLDER_OPEN, Message::LoadSessionPrompt),
+            self.icon_button(lucide_iced::bytes::SAVE, Message::SaveSessionAs),
+            
+            // Визуальный разделитель перед деструктивной кнопкой
+            text("|").size(18),
+            
+            self.icon_button(lucide_iced::bytes::ROTATE_CCW, Message::ConfirmClearAll)
         ]
         .spacing(6)
         .align_y(Alignment::Center)
