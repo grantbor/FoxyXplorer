@@ -702,6 +702,14 @@ impl App {
                     self.drawing_track = Some(DrawingTrack { points: vec![(lon, lat)], target_track_id: target });
                     self.freehand_is_drawing = true;
                     self.tracks_cache.clear();
+                } else if self.active_tool == crate::Tool::Ruler {
+                    let sz = self.last_bounds.get();
+                    let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
+                    let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
+                    let (lon, lat) = lonlat_of(mx, my);
+                    
+                    self.ruler_points.push((lon, lat));
+                    self.tracks_cache.clear();
                 }
             }
             
@@ -842,6 +850,7 @@ impl App {
             Message::KeyPressed(key, modifiers) => {
                 // Если открыто модальное окно — игнорируем всё, кроме Ctrl+Z/Ctrl+Y/Ctrl+A и стрелок
                 let is_modal_open = self.modal.is_some();
+                
 
                 // Управление рисованием
                 if (self.active_tool == crate::Tool::DrawTrack || self.active_tool == crate::Tool::Freehand) 
@@ -869,6 +878,14 @@ impl App {
 
                 if !is_modal_open {
                     // 1. Инструменты (без модификаторов, с учетом обеих раскладок)
+                    if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
+                        if self.active_tool == crate::Tool::Ruler {
+                            self.ruler_points.clear();
+                            self.tracks_cache.clear();
+                            self.status = "Линейка очищена".into();
+                            return;
+                        }
+                    }
                     if !modifiers.command() && !modifiers.control() && !modifiers.alt() {
                         let tool = match &key {
                             iced::keyboard::Key::Character(c) if c == "q" || c == "й" => Some(crate::Tool::Pan),
@@ -991,6 +1008,13 @@ impl App {
                 }
             }
             Message::SelectTool(tool) => {
+                if tool != crate::Tool::Ruler || self.active_tool == crate::Tool::Ruler {
+                    // Очищаем, если уходим с линейки ИЛИ кликнули по ней же (чтобы начать заново)
+                    if !self.ruler_points.is_empty() {
+                        self.ruler_points.clear();
+                        self.tracks_cache.clear();
+                    }
+                }
                 // Если было активное рисование — завершаем
                 if self.freehand_is_drawing {
                     self.finish_freehand();

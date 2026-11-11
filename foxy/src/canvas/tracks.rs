@@ -1,6 +1,6 @@
 use iced::widget::canvas::{self, Geometry, Path as CanvasPath};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
-use crate::util::geo::merc_of;
+use crate::util::geo::{merc_of, lonlat_of};
 use crate::{App, Message};
 
 pub struct TrackProgram<'a> {
@@ -50,6 +50,15 @@ fn draw_crosshair(frame: &mut canvas::Frame, pt: Point) {
     frame.stroke(&c2, red_cross);
 }
 
+fn true_bearing(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let lat1 = lat1.to_radians();
+    let lat2 = lat2.to_radians();
+    let dlon = (lon2 - lon1).to_radians();
+    let y = dlon.sin() * lat2.cos();
+    let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * dlon.cos();
+    y.atan2(x).to_degrees()
+}
+
 impl<'a> canvas::Program<Message> for TrackProgram<'a> {
     type State = ();
 
@@ -72,32 +81,25 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                 )
             };
 
+            // ==========================================
+            // ПРОХОД 1: Рисуем линии треков
+            // ==========================================
             for t in &app.tracks {
-                if !t.visible {
-                    continue;
-                }
-                let color = Color::from_rgb8(
-                    t.props.line_color[0],
-                    t.props.line_color[1],
-                    t.props.line_color[2],
-                );
-                // Берем толщину из настроек (минимум 1.0)
+                if !t.visible { continue; }
+                let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
                 let width = t.props.line_width.max(1.0);
                 let is_dashed = t.props.line_style == crate::domain::LineStyle::Dash;
                 let is_polygon = t.props.poly_type == crate::domain::PolyType::Polygon;
 
                 for seg in &t.segments {
-                    if seg.points.len() < 2 {
-                        continue;
-                    }
+                    if seg.points.len() < 2 { continue; }
 
-                    // Переводим все точки в экранные координаты
                     let screen_pts: Vec<Point> = seg.points.iter().map(|pt| {
                         let (mx, my) = merc_of(pt.lon, pt.lat);
                         to_screen(mx, my)
                     }).collect();
 
-                    // Заливка для полигона (рисуется под линией)
+                    // Заливка для полигона
                     if is_polygon && t.props.fill_type != crate::domain::FillType::None {
                         let path = CanvasPath::new(|p| {
                             let mut first = true;
@@ -108,16 +110,11 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                             p.close();
                         });
                         let alpha = if t.props.fill_type == crate::domain::FillType::Solid { 1.0 } else { 0.3 };
-                        let fill_c = Color::from_rgba8(
-                            t.props.fill_color[0],
-                            t.props.fill_color[1],
-                            t.props.fill_color[2],
-                            alpha,
-                        );
+                        let fill_c = Color::from_rgba8(t.props.fill_color[0], t.props.fill_color[1], t.props.fill_color[2], alpha);
                         frame.fill(&path, fill_c);
                     }
 
-                    // Создаем путь для линии (пунктир или сплошная)
+                    // Путь для линии
                     let path = if is_dashed && !is_polygon {
                         create_dashed_path(&screen_pts, 10.0, 8.0)
                     } else {
@@ -131,55 +128,34 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                         })
                     };
 
-                    // Проверяем, выделен ли этот трек
-                    let is_selected = app.selection.tracks.contains(&t.id);
-
-                    // 1. Если трек выделен, сначала рисуем белую обводку (толщина + 2px)
-                    if is_selected {
-                        frame.stroke(
-                            &path,
-                            canvas::Stroke::default()
-                                .with_color(Color::WHITE)
-                                .with_width(width + 2.0),
-                        );
+                    // Обводка выделенного трека
+                    if app.selection.tracks.contains(&t.id) {
+                        frame.stroke(&path, canvas::Stroke::default().with_color(Color::WHITE).with_width(width + 2.0));
                     }
-                    // 2. Рисуем сам трек в его цвете и с его толщиной
-                    frame.stroke(
-                        &path,
-                        canvas::Stroke::default().with_color(color).with_width(width),
-                    );
+                    // Сам трек
+                    frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(width));
                 }
             }
+
             // ==========================================
-            // ПРОХОД 2: Рисуем только точки (ромбы)
+            // ПРОХОД 2: Рисуем точки треков (ромбы)
             // ==========================================
             let is_editing_tool = app.active_tool == crate::Tool::SelectPoints;
             for t in &app.tracks {
                 if !t.visible { continue; }
                 let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
                 
-                // Условие: трек выделен И выбран инструмент редактирования
-                let draw_points = app.selection.tracks.contains(&t.id) && is_editing_tool;
-
-                if draw_points {
+                if app.selection.tracks.contains(&t.id) && is_editing_tool {
                     for (seg_idx, seg) in t.segments.iter().enumerate() {
                         for (pt_idx, pt) in seg.points.iter().enumerate() {
                             let (mx, my) = merc_of(pt.lon, pt.lat);
                             let sp = to_screen(mx, my);
 
-                            if sp.x < -10.0 || sp.x > bounds.width + 10.0 || sp.y < -10.0 || sp.y > bounds.height + 10.0 {
-                                continue;
-                            }
+                            if sp.x < -10.0 || sp.x > bounds.width + 10.0 || sp.y < -10.0 || sp.y > bounds.height + 10.0 { continue; }
 
                             let is_pt_selected = app.selection.points.contains(&(t.id, seg_idx, pt_idx));
-                            
-                            let fill_color = if is_pt_selected {
-                                Color::from_rgb8(0x2a, 0x7f, 0xff)
-                            } else {
-                                Color::WHITE
-                            };
+                            let fill_color = if is_pt_selected { Color::from_rgb8(0x2a, 0x7f, 0xff) } else { Color::WHITE };
 
-                            // Ваши новые размеры (8.0 и 2.0)
                             let r = 8.0; 
                             let diamond = CanvasPath::new(|p| {
                                 p.move_to(Point::new(sp.x, sp.y - r));
@@ -195,7 +171,10 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     }
                 }
             }
-            // Рамка выделения
+
+            // ==========================================
+            // РАМКА ВЫДЕЛЕНИЯ
+            // ==========================================
             if let (Some(start), Some(end)) = (app.rubber_band_start, app.rubber_band_end) {
                 let rect = Rectangle {
                     x: start.x.min(end.x),
@@ -203,128 +182,67 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     width: (end.x - start.x).abs(),
                     height: (end.y - start.y).abs(),
                 };
-                frame.fill_rectangle(
-                    rect.position(),
-                    rect.size(),
-                    Color::from_rgba8(0x2a, 0x7f, 0xff, 0.15),
-                );
+                frame.fill_rectangle(rect.position(), rect.size(), Color::from_rgba8(0x2a, 0x7f, 0xff, 0.15));
                 let rect_path = CanvasPath::rectangle(rect.position(), rect.size());
-                frame.stroke(
-                    &rect_path,
-                    canvas::Stroke::default()
-                        .with_color(Color::from_rgb8(0x2a, 0x7f, 0xff))
-                        .with_width(1.0),
-                );
+                frame.stroke(&rect_path, canvas::Stroke::default().with_color(Color::from_rgb8(0x2a, 0x7f, 0xff)).with_width(1.0));
             }          
 
-            // Отрисовка точек (Waypoints)
+            // ==========================================
+            // WAYPOINTS
+            // ==========================================
             for wp in &app.waypoints {
-                if !wp.visible {
-                    continue;
-                }
+                if !wp.visible { continue; }
                 let (mx, my) = merc_of(wp.lon, wp.lat);
                 let pt = to_screen(mx, my);
 
-                // Увеличенные размеры плашки
                 let text_len = wp.name.chars().count() as f32;
-                let box_w = (text_len * 12.0).max(40.0) + 10.0; // Шире и больше
-                let box_h = 28.0; // Было 16.0
+                let box_w = (text_len * 12.0).max(40.0) + 10.0;
+                let box_h = 28.0;
                 let box_x = pt.x - box_w / 2.0;
-                let box_y = pt.y - 40.0; // Подняли выше (было -24.0)
+                let box_y = pt.y - 40.0;
 
-                // Линия от плашки к точке
-                frame.stroke(
-                    &CanvasPath::line(Point::new(pt.x, box_y + box_h), pt),
-                    canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5),
-                );
+                frame.stroke(&CanvasPath::line(Point::new(pt.x, box_y + box_h), pt), canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5));
 
-                // Фон плашки
                 let bg_color = Color::from_rgb8(wp.bg_color[0], wp.bg_color[1], wp.bg_color[2]);
-                frame.fill_rectangle(
-                    Point::new(box_x, box_y),
-                    Size::new(box_w, box_h),
-                    bg_color,
-                );
+                frame.fill_rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h), bg_color);
 
-                // Рамка плашки (синяя, если выделена)
                 let is_wp_selected = app.selection.waypoints.contains(&wp.id);
                 let border_color = if is_wp_selected { Color::from_rgb8(0x2a, 0x7f, 0xff) } else { Color::BLACK };
                 let border_width = if is_wp_selected { 2.5 } else { 1.5 };
                 
                 let border = CanvasPath::rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h));
-                frame.stroke(
-                    &border,
-                    canvas::Stroke::default().with_color(border_color).with_width(border_width),
-                );
+                frame.stroke(&border, canvas::Stroke::default().with_color(border_color).with_width(border_width));
 
-                // Текст (увеличенный шрифт)
                 let fg_color = Color::from_rgb8(wp.text_color[0], wp.text_color[1], wp.text_color[2]);
                 frame.fill_text(canvas::Text {
                     content: wp.name.clone(),
                     position: Point::new(box_x + box_w / 2.0, box_y + box_h / 2.0),
                     color: fg_color,
-                    size: iced::Pixels(18.0), // Было 11.0
+                    size: iced::Pixels(18.0),
                     align_x: iced::widget::text::Alignment::Center,
                     align_y: iced::alignment::Vertical::Center,
                     ..Default::default()
                 });
 
-                // Сама точка на карте (кружок)
-                let circle = CanvasPath::circle(pt, 5.0); // Чуть больше
+                let circle = CanvasPath::circle(pt, 5.0);
                 frame.fill(&circle, Color::WHITE);
-                frame.stroke(
-                    &circle,
-                    canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5),
-                );
+                frame.stroke(&circle, canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5));
 
                 let dot = CanvasPath::circle(pt, 2.0);
                 frame.fill(&dot, Color::BLACK);
             }
 
-            // 1. Прицел от кнопки "В центр" (исчезает через 3 сек)
+            // ==========================================
+            // ПРИЦЕЛ WAYPOINT (ИЗ ТАБЛИЦЫ/КНОПКИ)
+            // ==========================================
             if let Some((lon, lat)) = app.waypoint_crosshair {
                 let (mx, my) = merc_of(lon, lat);
                 draw_crosshair(frame, to_screen(mx, my));
             }
-            // Рисуемый трек (rubber band)
-            if let Some(dt) = &app.drawing_track {
-                if !dt.points.is_empty() {
-                    let color = Color::from_rgb8(0x2a, 0x7f, 0xff);
-                    
-                    let screen_pts: Vec<Point> = dt.points.iter().map(|&(lon, lat)| {
-                        let (mx, my) = merc_of(lon, lat);
-                        to_screen(mx, my)
-                    }).collect();
-                    
-                    // Линия между уже поставленными точками
-                    if screen_pts.len() >= 2 {
-                        let path = CanvasPath::new(|p| {
-                            let mut first = true;
-                            for pt in &screen_pts {
-                                if first { p.move_to(*pt); first = false; }
-                                else { p.line_to(*pt); }
-                            }
-                        });
-                        frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(2.0));
-                    }
-                    
-                    // "Резиновая нить" от последней точки к курсору
-                    if let Some(cursor) = app.cursor {
-                        let last = *screen_pts.last().unwrap();
-                        let line = CanvasPath::line(last, cursor);
-                        frame.stroke(&line, canvas::Stroke::default().with_color(color).with_width(1.5));
-                    }
-                    
-                    // Маркеры точек
-                    for pt in &screen_pts {
-                        let circle = CanvasPath::circle(*pt, 5.0);
-                        frame.fill(&circle, Color::WHITE);
-                        frame.stroke(&circle, canvas::Stroke::default().with_color(color).with_width(1.5));
-                    }
-                }
-            }
-            
-            // Рисуемый трек (rubber band)
+
+            // ==========================================
+            // РИСУЕМЫЙ ТРЕК (DrawTrack / Freehand)
+            // ==========================================
             if let Some(dt) = &app.drawing_track {
                 if !dt.points.is_empty() {
                     let color = Color::from_rgb8(0x2a, 0x7f, 0xff);
@@ -346,7 +264,6 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                         frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(2.0));
                     }
                     
-                    // Маркеры и «резиновая нить» — только для DrawTrack
                     if !is_freehand {
                         if let Some(cursor) = app.cursor {
                             let last = *screen_pts.last().unwrap();
@@ -360,8 +277,153 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                         }
                     }
                 }
-            }           
-            // 2. Прицел от открытой таблицы треков
+            }
+            
+            // ==========================================
+            // ЛИНЕЙКА (Ruler)
+            // ==========================================
+            if app.active_tool == crate::Tool::Ruler && !app.ruler_points.is_empty() {
+                let color = Color::from_rgb8(255, 140, 0);
+
+                // Используем только зафиксированные кликами точки (без курсора)
+                let pts = app.ruler_points.clone();
+
+                let mut sum_sx = 0.0;
+                let mut sum_sy = 0.0;
+                let mut screen_pts = Vec::new();
+
+                // Отрисовка маркеров всех зафиксированных точек
+                for &(lon, lat) in &app.ruler_points {
+                    let (mx, my) = merc_of(lon, lat);
+                    let sp = to_screen(mx, my);
+                    
+                    let circle = CanvasPath::circle(sp, 4.0);
+                    frame.fill(&circle, color);
+                    frame.stroke(&circle, canvas::Stroke::default().with_color(Color::WHITE).with_width(1.5));
+                }
+                
+                for i in 0..pts.len() - 1 {
+                    let (lon1, lat1) = pts[i];
+                    let (lon2, lat2) = pts[i + 1];
+                    let (mx1, my1) = merc_of(lon1, lat1);
+                    let (mx2, my2) = merc_of(lon2, lat2);
+                    let sp1 = to_screen(mx1, my1);
+                    let sp2 = to_screen(mx2, my2);
+                    
+                    sum_sx += sp1.x;
+                    sum_sy += sp1.y;
+                    screen_pts.push(sp1);
+                    if i == pts.len() - 2 {
+                        screen_pts.push(sp2);
+                    }
+
+                    // Линия
+                    let path = CanvasPath::line(sp1, sp2);
+                    frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(2.0));
+
+                    // Подпись
+                    let dx_px = sp2.x - sp1.x;
+                    let dy_px = sp2.y - sp1.y;
+                    let screen_dist_px = (dx_px * dx_px + dy_px * dy_px).sqrt();
+
+                    if screen_dist_px > 40.0 {
+                        let dist_m = crate::domain::haversine_m(lat1, lon1, lat2, lon2);
+                        let true_az = true_bearing(lat1, lon1, lat2, lon2);
+                        let mut mag_az = true_az - app.declination;
+                        if mag_az < 0.0 { mag_az += 360.0; }
+                        if mag_az >= 360.0 { mag_az -= 360.0; }
+
+                        let text = if dist_m >= 1000.0 {
+                            format!("{:.2} км, {:.0}°", dist_m / 1000.0, mag_az)
+                        } else {
+                            format!("{:.0} м, {:.0}°", dist_m, mag_az)
+                        };
+
+                        let mid_x = (sp1.x + sp2.x) / 2.0;
+                        let mid_y = (sp1.y + sp2.y) / 2.0;
+
+                        let font_size = 14.0;
+                        let box_h = 21.0;
+                        let box_w = text.chars().count() as f32 * 7.5 + 12.0;
+
+                        let bg_rect = Rectangle {
+                            x: mid_x - box_w / 2.0,
+                            y: mid_y - box_h - 4.0,
+                            width: box_w,
+                            height: box_h,
+                        };
+                        frame.fill_rectangle(bg_rect.position(), bg_rect.size(), Color::from_rgba8(0, 0, 0, 0.85));
+                        let border = CanvasPath::rectangle(bg_rect.position(), bg_rect.size());
+                        frame.stroke(&border, canvas::Stroke::default().with_color(color).with_width(1.5));
+                        frame.fill_text(canvas::Text {
+                            content: text,
+                            position: Point::new(mid_x, mid_y - box_h / 2.0 - 4.0),
+                            color: Color::WHITE,
+                            size: iced::Pixels(font_size),
+                            align_x: iced::widget::text::Alignment::Center,
+                            align_y: iced::alignment::Vertical::Center,
+                            ..Default::default()
+                        });
+                    }
+                }
+
+                // Площадь
+                if app.ruler_points.len() >= 3 {
+                    let n = pts.len();
+                    let lat_c = pts.iter().map(|p| p.1).sum::<f64>() / n as f64;
+                    let kx = 111320.0 * lat_c.to_radians().cos();
+                    let ky = 111320.0;
+                    
+                    let mut area_m2 = 0.0;
+                    for i in 0..n {
+                        let j = (i + 1) % n;
+                        let x1 = pts[i].0 * kx; let y1 = pts[i].1 * ky;
+                        let x2 = pts[j].0 * kx; let y2 = pts[j].1 * ky;
+                        area_m2 += x1 * y2 - x2 * y1;
+                    }
+                    area_m2 = (area_m2 / 2.0).abs();
+                    
+                    let area_text = if area_m2 >= 1_000_000.0 {
+                        format!("Площадь: {:.2} км²", area_m2 / 1_000_000.0)
+                    } else if area_m2 >= 10_000.0 {
+                        format!("Площадь: {:.2} га", area_m2 / 10_000.0)
+                    } else {
+                        format!("Площадь: {:.0} м²", area_m2)
+                    };
+
+                    let cx = sum_sx / (screen_pts.len() as f32 - 1.0);
+                    let cy = sum_sy / (screen_pts.len() as f32 - 1.0);
+                    
+                    let font_size = 18.0;
+                    let box_h = 28.0;
+                    let box_w = area_text.chars().count() as f32 * 9.0 + 16.0;
+                    
+                    let bg_rect = Rectangle {
+                        x: cx - box_w / 2.0,
+                        y: cy - box_h / 2.0,
+                        width: box_w,
+                        height: box_h,
+                    };
+                    
+                    frame.fill_rectangle(bg_rect.position(), bg_rect.size(), Color::from_rgba8(255, 140, 0, 0.9));
+                    let border = CanvasPath::rectangle(bg_rect.position(), bg_rect.size());
+                    frame.stroke(&border, canvas::Stroke::default().with_color(Color::WHITE).with_width(2.0));
+
+                    frame.fill_text(canvas::Text {
+                        content: area_text,
+                        position: Point::new(cx, cy),
+                        color: Color::WHITE,
+                        size: iced::Pixels(font_size),
+                        align_x: iced::widget::text::Alignment::Center,
+                        align_y: iced::alignment::Vertical::Center,
+                        ..Default::default()
+                    });
+                }
+            }
+
+            // ==========================================
+            // ПРИЦЕЛ ИЗ ТАБЛИЦЫ ТРЕКОВ (TrackList)
+            // ==========================================
             if let Some(crate::Modal::TrackList(state)) = &app.modal {
                 if let Some((sect, pt_idx)) = state.last_clicked {
                     if let Some(t) = app.tracks.iter().find(|t| t.id == state.track_id) {

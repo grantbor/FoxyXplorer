@@ -374,6 +374,7 @@ pub(crate) struct App {
     pub(crate) last_point_clicked: Option<(u64, usize, usize)>,
     pub(crate) drawing_track: Option<DrawingTrack>,
     pub(crate) freehand_is_drawing: bool,
+    pub(crate) ruler_points: Vec<(f64, f64)>, // (lon, lat)
 }
 
 pub(crate) enum Modal {
@@ -433,7 +434,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false  
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new()  
                 };
 
                 for t in &mut app.tracks { 
@@ -477,7 +478,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new()
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
