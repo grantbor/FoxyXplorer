@@ -95,7 +95,24 @@ impl App {
         }
 
         let content = column![
-            text(format!("Track List - {}", track_name)).size(18),
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text(format!("Track List - {}", track_name)).size(18))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseTrackList)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
             
             container(header).padding(2).width(Length::Fill),
             container(scrollable(list).height(Length::Fixed(400.0))).padding(2).width(Length::Fill),
@@ -242,18 +259,24 @@ impl App {
         let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
 
         let content = column![
-            mouse_area(
-                container(text("Свойства трека").size(20))
-                    .width(Length::Fill)
-                    .padding(4)
-                    .style(|theme: &Theme| {
-                        let palette = theme.extended_palette();
-                        container::Style {
-                            background: Some(palette.background.weak.color.into()),
-                            ..Default::default()
-                        }
-                    })
-            ).on_press(Message::ModalDragStart),
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text("Свойства трека").size(20))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseTrackProps)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
                 text("Description:").width(120),
@@ -368,18 +391,24 @@ impl App {
         let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
 
         let content = column![
-            mouse_area(
-                container(text("Свойства точки").size(20))
-                    .width(Length::Fill)
-                    .padding(4)
-                    .style(|theme: &Theme| {
-                        let palette = theme.extended_palette();
-                        container::Style {
-                            background: Some(palette.background.weak.color.into()),
-                            ..Default::default()
-                        }
-                    })
-            ).on_press(Message::ModalDragStart),
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text("Свойства точки").size(20))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseWaypointProps)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
                 text("Имя:").width(100), 
