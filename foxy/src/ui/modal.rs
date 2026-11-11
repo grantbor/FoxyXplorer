@@ -7,8 +7,9 @@ use crate::util::coords::build_template;
 use crate::widgets::palette::get_extended_palette;
 use crate::{App, Message};
 
-
-
+// =========================================================
+// Хелпер для форматирования даты/времени в таблице точек
+// =========================================================
 fn format_date_time(unix: Option<f64>) -> (String, String) {
     if let Some(t) = unix {
         let (y, m, d, h, min, sec, _) = geoio::time::parts(t);
@@ -23,10 +24,12 @@ fn format_date_time(unix: Option<f64>) -> (String, String) {
 }
 
 impl App {
+    // =========================================================
+    // Таблица точек (Track List)
+    // =========================================================
     pub(crate) fn view_track_list_modal<'a>(&'a self, state: &'a crate::TrackListState) -> Element<'a, Message> {
         let track_name = self.tracks.iter().find(|t| t.id == state.track_id).map(|t| t.name.as_str()).unwrap_or("Unknown");
         
-        // Заголовки колонок
         let header = container(
             row![
                 text("#").width(40),
@@ -38,13 +41,19 @@ impl App {
                 text("Время").width(60),
                 text("Расст(м)").width(60),
                 text("Км/ч").width(50),
+                Space::new().width(Length::Fill),
             ].spacing(4).padding(4)
-        ).style(|theme: &Theme| {
+        )
+        .style(|theme: &Theme| {
             let palette = theme.extended_palette();
-            container::Style { background: Some(palette.background.strong.color.into()), ..Default::default() }
-        });
+            container::Style { 
+                background: Some(palette.background.strong.color.into()), 
+                ..Default::default() 
+            }
+        })
+        .width(Length::Fill);
 
-        let mut list = column![].spacing(1);
+        let mut list = column![].spacing(1).width(Length::Fill);
         
         for r in &state.rows {
             let selected = state.selected_points.contains(&(r.sect, r.pt_idx));
@@ -53,7 +62,10 @@ impl App {
             let row_style = if selected {
                 move |theme: &Theme| {
                     let palette = theme.extended_palette();
-                    container::Style { background: Some(palette.primary.weak.color.into()), ..Default::default() }
+                    container::Style { 
+                        background: Some(palette.primary.weak.color.into()), 
+                        ..Default::default() 
+                    }
                 }
             } else {
                 move |_: &Theme| container::Style::default()
@@ -71,38 +83,22 @@ impl App {
                         text(t_str).width(60),
                         text(format!("{:.1}", r.dist_m)).width(60),
                         text(format!("{:.1}", r.kph)).width(50),
+                        Space::new().width(Length::Fill),
                     ].spacing(4).padding([2, 4])
                 ).on_press(Message::SelectTrackPoint(r.sect, r.pt_idx))
-            ).style(row_style);
+            )
+            .style(row_style)
+            .width(Length::Fill);
 
             list = list.push(r_ui);
         }
 
         let content = column![
-            // Заголовок с кнопкой закрытия
-            row![
-                mouse_area(
-                    container(text(format!("Список точек - {}", track_name)).size(18))
-                        .width(Length::Fill)
-                        .padding(4)
-                        .style(|theme: &Theme| {
-                            let palette = theme.extended_palette();
-                            container::Style {
-                                background: Some(palette.background.weak.color.into()),
-                                ..Default::default()
-                            }
-                        })
-                ).on_press(Message::ModalDragStart),
-                container(
-                    self.icon_button(lucide_iced::bytes::X, Message::CloseTrackList)
-                ).padding(4)
-            ].align_y(Alignment::Center).width(Length::Fill),
+            text(format!("Track List - {}", track_name)).size(18),
             
-            // Заголовок и таблица в скролле
-            container(header).padding(2),
-            container(scrollable(list).height(Length::Fixed(400.0))).padding(2),
+            container(header).padding(2).width(Length::Fill),
+            container(scrollable(list).height(Length::Fixed(400.0))).padding(2).width(Length::Fill),
 
-            // Кнопки управления
             row![
                 self.btn_secondary("В центр").on_press_maybe(
                     state.last_clicked.map(|(s, p)| Message::CenterOnTrackPoint(s, p))
@@ -115,131 +111,31 @@ impl App {
                 Space::new().width(Length::Fill),
                 self.btn_secondary("Закрыть").on_press(Message::CloseTrackList),
             ].spacing(8).padding([10, 0])
-        ].spacing(10).padding(20);
+        ]
+        .spacing(10)
+        .padding(20)
+        .width(Length::Fill);
 
         container(content)
             .style(|theme: &Theme| {
                 let palette = theme.extended_palette();
                 container::Style {
                     background: Some(palette.background.base.color.into()),
-                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 8.0.into() },
+                    border: iced::Border { 
+                        color: palette.background.strong.color, 
+                        width: 1.0, 
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                    },
                     ..Default::default()
                 }
             })
             .width(Length::Fixed(750.0))
             .into()
     }
-    
-    pub(crate) fn view_waypoint_props_modal<'a>(
-        &'a self, 
-        _id: u64, 
-        draft: &'a domain::Waypoint,
-        coord_input: &'a str,
-    ) -> Element<'a, Message> {
-        let text_colors = vec![[0, 0, 0], [255, 255, 255]];
-        let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]];
-        
-        let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
-            button(text("")).width(24).height(24)
-            .style(move |_: &Theme, _| button::Style {
-                background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
-                border: iced::Border { 
-                    color: Color::from_rgb(0.5, 0.5, 0.5), 
-                width: 1.0, 
-                radius: native_theme_iced::border_radius(&self.resolved_theme).into()
-                },
-                ..Default::default()
-            })
-            .on_press(msg)
-            .into()
-        };
-        
-        let text_color_row = row(text_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c))).collect::<Vec<_>>()).spacing(2);
-        let bg_color_row = row(bg_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c))).collect::<Vec<_>>()).spacing(2);
-        
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
-        
-        let content = column![
-            // Заголовок с кнопкой закрытия
-            row![
-                mouse_area(
-                    container(text("Свойства точки").size(20))
-                        .width(Length::Fill)
-                        .padding(4)
-                        .style(|theme: &Theme| {
-                            let palette = theme.extended_palette();
-                            container::Style {
-                                background: Some(palette.background.weak.color.into()),
-                                ..Default::default()
-                            }
-                        })
-                ).on_press(Message::ModalDragStart),
-                container(
-                    self.icon_button(lucide_iced::bytes::X, Message::CloseWaypointProps)
-                ).padding(4)
-            ].align_y(Alignment::Center).width(Length::Fill),
-            
-            row![
-                text("Имя:").width(100), 
-                text_input("Имя", &draft.name)
-                .on_input(Message::DraftWpNameChanged).width(250)
-                .padding(input_pad).style(input_style.clone())
-            ],
-            row![
-                text("Описание:").width(100), 
-                text_input("Описание", draft.description.as_deref().unwrap_or(""))
-                .on_input(Message::DraftWpDescChanged).width(250)
-                .padding(input_pad).style(input_style.clone())
-            ],
-            
-            row![
-                text("Координаты:").width(100),
-                text_input("55.7558 37.6173", coord_input)
-                .on_input(Message::DraftWpCoordsChanged).width(250)
-                .padding(input_pad).style(input_style.clone()),
-            ].align_y(Alignment::Center),
-            
-            container(
-                text("Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)")
-                .size(11)
-                .color(Color::from_rgb(0.5, 0.5, 0.5))
-            ).padding([0, 100]),
-            
-            row![
-                text("Высота (м):").width(100),
-                text_input("", &draft.ele.map(|e| e.to_string()).unwrap_or_default())
-                .on_input(Message::DraftWpEleChanged).width(100)
-                .padding(input_pad).style(input_style.clone()),
-            ],
-            
-            row![text("Цвет текста:").width(100), text_color_row].align_y(Alignment::Center),
-            row![text("Цвет фона:").width(100), bg_color_row].align_y(Alignment::Center),
-            
-            row![
-                self.btn_secondary("Вложение").on_press(Message::None), 
-                self.btn_secondary("Применить").on_press(Message::ApplyWaypointProps),
-                self.btn_secondary("Отмена").on_press(Message::CloseWaypointProps),
-            ].spacing(10)
-        ].spacing(12).padding(20);
-        
-        container(content)
-        .style(|theme: &Theme| {
-            let palette = theme.extended_palette();
-            container::Style {
-                background: Some(palette.background.base.color.into()),
-            border: iced::Border {
-                color: palette.background.strong.color,
-                width: 1.0,
-                radius: native_theme_iced::border_radius(&self.resolved_theme).into()
-            },
-            ..Default::default()
-            }
-        })
-         .width(Length::Fixed(500.0))
-        .into()
-    }
 
+    // =========================================================
+    // Свойства трека
+    // =========================================================
     pub(crate) fn view_track_props_modal<'a>(&'a self, _id: u64, draft: &'a domain::TrackProps) -> Element<'a, Message> {
         let callsigns = vec![
             "Lisa".to_string(), "Veter".to_string(), "Kinolog".to_string(), 
@@ -256,63 +152,60 @@ impl App {
             domain::FillType::None, domain::FillType::Diagonal1, domain::FillType::Diagonal2, 
             domain::FillType::CrossHatch, domain::FillType::Solid
         ];
-        
+
         let template = build_template(draft);
-        
+
         let extra_fields: Element<'a, Message> = if draft.callsign == "Zadacha" {
             row![].into()
         } else {
             row![
                 container(text("#_#")).padding([0, 4]),
                 text_input("", &draft.num2.map(|n| n.to_string()).unwrap_or_default())
-                .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                .on_input(Message::DraftNum2Changed).width(50),
+                    .padding(native_theme_iced::input_padding(&self.resolved_theme))
+                    .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+                    .on_input(Message::DraftNum2Changed).width(50),
                 container(text("Суффикс")).padding([0, 4]),
                 text_input("", &draft.suffix)
-                .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                .on_input(Message::DraftSuffixChanged).width(80),
+                    .padding(native_theme_iced::input_padding(&self.resolved_theme))
+                    .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+                    .on_input(Message::DraftSuffixChanged).width(80),
             ].align_y(Alignment::Center).spacing(4).into()
         };
+
         let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
             button(text("")).width(24).height(24)
-            .style(move |_: &Theme, _| button::Style {
-                background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
-                border: iced::Border { 
-                    color: Color::from_rgb(0.5, 0.5, 0.5), 
-                width: 1.0, 
-                // ВОТ ЗДЕСЬ ОБЯЗАТЕЛЬНО ДОЛЖНО БЫТЬ .into()
-                radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
-                },
-                ..Default::default()
-            })
-            .on_press(msg)
-            .into()
+                .style(move |_: &Theme, _| button::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
+                    border: iced::Border { 
+                        color: Color::from_rgb(0.5, 0.5, 0.5), 
+                        width: 1.0, 
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into()
+                    },
+                    ..Default::default()
+                })
+                .on_press(msg)
+                .into()
         };
-        
+
         let mut color_btns: Vec<Element<'a, Message>> = Vec::new();
         for &c in &self.palette {
             color_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
         }
-        // СТАЛО:
         color_btns.push(
             button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
-            .width(24)
-            .height(24)
-            .padding(0) // Убираем лишние отступы, чтобы иконка была по центру
-            .on_press(Message::ToggleColorPicker)
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
-            .into()
+                .width(24).height(24).padding(0)
+                .on_press(Message::ToggleColorPicker)
+                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .into()
         );
         let color_row = row(color_btns).spacing(2);
-        
+
         let mut fill_color_btns: Vec<Element<'a, Message>> = Vec::new();
         for &c in &self.palette {
             fill_color_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
         }
         let fill_color_row = row(fill_color_btns).spacing(2);
-        
+
         let color_picker_ui: Element<'a, Message> = if self.show_color_picker {
             let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
@@ -327,125 +220,229 @@ impl App {
         } else {
             column![].into()
         };
-        
+
         let fill_fields: Element<'a, Message> = if draft.poly_type == domain::PolyType::Polygon {
             column![
                 row![text("Fill Color:").width(120), fill_color_row].align_y(Alignment::Center),
                 row![
                     text("Fill Type:").width(120),
                     pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged)
-                    .padding(native_theme_iced::button_padding(&self.resolved_theme))
-                    .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
+                        .padding(native_theme_iced::button_padding(&self.resolved_theme))
+                        .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
                 ].align_y(Alignment::Center),
             ].spacing(10).into()
         } else {
             column![].into()
         };
-        
+
         let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
         let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
         let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
         let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
-        
+
         let content = column![
-            // Заголовок с кнопкой закрытия
-            row![
-                mouse_area(
-                    container(text("Свойства трека").size(20))
-                        .width(Length::Fill)
-                        .padding(4)
-                        .style(|theme: &Theme| {
-                            let palette = theme.extended_palette();
-                            container::Style {
-                                background: Some(palette.background.weak.color.into()),
-                                ..Default::default()
-                            }
-                        })
-                ).on_press(Message::ModalDragStart),
-                container(
-                    self.icon_button(lucide_iced::bytes::X, Message::CloseTrackProps)
-                ).padding(4)
-            ].align_y(Alignment::Center).width(Length::Fill),
+            mouse_area(
+                container(text("Свойства трека").size(20))
+                    .width(Length::Fill)
+                    .padding(4)
+                    .style(|theme: &Theme| {
+                        let palette = theme.extended_palette();
+                        container::Style {
+                            background: Some(palette.background.weak.color.into()),
+                            ..Default::default()
+                        }
+                    })
+            ).on_press(Message::ModalDragStart),
             
             row![
-                text("Описание:").width(120),
+                text("Description:").width(120),
                 text_input("Введите описание...", &draft.description)
-                .on_input(Message::DraftDescChanged).width(280)
-                .padding(input_pad).style(input_style.clone())
+                    .on_input(Message::DraftDescChanged).width(280)
+                    .padding(input_pad).style(input_style.clone())
             ].align_y(Alignment::Center),
-            
+
             row![
                 text("Дата:").width(120),
                 self.btn_secondary("Вчера").on_press(Message::DraftDateYesterday),
                 self.btn_secondary("Сегодня").on_press(Message::DraftDateToday),
                 text_input("YYYY-MM-DD", &draft.date_str)
-                .on_input(Message::DraftDateChanged).width(120)
-                .padding(input_pad).style(input_style.clone()),
+                    .on_input(Message::DraftDateChanged).width(120)
+                    .padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center).spacing(4),
-            
+
             row![
                 text("Позывной:").width(120),
                 pick_list(callsigns, Some(draft.callsign.clone()), Message::DraftCallsignChanged)
-                .padding(pick_pad).style(pick_style.clone()),
+                    .padding(pick_pad).style(pick_style.clone()),
                 container(text("#")).padding([0, 4]),
                 text_input("", &draft.num1.to_string())
-                .on_input(Message::DraftNum1Changed).width(50)
-                .padding(input_pad).style(input_style.clone()),
+                    .on_input(Message::DraftNum1Changed).width(50)
+                    .padding(input_pad).style(input_style.clone()),
                 extra_fields
             ].align_y(Alignment::Center).spacing(4),
-            
-            row![text("Цвет трека:").width(120), color_row].align_y(Alignment::Center),
+
+            row![text("Line Color:").width(120), color_row].align_y(Alignment::Center),
             color_picker_ui,
-            
+
             row![
-                text("Толщина:").width(120),
+                text("Width:").width(120),
                 text_input("", &draft.line_width.to_string())
-                .on_input(Message::DraftWidthChanged).width(50)
-                .padding(input_pad).style(input_style.clone()),
-                container(text("Стиль:")).padding([0, 10]),
+                    .on_input(Message::DraftWidthChanged).width(50)
+                    .padding(input_pad).style(input_style.clone()),
+                container(text("Line Style:")).padding([0, 10]),
                 pick_list(line_styles, Some(draft.line_style.clone()), Message::DraftStyleChanged)
-                .padding(pick_pad).style(pick_style.clone()),
+                    .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
-            
+
             row![
-                text("Тип:").width(120),
+                text("Type:").width(120),
                 pick_list(poly_types, Some(draft.poly_type.clone()), Message::DraftTypeChanged)
-                .padding(pick_pad).style(pick_style.clone()),
+                    .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
-            
+
             fill_fields,
-            
+
             row![
                 text("Шаблон:").width(120),
                 text(template).color(Color::from_rgb8(draft.line_color[0], draft.line_color[1], draft.line_color[2])).size(16)
             ].align_y(Alignment::Center),
-            
-            // Кнопки (должны быть через self.btn и self.btn_secondary)
+
             row![
                 self.btn_secondary("Сохранить").on_press(Message::SaveTrackProps),
                 self.btn_secondary("Применить").on_press(Message::ApplyTrackProps),
                 self.btn_secondary("Отмена").on_press(Message::CloseTrackProps),
             ].spacing(10)
         ]
-        .spacing(12)    
+        .spacing(12)
         .padding(20);
-        
+
         container(content)
-        .style(|theme: &Theme| {
-            let palette = theme.extended_palette();
-            container::Style {
-                background: Some(palette.background.base.color.into()),
-            border: iced::Border {
-                color: palette.background.strong.color,
-                width: 1.0,
-                radius: native_theme_iced::border_radius(&self.resolved_theme).into(), // <-- Добавили .into()
-            },
-            ..Default::default()
-            }
-        })
-         .width(Length::Fixed(600.0))
-        .into()
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border { 
+                        color: palette.background.strong.color, 
+                        width: 1.0, 
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(600.0))
+            .into()
     }
+
+    // =========================================================
+    // Свойства точки
+    // =========================================================
+    pub(crate) fn view_waypoint_props_modal<'a>(
+        &'a self, 
+        _id: u64, 
+        draft: &'a domain::Waypoint,
+        coord_input: &'a str,
+    ) -> Element<'a, Message> {
+        let text_colors = vec![[0, 0, 0], [255, 255, 255]];
+        let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]];
+
+        let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
+            button(text("")).width(24).height(24)
+                .style(move |_: &Theme, _| button::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
+                    border: iced::Border { 
+                        color: Color::from_rgb(0.5, 0.5, 0.5), 
+                        width: 1.0, 
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into()
+                    },
+                    ..Default::default()
+                })
+                .on_press(msg)
+                .into()
+        };
+
+        let text_color_row = row(text_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c))).collect::<Vec<_>>()).spacing(2);
+        let bg_color_row = row(bg_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c))).collect::<Vec<_>>()).spacing(2);
+
+        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
+        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
+
+        let content = column![
+            mouse_area(
+                container(text("Свойства точки").size(20))
+                    .width(Length::Fill)
+                    .padding(4)
+                    .style(|theme: &Theme| {
+                        let palette = theme.extended_palette();
+                        container::Style {
+                            background: Some(palette.background.weak.color.into()),
+                            ..Default::default()
+                        }
+                    })
+            ).on_press(Message::ModalDragStart),
+            
+            row![
+                text("Имя:").width(100), 
+                text_input("Имя", &draft.name)
+                    .on_input(Message::DraftWpNameChanged).width(250)
+                    .padding(input_pad).style(input_style.clone())
+            ],
+            row![
+                text("Описание:").width(100), 
+                text_input("Описание", draft.description.as_deref().unwrap_or(""))
+                    .on_input(Message::DraftWpDescChanged).width(250)
+                    .padding(input_pad).style(input_style.clone())
+            ],
+            
+            row![
+                text("Координаты:").width(100),
+                text_input("55.7558 37.6173", coord_input)
+                    .on_input(Message::DraftWpCoordsChanged).width(250)
+                    .padding(input_pad).style(input_style.clone()),
+            ].align_y(Alignment::Center),
+            
+            container(
+                text("Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)")
+                    .size(11)
+                    .color(Color::from_rgb(0.5, 0.5, 0.5))
+            ).padding([0, 100]),
+
+            row![
+                text("Высота (м):").width(100),
+                text_input("", &draft.ele.map(|e| e.to_string()).unwrap_or_default())
+                    .on_input(Message::DraftWpEleChanged).width(100)
+                    .padding(input_pad).style(input_style.clone()),
+            ],
+
+            row![text("Цвет текста:").width(100), text_color_row].align_y(Alignment::Center),
+            row![text("Цвет фона:").width(100), bg_color_row].align_y(Alignment::Center),
+            
+            row![
+                self.btn_secondary("Вложение").on_press(Message::None),
+                self.btn_secondary("Применить").on_press(Message::ApplyWaypointProps),
+                self.btn_secondary("Отмена").on_press(Message::CloseWaypointProps),
+            ].spacing(10)
+        ].spacing(12).padding(20);
+
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border { 
+                        color: palette.background.strong.color, 
+                        width: 1.0, 
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(550.0))
+            .into()
+    }
+
+    // =========================================================
+    // Измерение между точками (линейка)
+    // =========================================================
     pub(crate) fn view_waypoint_measure_modal<'a>(
         &'a self,
         from_name: &'a str, from_lat: f64, from_lon: f64,
@@ -491,13 +488,21 @@ impl App {
                 let palette = theme.extended_palette();
                 container::Style {
                     background: Some(palette.background.base.color.into()),
-                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: native_theme_iced::border_radius(&self.resolved_theme).into() },
+                    border: iced::Border { 
+                        color: palette.background.strong.color, 
+                        width: 1.0, 
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                    },
                     ..Default::default()
                 }
             })
             .width(Length::Fixed(550.0))
             .into()
     }
+
+    // =========================================================
+    // Подтверждение Clear All
+    // =========================================================
     pub(crate) fn view_confirm_clear_all_modal<'a>(&'a self) -> Element<'a, Message> {
         let content = column![
             text("Очистить сессию?").size(20),
@@ -527,6 +532,10 @@ impl App {
             .width(Length::Fixed(400.0))
             .into()
     }
+
+    // =========================================================
+    // Подтверждение загрузки сессии
+    // =========================================================
     pub(crate) fn view_confirm_load_session_modal<'a>(&'a self) -> Element<'a, Message> {
         let content = column![
             text("Загрузить сессию из файла?").size(20),
