@@ -152,32 +152,28 @@ impl App {
             self.icon_button_disabled(lucide_iced::bytes::SCAN_EYE)
         };        
         let row_normal = row![
-            btn_fit_track,
             if one_track { 
                 self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap())) 
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
             },
-            if one_track {
-                self.icon_button(lucide_iced::bytes::LIST, Message::OpenTrackList(selected_id.unwrap()))
-            } else {
-                self.icon_button_disabled(lucide_iced::bytes::LIST)
-            },
-            if has_tracks { 
-                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
-            },
+            btn_fit_track,
             if has_tracks {
                 self.icon_button(lucide_iced::bytes::FUNNEL, Message::SimplifyTracks)
             } else {
                 self.icon_button_disabled(lucide_iced::bytes::FUNNEL)
             },
-            //tol_picker, 
-            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu)
+            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu), // <-- SAVE переехал сюда
+            Space::new().width(Length::Fill), // Распорка
+            if has_tracks { 
+                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks) 
+            } else { 
+                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
+            }
         ].spacing(4).align_y(Alignment::Center);
         
         let row_save = row![
+            // Блокируем PLT, если выбрано НЕ ровно 1 трек, либо если есть выделенные точки
             if has_tracks && !has_wps && self.selection.tracks.len() == 1 { 
                 self.btn_secondary("PLT").on_press(Message::SaveTracksPlt) 
             } else { 
@@ -193,6 +189,8 @@ impl App {
             } else { 
                 self.btn_secondary("MS") 
             },
+            // Распорка для прижатия крестика вправо
+            Space::new().width(Length::Fill),
             self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
         
@@ -287,6 +285,14 @@ impl App {
             self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
         };
         
+        let two_wps = self.selection.waypoints.len() == 2;
+
+        let btn_measure = if two_wps {
+            self.icon_button(lucide_iced::bytes::RULER, Message::MeasureWaypoints)
+        } else {
+            self.icon_button_disabled(lucide_iced::bytes::RULER)
+        };
+        
         let row_normal = row![
             self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
             if one_wp { 
@@ -294,13 +300,23 @@ impl App {
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
             },
-            btn_center,
+            if one_wp {
+                self.icon_button(lucide_iced::bytes::DIAMOND_PLUS, Message::CenterOnWaypoint(selected_id.unwrap()))
+            } else {
+                self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
+            },
+            if two_wps {
+                self.icon_button(lucide_iced::bytes::RULER, Message::MeasureWaypoints)
+            } else {
+                self.icon_button_disabled(lucide_iced::bytes::RULER)
+            },
+            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu), // <-- SAVE слева
+            Space::new().width(Length::Fill), // Распорка
             if has_wps { 
                 self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedWaypoints) 
             } else { 
                 self.icon_button_disabled(lucide_iced::bytes::TRASH) 
-            },
-            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu)
+            }
         ].spacing(4).align_y(Alignment::Center);
         
         let row_save = row![
@@ -324,6 +340,7 @@ impl App {
             } else { 
                 self.btn_secondary("MS") 
             },
+            Space::new().width(Length::Fill), // Распорка
             self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu)
         ].spacing(4).align_y(Alignment::Center);
         

@@ -72,7 +72,7 @@ impl App {
             | Message::ToggleAllWaypointsVisible | Message::DeleteSelectedWaypoints
             | Message::OpenWaypointProps(_) | Message::AddNewWaypoint | Message::ApplyWaypointProps
             | Message::CloseWaypointProps | Message::ToggleWpSaveMenu | Message::CenterOnWaypoint(_)
-            | Message::ClearWaypointCrosshair => {
+            | Message::ClearWaypointCrosshair | Message::MeasureWaypoints | Message::CloseWaypointMeasure => {
                 return self.update_waypoints(m);
             }
 
@@ -574,7 +574,7 @@ impl App {
                 self.status = format!("Freehand: добавлено {after} точек (упрощено {before} → {after})");
             }
         } else {
-            let new_track = domain::Track {
+            let mut new_track = domain::Track {
                 id: self.next_id,
                 name: format!("Track{}", self.next_id),
                 color: [0x2a, 0x7f, 0xff],
@@ -585,6 +585,7 @@ impl App {
                 cached_points: 0,
                 cached_distance_m: 0.0,
             };
+            domain::recompute_track_stats(&mut new_track);
             self.next_id += 1;
             self.tracks.push(Arc::new(new_track));
             self.status = format!("Freehand: создан трек (упрощено {before} → {after})");
@@ -626,7 +627,7 @@ impl App {
                 self.status = format!("Добавлено {} точек к треку", dt.points.len());
             }
         } else {
-            let new_track = domain::Track {
+            let mut new_track = domain::Track  {
                 id: self.next_id,
                 name: format!("Track{}", self.next_id),
                 color: [0x2a, 0x7f, 0xff],
@@ -637,25 +638,9 @@ impl App {
                 cached_points: 0,
                 cached_distance_m: 0.0,
             };
+            domain::recompute_track_stats(&mut new_track);
             self.next_id += 1;
             self.tracks.push(Arc::new(new_track));
-        } else {
-            let mut new_track = domain::Track {
-                id: self.next_id,
-                name: format!("Track{}", self.next_id),
-                color: [0x2a, 0x7f, 0xff],
-                visible: true,
-                segments: vec![domain::TrackSegment { points: new_pts }],
-                source: domain::FileSource::New,
-                props: domain::TrackProps::default(),
-                cached_points: 0,
-                cached_distance_m: 0.0,
-            };
-            domain::recompute_track_stats(&mut new_track); // <-- ДОБАВИТЬ ЭТО
-            self.next_id += 1;
-            self.tracks.push(Arc::new(new_track));
-            self.status = format!("Создан новый трек ({} точек)", dt.points.len());
-        }
             self.status = format!("Создан новый трек ({} точек)", dt.points.len());
         }
         
@@ -1595,6 +1580,44 @@ impl App {
                         |_| Message::ClearWaypointCrosshair,
                     );
                 }
+            }
+            Message::MeasureWaypoints => {
+                if self.selection.waypoints.len() == 2 {
+                    let mut iter = self.selection.waypoints.iter().copied();
+                    let id1 = iter.next().unwrap();
+                    let id2 = iter.next().unwrap();
+
+                    // last_waypoint_clicked — это "вторая" точка (куда смотрим)
+                    let (id_from, id_to) = if self.last_waypoint_clicked == Some(id1) {
+                        (id2, id1)
+                    } else {
+                        (id1, id2)
+                    };
+
+                    if let (Some(w1), Some(w2)) = (
+                        self.waypoints.iter().find(|w| w.id == id_from),
+                        self.waypoints.iter().find(|w| w.id == id_to)
+                    ) {
+                        let dist_m = domain::haversine_m(w1.lat, w1.lon, w2.lat, w2.lon);
+                        let true_az = crate::util::geo::true_bearing(w1.lat, w1.lon, w2.lat, w2.lon);
+                        
+                        let mut mag_az = true_az - self.declination;
+                        if mag_az < 0.0 { mag_az += 360.0; }
+                        if mag_az >= 360.0 { mag_az -= 360.0; }
+
+                        self.modal = Some(Modal::WaypointMeasure {
+                            from_name: w1.name.clone(),
+                            from_lat: w1.lat, from_lon: w1.lon,
+                            to_name: w2.name.clone(),
+                            to_lat: w2.lat, to_lon: w2.lon,
+                            dist_m,
+                            mag_az,
+                        });
+                    }
+                }
+            }
+            Message::CloseWaypointMeasure => {
+                self.modal = None;
             }
             _ => {}
         }

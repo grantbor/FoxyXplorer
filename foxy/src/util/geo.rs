@@ -41,3 +41,12 @@ pub fn affine(g: &ozmap::Georef, cx: f64, cy: f64) -> Affine {
         by: (y2 - y0) / D,
     }
 }
+
+pub fn true_bearing(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let lat1 = lat1.to_radians();
+    let lat2 = lat2.to_radians();
+    let dlon = (lon2 - lon1).to_radians();
+    let y = dlon.sin() * lat2.cos();
+    let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * dlon.cos();
+    y.atan2(x).to_degrees()
+}

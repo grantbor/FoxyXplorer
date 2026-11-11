@@ -446,4 +446,56 @@ impl App {
          .width(Length::Fixed(600.0))
         .into()
     }
+    pub(crate) fn view_waypoint_measure_modal<'a>(
+        &'a self,
+        from_name: &'a str, from_lat: f64, from_lon: f64,
+        to_name: &'a str, to_lat: f64, to_lon: f64,
+        dist_m: f64, mag_az: f64,
+    ) -> Element<'a, Message> {
+        let dist_text = if dist_m >= 1000.0 {
+            format!("{:.2} км", dist_m / 1000.0)
+        } else {
+            format!("{:.0} м", dist_m)
+        };
+
+        let content = column![
+            text("Измерение между точками").size(20),
+            
+            row![
+                text("От:").width(40),
+                text(format!("{} ({:.6}, {:.6})", from_name, from_lat, from_lon))
+            ],
+            row![
+                text("До:").width(40),
+                text(format!("{} ({:.6}, {:.6})", to_name, to_lat, to_lon))
+            ],
+            Space::new().height(10),
+            row![
+                text("Расстояние:").width(120).size(16),
+                text(dist_text).size(20).color(Color::from_rgb8(0x2a, 0x7f, 0xff))
+            ],
+            row![
+                text("Магн. азимут:").width(120).size(16),
+                text(format!("{:.0}°", mag_az)).size(20).color(Color::from_rgb8(255, 140, 0))
+            ],
+            Space::new().height(10),
+            
+            row![
+                Space::new().width(Length::Fill),
+                self.btn("Закрыть").on_press(Message::CloseWaypointMeasure),
+            ]
+        ].spacing(12).padding(20);
+
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: native_theme_iced::border_radius(&self.resolved_theme).into() },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(550.0))
+            .into()
+    }
 }

@@ -255,6 +255,8 @@ pub(crate) enum Message {
     KeyPressed(iced::keyboard::Key, Modifiers),
     KeyReleased(iced::keyboard::Key),
     FreehandReleased,
+    MeasureWaypoints,
+    CloseWaypointMeasure,
     None,
 }
 
@@ -380,6 +382,16 @@ pub(crate) struct App {
 pub(crate) enum Modal {
     TrackProps { track_id: u64, draft: domain::TrackProps },
     WaypointProps { waypoint_id: u64, draft: domain::Waypoint, coord_input: String, is_new: bool },
+    WaypointMeasure {
+        from_name: String,
+        from_lat: f64,
+        from_lon: f64,
+        to_name: String,
+        to_lat: f64,
+        to_lon: f64,
+        dist_m: f64,
+        mag_az: f64,
+    },
     TrackList(TrackListState),
 }
 
@@ -801,9 +813,12 @@ impl App {
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ]
             .into()
-        } else if let Some(Modal::TrackList(state)) = &self.modal {
-            // НОВЫЙ БЛОК ДЛЯ ТАБЛИЦЫ ТОЧЕК
-            let modal_ui = self.view_track_list_modal(state);
+        } else if let Some(Modal::WaypointMeasure { from_name, from_lat, from_lon, to_name, to_lat, to_lon, dist_m, mag_az }) = &self.modal {
+            let modal_ui = self.view_waypoint_measure_modal(
+                from_name, *from_lat, *from_lon, 
+                to_name, *to_lat, *to_lon, 
+                *dist_m, *mag_az
+            );
             
             stack![
                 base_ui,
@@ -817,7 +832,6 @@ impl App {
                 container(modal_ui)
                     .center_x(Length::Fill)
                     .center_y(Length::Fill)
-                    .style(|_| container::Style::default()) // чтобы фон не растягивался
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ]
             .into()

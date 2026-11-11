@@ -1,6 +1,6 @@
 use iced::widget::canvas::{self, Geometry, Path as CanvasPath};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
-use crate::util::geo::{merc_of, lonlat_of};
+use crate::util::geo::merc_of;
 use crate::{App, Message};
 
 pub struct TrackProgram<'a> {
@@ -48,15 +48,6 @@ fn draw_crosshair(frame: &mut canvas::Frame, pt: Point) {
     let red_cross = canvas::Stroke::default().with_color(Color::from_rgb(1.0, 0.2, 0.2)).with_width(1.5);
     frame.stroke(&c1, red_cross);
     frame.stroke(&c2, red_cross);
-}
-
-fn true_bearing(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let lat1 = lat1.to_radians();
-    let lat2 = lat2.to_radians();
-    let dlon = (lon2 - lon1).to_radians();
-    let y = dlon.sin() * lat2.cos();
-    let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * dlon.cos();
-    y.atan2(x).to_degrees()
 }
 
 impl<'a> canvas::Program<Message> for TrackProgram<'a> {
@@ -328,7 +319,7 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
 
                     if screen_dist_px > 40.0 {
                         let dist_m = crate::domain::haversine_m(lat1, lon1, lat2, lon2);
-                        let true_az = true_bearing(lat1, lon1, lat2, lon2);
+                        let true_az = crate::util::geo::true_bearing(lat1, lon1, lat2, lon2);
                         let mut mag_az = true_az - app.declination;
                         if mag_az < 0.0 { mag_az += 360.0; }
                         if mag_az >= 360.0 { mag_az -= 360.0; }
