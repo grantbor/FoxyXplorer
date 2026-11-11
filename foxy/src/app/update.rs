@@ -1289,10 +1289,24 @@ impl App {
                 }
             }
             Message::ToggleTrackVisible(id, v) => {
-                if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
-                    Arc::make_mut(t).visible = v; 
-                    self.tracks_cache.clear();
+                if self.modifiers.alt() {
+                    // Solo-режим: показываем только кликнутый, остальные скрываем
+                    self.push_undo("Solo-режим: только один трек");
+                    for t in &mut self.tracks {
+                        let should_be_visible = t.id == id;
+                        if t.visible != should_be_visible {
+                            Arc::make_mut(t).visible = should_be_visible;
+                        }
+                    }
+                } else {
+                    // Обычное переключение
+                    if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
+                        if t.visible != v {
+                            Arc::make_mut(t).visible = v;
+                        }
+                    }
                 }
+                self.tracks_cache.clear();
             }
             Message::ToggleAllTracksVisible => {
                 let all_visible = self.tracks.iter().all(|t| t.visible);
@@ -1651,10 +1665,24 @@ impl App {
                 }
             }
             Message::ToggleWaypointVisible(id, v) => {
-                if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
-                    Arc::make_mut(w).visible = v; 
-                    self.tracks_cache.clear();
+                if self.modifiers.alt() {
+                    // Solo-режим: показываем только кликнутую, остальные скрываем
+                    self.push_undo("Solo-режим: только одна точка");
+                    for w in &mut self.waypoints {
+                        let should_be_visible = w.id == id;
+                        if w.visible != should_be_visible {
+                            Arc::make_mut(w).visible = should_be_visible;
+                        }
+                    }
+                } else {
+                    // Обычное переключение
+                    if let Some(w) = self.waypoints.iter_mut().find(|w| w.id == id) {
+                        if w.visible != v {
+                            Arc::make_mut(w).visible = v;
+                        }
+                    }
                 }
+                self.tracks_cache.clear();
             }
             Message::ToggleAllWaypointsVisible => {
                 let all_visible = self.waypoints.iter().all(|w| w.visible);
@@ -2198,6 +2226,7 @@ impl App {
                         selected_points: HashSet::new(),
                         last_clicked: None,
                     }));
+                    self.tracks_cache.clear(); 
                 }
             }
             Message::CloseTrackList => {

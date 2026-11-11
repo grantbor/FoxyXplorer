@@ -131,21 +131,44 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
             // ==========================================
             // ПРОХОД 2: Рисуем точки треков (ромбы)
             // ==========================================
-            let is_editing_tool = app.active_tool == crate::Tool::SelectPoints;
             for t in &app.tracks {
                 if !t.visible { continue; }
                 let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
                 
-                if app.selection.tracks.contains(&t.id) && is_editing_tool {
+                // Проверяем: открыта ли таблица TrackList именно для этого трека
+                let tracklist_state: Option<&crate::TrackListState> = match &app.modal {
+                    Some(crate::Modal::TrackList(state)) if state.track_id == t.id => Some(state),
+                    _ => None,
+                };
+                
+                // Рисуем, если активен SelectPoints И трек выделен, ИЛИ открыта таблица этого трека
+                let is_editing_tool = app.active_tool == crate::Tool::SelectPoints;
+                let draw_points = (app.selection.tracks.contains(&t.id) && is_editing_tool) || tracklist_state.is_some();
+
+                if draw_points {
                     for (seg_idx, seg) in t.segments.iter().enumerate() {
                         for (pt_idx, pt) in seg.points.iter().enumerate() {
                             let (mx, my) = merc_of(pt.lon, pt.lat);
                             let sp = to_screen(mx, my);
 
-                            if sp.x < -10.0 || sp.x > bounds.width + 10.0 || sp.y < -10.0 || sp.y > bounds.height + 10.0 { continue; }
+                            if sp.x < -10.0 || sp.x > bounds.width + 10.0 || sp.y < -10.0 || sp.y > bounds.height + 10.0 { 
+                                continue; 
+                            }
 
-                            let is_pt_selected = app.selection.points.contains(&(t.id, seg_idx, pt_idx));
-                            let fill_color = if is_pt_selected { Color::from_rgb8(0x2a, 0x7f, 0xff) } else { Color::WHITE };
+                            // Проверяем выделение
+                            let is_pt_selected = if let Some(state) = tracklist_state {
+                                // Если таблица открыта — смотрим её выделение (sect = seg_idx + 1)
+                                state.selected_points.contains(&(seg_idx + 1, pt_idx))
+                            } else {
+                                // Иначе — обычное выделение на карте
+                                app.selection.points.contains(&(t.id, seg_idx, pt_idx))
+                            };
+
+                            let fill_color = if is_pt_selected { 
+                                Color::from_rgb8(0x2a, 0x7f, 0xff) 
+                            } else { 
+                                Color::WHITE 
+                            };
 
                             let r = 8.0; 
                             let diamond = CanvasPath::new(|p| {
