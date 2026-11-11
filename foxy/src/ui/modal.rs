@@ -32,18 +32,19 @@ impl App {
         
         let header = container(
             row![
-                text("#").width(40),
-                text("Сег").width(40),
-                text("Latitude").width(90),
-                text("Longitude").width(90),
-                text("Alt(м)").width(50),
-                text("Дата").width(80),
-                text("Время").width(60),
-                text("Расст(м)").width(60),
-                text("Км/ч").width(50),
-                Space::new().width(Length::Fill),
+                text("#").width(Length::FillPortion(40)),
+                text("Сег").width(Length::FillPortion(40)),
+                text("Latitude").width(Length::FillPortion(90)),
+                text("Longitude").width(Length::FillPortion(90)),
+                text("Alt(м)").width(Length::FillPortion(50)),
+                text("Дата").width(Length::FillPortion(80)),
+                text("Время").width(Length::FillPortion(60)),
+                text("Расст(м)").width(Length::FillPortion(60)),
+                text("Км/ч").width(Length::FillPortion(50)),
+                // Space::new().width(Length::Fill) УБРАТЬ
             ].spacing(4).padding(4)
         )
+        // ...
         .style(|theme: &Theme| {
             let palette = theme.extended_palette();
             container::Style { 
@@ -74,16 +75,16 @@ impl App {
             let r_ui = container(
                 mouse_area(
                     row![
-                        text(r.pid.to_string()).width(40),
-                        text(r.sect.to_string()).width(40),
-                        text(format!("{:.6}", r.lat)).width(90),
-                        text(format!("{:.6}", r.lon)).width(90),
-                        text(r.ele.map(|e| format!("{:.1}", e)).unwrap_or_default()).width(50),
-                        text(d_str).width(80),
-                        text(t_str).width(60),
-                        text(format!("{:.1}", r.dist_m)).width(60),
-                        text(format!("{:.1}", r.kph)).width(50),
-                        Space::new().width(Length::Fill),
+                        text(r.pid.to_string()).width(Length::FillPortion(40)),
+                        text(r.sect.to_string()).width(Length::FillPortion(40)),
+                        text(format!("{:.6}", r.lat)).width(Length::FillPortion(90)),
+                        text(format!("{:.6}", r.lon)).width(Length::FillPortion(90)),
+                        text(r.ele.map(|e| format!("{:.1}", e)).unwrap_or_default()).width(Length::FillPortion(50)),
+                        text(d_str).width(Length::FillPortion(80)),
+                        text(t_str).width(Length::FillPortion(60)),
+                        text(format!("{:.1}", r.dist_m)).width(Length::FillPortion(60)),
+                        text(format!("{:.1}", r.kph)).width(Length::FillPortion(50)),
+                        // Space::new().width(Length::Fill) УБРАТЬ
                     ].spacing(4).padding([2, 4])
                 ).on_press(Message::SelectTrackPoint(r.sect, r.pt_idx))
             )
