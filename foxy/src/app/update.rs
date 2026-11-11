@@ -639,6 +639,23 @@ impl App {
             };
             self.next_id += 1;
             self.tracks.push(Arc::new(new_track));
+        } else {
+            let mut new_track = domain::Track {
+                id: self.next_id,
+                name: format!("Track{}", self.next_id),
+                color: [0x2a, 0x7f, 0xff],
+                visible: true,
+                segments: vec![domain::TrackSegment { points: new_pts }],
+                source: domain::FileSource::New,
+                props: domain::TrackProps::default(),
+                cached_points: 0,
+                cached_distance_m: 0.0,
+            };
+            domain::recompute_track_stats(&mut new_track); // <-- ДОБАВИТЬ ЭТО
+            self.next_id += 1;
+            self.tracks.push(Arc::new(new_track));
+            self.status = format!("Создан новый трек ({} точек)", dt.points.len());
+        }
             self.status = format!("Создан новый трек ({} точек)", dt.points.len());
         }
         
