@@ -5,17 +5,29 @@ use iced::widget::image::Handle as ImageHandle;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 
 use crate::osm;
-use crate::util::geo::{affine, merc_of};
+use crate::util::geo::{affine};
 use crate::{App, Message};
 
 pub struct MapProgram<'a> {
     pub app: &'a App,
 }
 
+fn dist_to_segment(p: Point, a: Point, b: Point) -> f32 {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let l2 = dx * dx + dy * dy;
+    if l2 == 0.0 { return (p.x - a.x).hypot(p.y - a.y); }
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+    let t = t.clamp(0.0, 1.0);
+    let proj_x = a.x + t * dx;
+    let proj_y = a.y + t * dy;
+    (p.x - proj_x).hypot(p.y - proj_y)
+}
+
 impl<'a> canvas::Program<Message> for MapProgram<'a> {
     type State = ();
 
-     fn update(
+    fn update(
         &self,
         _state: &mut Self::State,
         event: &iced::Event,
@@ -23,7 +35,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         cursor: iced::mouse::Cursor,
     ) -> Option<iced::widget::Action<Message>> {
         // ============================================================
-        // ОБРАБОТКА ПРАВОЙ КНОПКИ — КОНТЕКСТНОЕ МЕНЮ
+        // ПРАВАЯ КНОПКА — КОНТЕКСТНОЕ МЕНЮ
         // ============================================================
         if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)) = event {
             if let Some(pos) = cursor.position_in(bounds) {
@@ -33,46 +45,49 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                 let my = self.app.cy - (pos.y as f64 - hh as f64) * self.app.scale;
                 let (lon, lat) = crate::util::geo::lonlat_of(mx, my);
 
-                // --- Hit-test: waypoint ---
+                // --- Hit-test: waypoints (радиус 20 px) ---
                 let mut hit_wp = None;
                 let mut min_wp = 20.0_f32;
                 for wp in &self.app.waypoints {
                     if !wp.visible { continue; }
-                    let (wmx, wmy) = merc_of(wp.lon, wp.lat);
+                    let (wmx, wmy) = crate::util::geo::merc_of(wp.lon, wp.lat);
                     let sp = Point::new(
                         hw + ((wmx - self.app.cx) / self.app.scale) as f32,
                         hh - ((wmy - self.app.cy) / self.app.scale) as f32,
                     );
-                    let d = ((pos.x - sp.x).powi(2) + (pos.y - sp.y).powi(2)).sqrt();
+                    let d = (pos.x - sp.x).hypot(pos.y - sp.y);
                     if d < min_wp { min_wp = d; hit_wp = Some(wp.id); }
                 }
 
-                // --- Hit-test: track (point) ---
+                // --- Hit-test: треки (радиус 15 px до линии или до точки) ---
                 let mut hit_track = None;
-                let mut hit_track_pt: (usize, usize) = (0, 0);
                 if hit_wp.is_none() {
                     let mut min_t = 15.0_f32;
                     for t in &self.app.tracks {
                         if !t.visible { continue; }
-                        for (seg_idx, seg) in t.segments.iter().enumerate() {
-                            for (pt_idx, p) in seg.points.iter().enumerate() {
-                                let (m, n) = crate::util::geo::merc_of(p.lon, p.lat);
-                                let sp = Point::new(
-                                    hw + ((m - self.app.cx) / self.app.scale) as f32,
-                                    hh - ((n - self.app.cy) / self.app.scale) as f32,
+                        for seg in &t.segments {
+                            // проверяем расстояния до сегментов линии
+                            for w in seg.points.windows(2) {
+                                let (m1, n1) = crate::util::geo::merc_of(w[0].lon, w[0].lat);
+                                let (m2, n2) = crate::util::geo::merc_of(w[1].lon, w[1].lat);
+                                let p1 = Point::new(
+                                    hw + ((m1 - self.app.cx) / self.app.scale) as f32,
+                                    hh - ((n1 - self.app.cy) / self.app.scale) as f32,
                                 );
-                                let d = ((pos.x - sp.x).powi(2) + (pos.y - sp.y).powi(2)).sqrt();
-                                if d < min_t {
-                                    min_t = d;
-                                    hit_track = Some(t.id);
-                                    hit_track_pt = (seg_idx, pt_idx);
-                                }
+                                let p2 = Point::new(
+                                    hw + ((m2 - self.app.cx) / self.app.scale) as f32,
+                                    hh - ((n2 - self.app.cy) / self.app.scale) as f32,
+                                );
+                                let d = dist_to_segment(pos, p1, p2);
+                                if d < min_t { min_t = d; hit_track = Some(t.id); }
                             }
                         }
                     }
                 }
 
-                // --- Приоритет 1: под курсором waypoint ---
+                // ============================================================
+                // ПРИОРИТЕТ 1: под курсором waypoint
+                // ============================================================
                 if let Some(id) = hit_wp {
                     if let Some(w) = self.app.waypoints.iter().find(|w| w.id == id) {
                         let items = vec![
@@ -101,12 +116,37 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                     }
                 }
 
-                // --- Приоритет 2: под курсором трек ---
+                // ============================================================
+                // ПРИОРИТЕТ 2: под курсором трек
+                // ============================================================
                 if let Some(id) = hit_track {
                     if let Some(t) = self.app.tracks.iter().find(|t| t.id == id) {
-                        let (split_seg, split_pt) = hit_track_pt;
+                        // Ищем ближайшую точку этого трека к клику (для "Разделить здесь")
+                        let mut best_seg = 0usize;
+                        let mut best_pt = 0usize;
+                        let mut best_d = f32::MAX;
+                        for (seg_idx, seg) in t.segments.iter().enumerate() {
+                            for (pt_idx, p) in seg.points.iter().enumerate() {
+                                let (m, n) = crate::util::geo::merc_of(p.lon, p.lat);
+                                let sp = Point::new(
+                                    hw + ((m - self.app.cx) / self.app.scale) as f32,
+                                    hh - ((n - self.app.cy) / self.app.scale) as f32,
+                                );
+                                let d = (pos.x - sp.x).hypot(pos.y - sp.y);
+                                if d < best_d {
+                                    best_d = d;
+                                    best_seg = seg_idx;
+                                    best_pt = pt_idx;
+                                }
+                            }
+                        }
+
                         let items = vec![
                             crate::ContextMenuItem::Label(t.name.clone()),
+                            crate::ContextMenuItem::Action(
+                                "Копировать координаты".to_string(),
+                                Message::CopyCoordinates(lat, lon),
+                            ),
                             crate::ContextMenuItem::Action(
                                 "Свойства".to_string(),
                                 Message::OpenTrackProps(id),
@@ -121,7 +161,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                             ),
                             crate::ContextMenuItem::Action(
                                 "Разделить здесь".to_string(),
-                                Message::SplitTrackAt(id, split_seg, split_pt),
+                                Message::SplitTrackAt(id, best_seg, best_pt),
                             ),
                             crate::ContextMenuItem::Separator,
                             crate::ContextMenuItem::Action(
@@ -135,74 +175,9 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                     }
                 }
 
-                // --- Приоритет 3: выделен waypoint (один) ---
-                if self.app.selection.waypoints.len() == 1 {
-                    if let Some(id) = self.app.selection.waypoints.iter().next().copied() {
-                        if let Some(w) = self.app.waypoints.iter().find(|w| w.id == id) {
-                            let items = vec![
-                                crate::ContextMenuItem::Label(w.name.clone()),
-                                crate::ContextMenuItem::Action(
-                                    "Копировать координаты".to_string(),
-                                    Message::CopyCoordinates(w.lat, w.lon),
-                                ),
-                                crate::ContextMenuItem::Action(
-                                    "Свойства".to_string(),
-                                    Message::OpenWaypointProps(id),
-                                ),
-                                crate::ContextMenuItem::Action(
-                                    "Проекция точки".to_string(),
-                                    Message::OpenWaypointProjection(id),
-                                ),
-                                crate::ContextMenuItem::Separator,
-                                crate::ContextMenuItem::Action(
-                                    "Удалить".to_string(),
-                                    Message::DeleteWaypointById(id),
-                                ),
-                            ];
-                            return Some(iced::widget::Action::publish(
-                                Message::ShowContextMenu(self.app.global_cursor, items),
-                            ));
-                        }
-                    }
-                }
-
-                // --- Приоритет 4: выделен трек (один) ---
-                if self.app.selection.tracks.len() == 1 {
-                    if let Some(id) = self.app.selection.tracks.iter().next().copied() {
-                        if let Some(t) = self.app.tracks.iter().find(|t| t.id == id) {
-                            let (split_seg, split_pt) = hit_track_pt;
-                            let items = vec![
-                                crate::ContextMenuItem::Label(t.name.clone()),
-                                crate::ContextMenuItem::Action(
-                                    "Свойства".to_string(),
-                                    Message::OpenTrackProps(id),
-                                ),
-                                crate::ContextMenuItem::Action(
-                                    "Таблица точек".to_string(),
-                                    Message::OpenTrackList(id),
-                                ),
-                                crate::ContextMenuItem::Action(
-                                    "Вместить".to_string(),
-                                    Message::FitTrackById(id),
-                                ),
-                                crate::ContextMenuItem::Action(
-                                    "Разделить здесь".to_string(),
-                                    Message::SplitTrackAt(id, split_seg, split_pt),
-                                ),
-                                crate::ContextMenuItem::Separator,
-                                crate::ContextMenuItem::Action(
-                                    "Удалить".to_string(),
-                                    Message::DeleteTrackById(id),
-                                ),
-                            ];
-                            return Some(iced::widget::Action::publish(
-                                Message::ShowContextMenu(self.app.global_cursor, items),
-                            ));
-                        }
-                    }
-                }
-
-                // --- Приоритет 5: пустое место ---
+                // ============================================================
+                // ПРИОРИТЕТ 3: пустое место
+                // ============================================================
                 let items = vec![
                     crate::ContextMenuItem::Action(
                         "Копировать координаты".to_string(),
@@ -220,7 +195,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         }
 
         // ============================================================
-        // ОБРАБОТКА ЛЕВОЙ КНОПКИ
+        // ЛЕВАЯ КНОПКА
         // ============================================================
         if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) = event {
             if let Some(pos) = cursor.position_in(bounds) {

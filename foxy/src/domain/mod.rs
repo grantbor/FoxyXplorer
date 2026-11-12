@@ -4,4 +4,3 @@ pub mod simplify;
 
 pub use track::*;
 pub use waypoint::*;
-
