@@ -1,29 +1,62 @@
 use iced::widget::{button, column, container, row, text, tooltip, Space};
 use iced::{Alignment, Element, Length, Theme};
 use crate::{App, Message};
+use crate::ui::controls::with_tooltip;
 
 impl App {
     pub(crate) fn view_top_toolbar(&self) -> Element<'_, Message> {
         row![
-            self.btn("Карты").on_press(Message::PickKit),
-            self.btn("Данные").on_press(Message::PickTrack),
-            self.btn_secondary(if self.show_grid { "Сетка: вкл" } else { "Сетка: выкл" })
-                .on_press(Message::ToggleGrid),
-            self.btn_secondary(if self.show_labels { "Подписи: вкл" } else { "Подписи: выкл" })
-                .on_press(Message::ToggleLabels),
-            self.btn_secondary("Fit").on_press(Message::Fit),
-            self.btn_secondary(self.format_name()).on_press(Message::CycleFormat),
-            
+            with_tooltip(
+                self.btn("Карты").on_press(Message::PickKit),
+                "Загрузить комплект карт или карту"
+            ),
+            with_tooltip(
+                self.btn("Геоданные").on_press(Message::PickTrack),
+                "Загрузить треки / точки (GPX, PLT, WPT, MS)"
+            ),
+            with_tooltip(
+                self.icon_toggle_button(
+                    lucide_iced::bytes::GRID_3X3,
+                    self.show_grid,
+                    Message::ToggleGrid,
+                ),
+                if self.show_grid { "Выключить сетку привязки" } else { "Включить сетку привязки" }
+            ),
+            with_tooltip(
+                self.icon_toggle_button(
+                    lucide_iced::bytes::GRIP,
+                    self.show_labels,
+                    Message::ToggleLabels,
+                ),
+                if self.show_labels { "Выключить имена узлов" } else { "Включить имена узлов" }
+            ),
+            with_tooltip(
+                self.icon_action_button(
+                    lucide_iced::bytes::MAXIMIZE,
+                    Message::Fit,
+                ),
+                "Вместить карту в экран"
+            ),
+            with_tooltip(
+                self.btn_secondary(self.format_short_name()).on_press(Message::CycleFormat),
+                format!("Формат координат (сейчас {})", self.format_name())
+            ),
+
             Space::new().width(Length::Fill),
-            
-            // Группа «сессия»
-            self.icon_button(lucide_iced::bytes::FOLDER_OPEN, Message::LoadSessionPrompt),
-            self.icon_button(lucide_iced::bytes::SAVE, Message::SaveSessionAs),
-            
-            // Визуальный разделитель перед деструктивной кнопкой
+
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::FOLDER_OPEN, Message::LoadSessionPrompt),
+                "Загрузить сессию"
+            ),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::SAVE, Message::SaveSessionAs),
+                "Сохранить сессию"
+            ),
             text("|").size(18),
-            
-            self.icon_button(lucide_iced::bytes::ROTATE_CCW, Message::ConfirmClearAll)
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::ERASER, Message::ConfirmClearAll),
+                "Очистить сессию"
+            ),
         ]
         .spacing(6)
         .align_y(Alignment::Center)
@@ -70,13 +103,13 @@ impl App {
         };
 
         column![
-            make_tool_btn(crate::Tool::Pan, lucide_iced::bytes::HAND, "Pan (Q / Space)"),
-            make_tool_btn(crate::Tool::SelectObjects, lucide_iced::bytes::MOUSE_POINTER, "Select Objects (S)"),
-            make_tool_btn(crate::Tool::SelectPoints, lucide_iced::bytes::MOUSE_POINTER_2, "Select Points (D)"),
-            make_tool_btn(crate::Tool::DrawTrack, lucide_iced::bytes::PEN_TOOL, "Draw Track (T)"),
-            make_tool_btn(crate::Tool::Freehand, lucide_iced::bytes::PENCIL, "Freehand (F)"),
-            make_tool_btn(crate::Tool::AddWaypoint, lucide_iced::bytes::CIRCLE_PLUS, "Add Waypoint (W)"),
-            make_tool_btn(crate::Tool::Ruler, lucide_iced::bytes::RULER, "Ruler (R)"),
+            make_tool_btn(crate::Tool::Pan, lucide_iced::bytes::HAND, "Панормаирование (Q / Space)"),
+            make_tool_btn(crate::Tool::SelectObjects, lucide_iced::bytes::MOUSE_POINTER, "Выбор треков или путевых точек (S)"),
+            make_tool_btn(crate::Tool::SelectPoints, lucide_iced::bytes::MOUSE_POINTER_2, "Выбор точек трека(D)"),
+            make_tool_btn(crate::Tool::DrawTrack, lucide_iced::bytes::PEN_TOOL, "Рисование трек поточечно (T)"),
+            make_tool_btn(crate::Tool::Freehand, lucide_iced::bytes::PENCIL, "Свободное рисование трека (F)"),
+            make_tool_btn(crate::Tool::AddWaypoint, lucide_iced::bytes::CIRCLE_PLUS, "Добавление путевой точки (W)"),
+            make_tool_btn(crate::Tool::Ruler, lucide_iced::bytes::RULER, "Линейка (R)"),
         ]
         .spacing(4)
         .padding([10, 0])

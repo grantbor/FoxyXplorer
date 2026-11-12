@@ -20,3 +20,5 @@ native-theme = { version = "0.6", features = ["native"] }
 native-theme-iced = "0.6" 
 lucide-iced = "0.4"
 tokio = { version = "1", features = ["time"] }
+resvg = "0.48"     # рендеринг SVG в растр
+tiny-skia = "0.11"   # низкоуровневая работа с пикселями (нужна resvg)

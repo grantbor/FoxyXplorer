@@ -21,11 +21,15 @@ use iced::widget::{column, container, mouse_area, row, stack, text};
 use iced::{Color, Element, Length, Point, Size, Task};
 use iced::keyboard::Modifiers;
 use iced::Subscription;
+use iced::window::settings::PlatformSpecific;
 use native_theme_iced::ResolvedTheme; 
 
 use util::geo::{merc_of, lonlat_of, affine};
 use util::coords::today;
 use widgets::palette::load_palette;
+use util::icon::load_icon_from_svg;
+
+const ICON_SVG: &[u8] = include_bytes!("../assets/icon.svg");
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
@@ -420,6 +424,13 @@ fn modal_drag_padding(offset: Point) -> iced::Padding {
 impl App {
     pub(crate) fn osm_active(&self) -> bool {
         self.active >= self.layers.len()
+    }
+    fn format_short_name(&self) -> &'static str {
+        match self.format {
+            CoordFormat::Decimal => "D",
+            CoordFormat::DegMin => "DM",
+            CoordFormat::DegMinSec => "DMS",
+        }
     }
 
     fn new(theme: iced::Theme, resolved_theme: ResolvedTheme) -> (App, Task<Message>) {
@@ -906,14 +917,31 @@ impl App {
 }
 
 fn main() -> iced::Result {
-    let session = session::load_session(); 
+
+    // 1. Загружаем иконку (без паники, если что-то не так)
+    let icon = match load_icon_from_svg(ICON_SVG, 256) {
+        Ok(icon) => Some(icon),
+        Err(e) => {
+            eprintln!("Не удалось загрузить иконку окна: {e}");
+            None
+        }
+    };
+
+    // 2. Читаем сессию (как было)
+    let session = session::load_session();
     
     let mut window_settings = iced::window::Settings {
         size: Size::new(1130.0, 880.0),
         min_size: Some(Size::new(640.0, 480.0)),
         exit_on_close_request: false,
+        icon,
+        platform_specific: PlatformSpecific {
+        application_id: "foxy".to_string(),
+        ..Default::default()
+    },
         ..Default::default()
     };
+    
 
     if let Some(s) = &session {
         if let Some((w, h)) = s.view.window_size { window_settings.size = Size::new(w, h); }

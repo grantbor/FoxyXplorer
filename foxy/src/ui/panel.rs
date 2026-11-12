@@ -3,6 +3,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::{App, Message};
+use crate::ui::controls::with_tooltip;
 
 
 impl App {
@@ -56,151 +57,164 @@ impl App {
         .into()
     }
 
-    pub(crate) fn view_tracks_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Треки ({})", self.tracks.len())).size(14);
-        
+    fn view_tracks_section(&self) -> Element<'_, Message> {
+        let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
+
+        let all_visible = self.tracks.iter().all(|t| t.visible);
         let top_bar = row![
-            self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllTracksVisible),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllTracksVisible),
+                if all_visible { "Скрыть все треки" } else { "Показать все треки" }
+            ),
             text_input("Поиск треков...", &self.search_tracks)
-            .padding(native_theme_iced::input_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-            .on_input(Message::SearchTracksChanged)
-            .size(12),
+                .padding(native_theme_iced::input_padding(&self.resolved_theme))
+                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+                .on_input(Message::SearchTracksChanged)
+                .size(12),
         ]
         .spacing(4);
-        
+
         let cols = row![
             Space::new().width(24.0),
             Space::new().width(16.0),
             container(text("Имя").size(11)).width(Length::Fill),
             container(text("Точек").size(11)).width(Length::Fixed(50.0)).align_x(Alignment::End),
             container(text("Расст.").size(11)).width(Length::Fixed(70.0)).align_x(Alignment::End),
-        ]
-        .spacing(4);
-        
+        ].spacing(4);
+
         let query = self.search_tracks.to_lowercase();
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
-        
+
         for t in &self.tracks {
-            if !query.is_empty() && !t.name.to_lowercase().contains(&query) {
-                continue;
-            }
-            
+            if !query.is_empty() && !t.name.to_lowercase().contains(&query) { continue; }
+
             let selected = self.selection.tracks.contains(&t.id);
-            
             let color_box = container(text(""))
-            .width(12)
-            .height(12)
-            .style(move |_| container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb8(
-                    t.color[0], t.color[1], t.color[2],
-                ))),
-                border: iced::Border {
-                    color: Color::from_rgb8(60, 60, 60),
-                width: 1.0,
-                radius: 2.0.into(),
-                },
-                ..Default::default()
-            });
-            
+                .width(12).height(12)
+                .style(move |_| container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb8(t.color[0], t.color[1], t.color[2]))),
+                    border: iced::Border { color: Color::from_rgb8(60, 60, 60), width: 1.0, radius: 2.0.into() },
+                    ..Default::default()
+                });
+
             let dist = if t.cached_distance_m >= 1000.0 {
                 format!("{:.1}км", t.cached_distance_m / 1000.0)
             } else {
                 format!("{:.0}м", t.cached_distance_m)
             };
-            
+
             let r = row![
                 self.visibility_button(t.visible, Message::ToggleTrackVisible(t.id, !t.visible)),
                 color_box,
                 container(
                     tooltip(
                         self.list_item(&t.name, selected, Message::SelectTrack(t.id)),
-                            container(text(t.name.clone()))
-                            .padding([2, 6])
-                            .style(|theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                container::Style {
-                                    background: Some(palette.background.weak.color.into()),
+                        container(text(t.name.clone())).padding([2, 6]).style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
                                 text_color: Some(palette.background.weak.text),
-                                border: iced::Border {
-                                    color: palette.background.strong.color,
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
+                                border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
                                 ..Default::default()
-                                }
-                            }),
-                            tooltip::Position::Bottom,
+                            }
+                        }),
+                        tooltip::Position::Bottom,
                     )
                 ).width(Length::Fill).clip(true),
                 container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
                 container(text(dist).size(12)).width(Length::Fixed(70.0)).align_x(Alignment::End),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center);
-            
+            ].spacing(4).align_y(Alignment::Center);
+
             list = list.push(r);
         }
-        
+
         let has_tracks = !self.selection.tracks.is_empty();
         let has_wps = !self.selection.waypoints.is_empty();
         let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
-        let btn_fit_track = if has_tracks {
-            self.icon_button(lucide_iced::bytes::SCAN_EYE, Message::FitTrackToScreen)
-        } else {
-            self.icon_button_disabled(lucide_iced::bytes::SCAN_EYE)
-        };        
+
         let row_normal = row![
-            if one_track { 
-                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap())) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
-            },
-            btn_fit_track,
-            if one_track {
-                self.icon_button(lucide_iced::bytes::LIST, Message::OpenTrackList(selected_id.unwrap()))
-            } else {
-                self.icon_button_disabled(lucide_iced::bytes::LIST)
-            },
-            if has_tracks {
-                self.icon_button(lucide_iced::bytes::FUNNEL, Message::SimplifyTracks)
-            } else {
-                self.icon_button_disabled(lucide_iced::bytes::FUNNEL)
-            },
-            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu), // <-- SAVE переехал сюда
-            Space::new().width(Length::Fill), // Распорка
-            if has_tracks { 
-                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
-            }
-        ].spacing(4).align_y(Alignment::Center);
-        
-        let row_save = row![
-            // Блокируем PLT, если выбрано НЕ ровно 1 трек, либо если есть выделенные точки
-            if has_tracks && !has_wps && self.selection.tracks.len() == 1 { 
-                self.btn_secondary("PLT").on_press(Message::SaveTracksPlt) 
-            } else { 
-                self.btn_secondary("PLT") 
-            },
-            if has_tracks || has_wps { 
-                self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) 
-            } else { 
-                self.btn_secondary("GPX") 
-            },
-            if has_tracks || has_wps { 
-                self.btn_secondary("MS").on_press(Message::SaveTracksMs) 
-            } else { 
-                self.btn_secondary("MS") 
-            },
-            // Распорка для прижатия крестика вправо
+            with_tooltip(
+                if one_track {
+                    self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenTrackProps(selected_id.unwrap()))
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::SETTINGS)
+                },
+                "Свойства трека"
+            ),
+            with_tooltip(
+                if has_tracks {
+                    self.icon_button(lucide_iced::bytes::FUNNEL, Message::SimplifyTracks)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::FUNNEL)
+                },
+                "Упростить (фильтр Дугласа-Пекера)"
+            ),
+            with_tooltip(
+                if one_track {
+                    self.icon_button(lucide_iced::bytes::LIST, Message::OpenTrackList(selected_id.unwrap()))
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::LIST)
+                },
+                "Таблица точек"
+            ),
+            with_tooltip(
+                if has_tracks {
+                    self.icon_button(lucide_iced::bytes::SCAN_EYE, Message::FitTrackToScreen)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::SCAN_EYE)
+                },
+                "Вместить треки в экран"
+            ),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu),
+                "Сохранить треки..."
+            ),
             Space::new().width(Length::Fill),
-            self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu)
+            with_tooltip(
+                if has_tracks {
+                    self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedTracks)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::TRASH)
+                },
+                "Удалить выделенные треки"
+            ),
         ].spacing(4).align_y(Alignment::Center);
-        
+
+        let row_save = row![
+            with_tooltip(
+                if has_tracks && !has_wps && self.selection.tracks.len() == 1 {
+                    self.btn_secondary("PLT").on_press(Message::SaveTracksPlt)
+                } else {
+                    self.btn_secondary("PLT")
+                },
+                "Сохранить в PLT"
+            ),
+            with_tooltip(
+                if has_tracks || has_wps {
+                    self.btn_secondary("GPX").on_press(Message::SaveTracksGpx)
+                } else {
+                    self.btn_secondary("GPX")
+                },
+                "Сохранить в GPX"
+            ),
+            with_tooltip(
+                if has_tracks || has_wps {
+                    self.btn_secondary("MS").on_press(Message::SaveTracksMs)
+                } else {
+                    self.btn_secondary("MS")
+                },
+                "Сохранить в MS"
+            ),
+            Space::new().width(Length::Fill),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu),
+                "Закрыть меню"
+            ),
+        ].spacing(4).align_y(Alignment::Center);
+
         let bottom_bar = if self.show_track_save_menu { row_save } else { row_normal };
-        
+
         column![
             header,
             container(top_bar).padding(2),
@@ -214,145 +228,155 @@ impl App {
         .into()
     }
 
-    pub(crate) fn view_waypoints_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Точки ({})", self.waypoints.len())).size(14);
-        
+    fn view_waypoints_section(&self) -> Element<'_, Message> {
+        let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
+
+        let all_visible = self.waypoints.iter().all(|w| w.visible);
         let top_bar = row![
-            self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllWaypointsVisible),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllWaypointsVisible),
+                if all_visible { "Скрыть все точки" } else { "Показать все точки" }
+            ),
             text_input("Поиск точек...", &self.search_waypoints)
-            .padding(native_theme_iced::input_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-            .on_input(Message::SearchWaypointsChanged)
-            .size(12),
-        ]
-        .spacing(4);
-        
+                .padding(native_theme_iced::input_padding(&self.resolved_theme))
+                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+                .on_input(Message::SearchWaypointsChanged)
+                .size(12),
+        ].spacing(4);
+
         let cols = row![
             Space::new().width(24.0),
             Space::new().width(14.0),
             container(text("Имя").size(11)).width(Length::Fill),
             container(text("Координаты").size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
-        ]
-        .spacing(4);
-        
+        ].spacing(4);
+
         let query = self.search_waypoints.to_lowercase();
         let mut list = column![].spacing(2).padding([0.0, 12.0]);
-        
+
         for w in &self.waypoints {
-            if !query.is_empty() && !w.name.to_lowercase().contains(&query) {
-                continue;
-            }
-            
+            if !query.is_empty() && !w.name.to_lowercase().contains(&query) { continue; }
+
             let selected = self.selection.waypoints.contains(&w.id);
             let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
             let coord = coord::format_pair(w.lat, w.lon, self.format);
-            
+
             let r = row![
                 self.visibility_button(w.visible, Message::ToggleWaypointVisible(w.id, !w.visible)),
                 icon,
                 container(
                     tooltip(
                         self.list_item(&w.name, selected, Message::SelectWaypoint(w.id)),
-                            container(text(w.name.clone()))
-                            .padding([2, 6])
-                            .style(|theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                container::Style {
-                                    background: Some(palette.background.weak.color.into()),
+                        container(text(w.name.clone())).padding([2, 6]).style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
                                 text_color: Some(palette.background.weak.text),
-                                border: iced::Border {
-                                    color: palette.background.strong.color,
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
+                                border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
                                 ..Default::default()
-                                }
-                            }),
-                            tooltip::Position::Bottom,
+                            }
+                        }),
+                        tooltip::Position::Bottom,
                     )
                 ).width(Length::Fill).clip(true),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center);
-            
+            ].spacing(4).align_y(Alignment::Center);
+
             list = list.push(r);
         }
-        
+
         let has_wps = !self.selection.waypoints.is_empty();
         let has_tracks = !self.selection.tracks.is_empty();
         let one_wp = self.selection.waypoints.len() == 1;
-        let selected_id = self.selection.waypoints.iter().next().copied();
- 
-        let btn_center = if one_wp {
-            self.icon_button(lucide_iced::bytes::DIAMOND_PLUS, Message::CenterOnWaypoint(selected_id.unwrap()))
-        } else {
-            self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
-        };
-        
         let two_wps = self.selection.waypoints.len() == 2;
+        let selected_id = self.selection.waypoints.iter().next().copied();
 
-        let btn_measure = if two_wps {
-            self.icon_button(lucide_iced::bytes::RULER, Message::MeasureWaypoints)
-        } else {
-            self.icon_button_disabled(lucide_iced::bytes::RULER)
-        };
-        
         let row_normal = row![
-            self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
-            if one_wp { 
-                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenWaypointProps(selected_id.unwrap())) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::SETTINGS) 
-            },
-            btn_center,   
-            btn_measure,  
-            if one_wp {
-                self.icon_button(lucide_iced::bytes::DIAMOND_PLUS, Message::CenterOnWaypoint(selected_id.unwrap()))
-            } else {
-                self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
-            },
-            if two_wps {
-                self.icon_button(lucide_iced::bytes::RULER, Message::MeasureWaypoints)
-            } else {
-                self.icon_button_disabled(lucide_iced::bytes::RULER)
-            },
-            self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu), // <-- SAVE слева
-            Space::new().width(Length::Fill), // Распорка
-            if has_wps { 
-                self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedWaypoints) 
-            } else { 
-                self.icon_button_disabled(lucide_iced::bytes::TRASH) 
-            }
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
+                "Добавить точку в центре экрана"
+            ),
+            with_tooltip(
+                if one_wp {
+                    self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenWaypointProps(selected_id.unwrap()))
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::SETTINGS)
+                },
+                "Свойства точки" 
+            ),
+            with_tooltip(
+                if one_wp {
+                    self.icon_button(lucide_iced::bytes::DIAMOND_PLUS, Message::CenterOnWaypoint(selected_id.unwrap()))
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
+                },
+                "Центрировать на точке"
+            ),
+            with_tooltip(
+                if two_wps {
+                    self.icon_button(lucide_iced::bytes::RULER, Message::MeasureWaypoints)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::RULER)
+                },
+                "Измерить расстояние  между двумя точками и азимут с первой на вторую"
+            ),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu),
+                "Сохранить точки..."
+            ),
+            Space::new().width(Length::Fill),
+            with_tooltip(
+                if has_wps {
+                    self.icon_button(lucide_iced::bytes::TRASH, Message::DeleteSelectedWaypoints)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::TRASH)
+                },
+                "Удалить выделенные точки"
+            ),
         ].spacing(4).align_y(Alignment::Center);
-        
+
         let row_save = row![
-            if has_wps && !has_tracks { 
-                self.btn_secondary("WPT").on_press(Message::SaveWaypointsWptNew) 
-            } else { 
-                self.btn_secondary("WPT") 
-            },
-            if has_wps && !has_tracks { 
-                self.btn_secondary("WPT+").on_press(Message::SaveWaypointsWptAppend) 
-            } else { 
-                self.btn_secondary("WPT+") 
-            },
-            if has_wps || has_tracks { 
-                self.btn_secondary("GPX").on_press(Message::SaveTracksGpx) 
-            } else { 
-                self.btn_secondary("GPX") 
-            },
-            if has_wps || has_tracks { 
-                self.btn_secondary("MS").on_press(Message::SaveTracksMs) 
-            } else { 
-                self.btn_secondary("MS") 
-            },
-            Space::new().width(Length::Fill), // Распорка
-            self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu)
+            with_tooltip(
+                if has_wps && !has_tracks {
+                    self.btn_secondary("WPT").on_press(Message::SaveWaypointsWptNew)
+                } else {
+                    self.btn_secondary("WPT")
+                },
+                "Сохранить точки в новый WPT"
+            ),
+            with_tooltip(
+                if has_wps && !has_tracks {
+                    self.btn_secondary("WPT+").on_press(Message::SaveWaypointsWptAppend)
+                } else {
+                    self.btn_secondary("WPT+")
+                },
+                "Добавить точки в существующий WPT"
+            ),
+            with_tooltip(
+                if has_wps || has_tracks {
+                    self.btn_secondary("GPX").on_press(Message::SaveTracksGpx)
+                } else {
+                    self.btn_secondary("GPX")
+                },
+                "Сохранить в GPX"
+            ),
+            with_tooltip(
+                if has_wps || has_tracks {
+                    self.btn_secondary("MS").on_press(Message::SaveTracksMs)
+                } else {
+                    self.btn_secondary("MS")
+                },
+                "Сохранить в MS"
+            ),
+            Space::new().width(Length::Fill),
+            with_tooltip(
+                self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu),
+                "Закрыть меню"
+            ),
         ].spacing(4).align_y(Alignment::Center);
-        
+
         let bottom_bar = if self.show_wp_save_menu { row_save } else { row_normal };
-        
+
         column![
             header,
             container(top_bar).padding(2),
