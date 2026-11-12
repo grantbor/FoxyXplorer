@@ -122,12 +122,10 @@ impl App {
         icon: &'static [u8],
         msg: Message,
     ) -> Button<'a, Message> {
-        let svg_icon = svg(svg::Handle::from_memory(icon))
-            .width(Length::Fixed(20.0))
-            .height(Length::Fixed(20.0));
+        let themed = lucide_iced::themed_icon(icon, 20.0);
 
         button(
-            container(svg_icon)
+            container(themed)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)

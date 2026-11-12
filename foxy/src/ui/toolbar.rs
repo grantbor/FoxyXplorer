@@ -31,7 +31,7 @@ impl App {
                 if self.show_labels { "Выключить имена узлов" } else { "Включить имена узлов" }
             ),
             with_tooltip(
-                self.icon_button(
+                self.icon_action_button(
                     lucide_iced::bytes::FULLSCREEN,
                     Message::Fit,
                 ),

@@ -1212,7 +1212,7 @@ impl App {
                 self.space_pan_active = false;
                 self.active_tool = crate::Tool::Pan;
                 
-                // --- Вид: дефолтный центр (Москва) ---
+                // --- Вид: дефолтный центр (Новосибирск) ---
                 let (lon, lat) = (82.945971, 55.016359);
                 let (cx, cy) = crate::util::geo::merc_of(lon, lat);
                 self.cx = cx;
