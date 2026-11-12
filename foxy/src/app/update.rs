@@ -988,6 +988,40 @@ impl App {
                                 self.tracks_cache.clear();
                             }
                         }
+                        iced::keyboard::Key::Character(c) 
+                            if c == "d" || c == "D" || c == "в" || c == "В" => 
+                        {
+                            self.selection.tracks.clear();
+                            self.selection.waypoints.clear();
+                            self.selection.points.clear();
+
+                            // Сбрасываем якоря Shift-диапазона, чтобы следующий Shift-клик
+                            // не выделял «от старой позиции».
+                            self.last_track_clicked = None;
+                            self.last_waypoint_clicked = None;
+                            self.last_point_clicked = None;
+
+                            // Если открыта таблица точек — снимаем выделение и там.
+                            if let Some(Modal::TrackList(state)) = &mut self.modal {
+                                state.selected_points.clear();
+                                state.last_clicked = None;
+                            }
+
+                            self.tracks_cache.clear();
+                            self.status = "Выделение снято".into();
+                        }
+                        // S | Ы — сохранить сессию
+                        iced::keyboard::Key::Character(c) 
+                            if c == "s" || c == "S" || c == "ы" || c == "Ы" => 
+                        {
+                            return self.update_ui(Message::SaveSessionAs);
+                        }
+                        // O | Щ — открыть сессию
+                        iced::keyboard::Key::Character(c) 
+                            if c == "o" || c == "O" || c == "щ" || c == "Щ" => 
+                        {
+                            return self.update_ui(Message::LoadSessionPrompt);
+                        }
                         _ => {}
                     }
                 }

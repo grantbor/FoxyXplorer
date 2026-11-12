@@ -34,6 +34,27 @@ pub fn parts(unix: f64) -> (i64, i64, i64, i64, i64, i64, i64) {
     (y, m, d, sod / 3600, sod % 3600 / 60, sod % 60, ms)
 }
 
+/// (год, месяц, день, час, минута, секунда, миллисекунды) в локальной зоне системы.
+///
+/// В отличие от [`parts`], учитывает локальный часовой пояс и переходы
+/// на летнее/зимнее время: смещение запрашивается у системы именно
+/// для момента `unix`, а не текущее.
+pub fn parts_local(unix: f64) -> (i64, i64, i64, i64, i64, i64, i64) {
+    use chrono::{Local, TimeZone};
+
+    // Смещение локальной зоны в секундах на момент `unix`.
+    // На крайних значениях (вне диапазона chrono) — 0, то есть UTC:
+    // лучше показать UTC, чем паниковать или выводить мусор.
+    let offset_secs = Local
+        .timestamp_opt(unix.floor() as i64, 0)
+        .single()
+        .map(|dt| dt.offset().local_minus_utc())
+        .unwrap_or(0);
+
+    // Дальше — обычная чистая арифметика из `parts`.
+    parts(unix + offset_secs as f64)
+}
+
 fn parse_offset(s: &str) -> Option<i64> {
     let sign = match s.chars().next()? {
         '+' => 1,

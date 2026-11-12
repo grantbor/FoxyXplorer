@@ -12,7 +12,7 @@ use crate::{App, Message, ContextMenuState, ContextMenuItem};
 // =========================================================
 fn format_date_time(unix: Option<f64>) -> (String, String) {
     if let Some(t) = unix {
-        let (y, m, d, h, min, sec, _) = geoio::time::parts(t);
+        let (y, m, d, h, min, sec, _) = geoio::time::parts_local(t);
         let months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
         let month_str = months.get((m - 1) as usize).unwrap_or(&"???");
         let date = format!("{:02}-{}-{:02}", d, month_str, y % 100);
