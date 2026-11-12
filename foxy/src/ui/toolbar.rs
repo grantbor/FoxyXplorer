@@ -32,7 +32,7 @@ impl App {
             ),
             with_tooltip(
                 self.icon_action_button(
-                    lucide_iced::bytes::MAXIMIZE,
+                    lucide_iced::bytes::FULLSCREEN,
                     Message::Fit,
                 ),
                 "Вместить карту в экран"
@@ -103,7 +103,7 @@ impl App {
         };
 
         column![
-            make_tool_btn(crate::Tool::Pan, lucide_iced::bytes::HAND, "Панормаирование (Q / Space)"),
+            make_tool_btn(crate::Tool::Pan, lucide_iced::bytes::HAND, "Панормаирование (Q / Пробел (нажать и удерживать, временное переключение))"),
             make_tool_btn(crate::Tool::SelectObjects, lucide_iced::bytes::MOUSE_POINTER, "Выбор треков или путевых точек (S)"),
             make_tool_btn(crate::Tool::SelectPoints, lucide_iced::bytes::MOUSE_POINTER_2, "Выбор точек трека(D)"),
             make_tool_btn(crate::Tool::DrawTrack, lucide_iced::bytes::PEN_TOOL, "Рисование трек поточечно (T)"),

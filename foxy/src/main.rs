@@ -17,8 +17,8 @@ use coord::{format_pair, CoordFormat};
 use iced::mouse::ScrollDelta;
 use iced::widget::canvas::{Cache, Canvas};
 use iced::widget::image::Handle as ImageHandle;
-use iced::widget::{column, container, mouse_area, row, stack, text};
-use iced::{Color, Element, Length, Point, Size, Task};
+use iced::widget::{column, container, mouse_area, row, stack, text, Space};
+use iced::{Alignment, Color, Element, Length, Point, Size, Task};
 use iced::keyboard::Modifiers;
 use iced::Subscription;
 use iced::window::settings::PlatformSpecific;
@@ -39,6 +39,20 @@ pub(crate) struct Selection {
     pub(crate) tracks: HashSet<u64>,
     pub(crate) waypoints: HashSet<u64>,
     pub(crate) points: HashSet<(u64, usize, usize)>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ContextMenuItem {
+    Action(String, Message),
+    Label(String),
+    Separator,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ContextMenuState {
+    pub x: f32,
+    pub y: f32,
+    pub items: Vec<ContextMenuItem>,
 }
 
 pub(crate) struct Layer {
@@ -77,6 +91,7 @@ pub(crate) struct TrackListState {
     pub selected_points: HashSet<(usize, usize)>, // (sect, pt_idx)
     pub last_clicked: Option<(usize, usize)>,
 }
+
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
     let mut notes = Vec::new();
@@ -271,6 +286,24 @@ pub(crate) enum Message {
     ConfirmClearAll,
     ExecuteClearAll,
     CancelClearAll,
+    // Контекстное меню
+    GlobalCursorMoved(Point),
+    ShowContextMenu(Point, Vec<ContextMenuItem>),
+    ContextMenuClose,
+    ContextMenuSelect(usize),
+
+    // Действия из контекстного меню
+    DeleteWaypointById(u64),
+    DeleteTrackById(u64),
+    FitTrackById(u64),
+    AddWaypointAt(f64, f64),  // lon, lat
+    CopyCoordinates(f64, f64),  // lat, lon
+    SplitTrackAt(u64, usize, usize), // track_id, seg_idx, pt_idx
+    OpenWaypointProjection(u64),
+    CloseWaypointProjection,
+    ProjectAzimuthChanged(String),
+    ProjectDistanceChanged(String),
+    ExecuteProjection,
     None,
 }
 
@@ -394,6 +427,8 @@ pub(crate) struct App {
     pub(crate) drawing_track: Option<DrawingTrack>,
     pub(crate) freehand_is_drawing: bool,
     pub(crate) ruler_points: Vec<(f64, f64)>, // (lon, lat)
+    pub(crate) context_menu: Option<ContextMenuState>,
+    pub(crate) global_cursor: Point,
 }
 
 pub(crate) enum Modal {
@@ -412,6 +447,11 @@ pub(crate) enum Modal {
     TrackList(TrackListState),
     ConfirmClearAll,
     ConfirmLoadSession,
+    WaypointProjection {
+        from_id: u64,
+        azimuth_input: String,
+        distance_input: String,
+    },
 }
 
 fn modal_drag_padding(offset: Point) -> iced::Padding {
@@ -472,7 +512,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new()  
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN 
                 };
 
                 for t in &mut app.tracks { 
@@ -516,7 +556,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new()
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -645,6 +685,15 @@ impl App {
                     None
                 }
             }),
+            
+            // Отслеживаем глобальное движение курсора для контекстного меню
+            iced::event::listen_with(|event, _status, _id| {
+                if let iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) = event {
+                    Some(Message::GlobalCursorMoved(position))
+                } else {
+                    None
+                }
+            }),
 
             // 2. Отслеживаем запрос на закрытие окна
             iced::window::close_requests().map(|_| Message::WindowCloseRequested),
@@ -684,6 +733,7 @@ impl App {
                 None
             }));
         }
+        
 
         Subscription::batch(subs)
     }
@@ -736,43 +786,34 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // Формируем строку с информацией (без геометрии)
+        // ---- Строка с информацией (как было) ----
         let name = if self.osm_active() {
             let pending = self.osm_cache.pending.borrow().len();
             let cached = self.osm_cache.mem.borrow().len();
             format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
         } else {
             self.layers
-                .get(   self.active)
+                .get(self.active)
                 .map(|l| l.name.clone())
                 .unwrap_or_else(|| "-".into())
         };
         
         let info = format!(
             "Склонение: {:.2}° (WMM2025)  |  масштаб: {:.2} м/пикс  |  слой: {}",
-            self.declination,
-            self.scale,
-            name
+            self.declination, self.scale, name
         );
 
-        // 1. Собираем базовый интерфейс
+        // ---- Базовый интерфейс ----
         let base_ui = column![
             self.view_top_toolbar(),
             row![
-                // Накладываем панель инструментов поверх карты
                 stack![
-                    container(self.view_map())
-                        .width(Length::Fill)
-                        .height(Length::Fill),
+                    container(self.view_map()).width(Length::Fill).height(Length::Fill),
                     container(self.view_tool_palette())
                         .width(Length::Fixed(56.0))
                         .height(Length::Fill)
-                        .style(|_| container::Style::default()), // Полностью прозрачный фон
-                ]
-                .width(Length::Fill)
-                .height(Length::Fill),
-
-                // Разделитель
+                        .style(|_| container::Style::default()),
+                ].width(Length::Fill).height(Length::Fill),
                 mouse_area(
                     container(text(""))
                         .width(Length::Fixed(6.0))
@@ -781,11 +822,7 @@ impl App {
                             background: Some(Color::from_rgb(0.2, 0.2, 0.25).into()),
                             ..Default::default()
                         })
-                )
-                .on_press(Message::DividerPressed)
-                .on_release(Message::DividerReleased),
-                
-                // Правая панель
+                ).on_press(Message::DividerPressed).on_release(Message::DividerReleased),
                 container(self.view_right_panel())
                     .width(Length::Fixed(self.right_panel_width))
                     .height(Length::Fill),
@@ -800,111 +837,136 @@ impl App {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        // 2. Накладываем модальные окна (если они открыты)
-        if let Some(Modal::TrackProps { track_id, draft }) = &self.modal {
+        // ---- Модальные окна (промежуточный слой) ----
+        let composed_ui: Element<'_, Message> = if let Some(Modal::TrackProps { track_id, draft }) = &self.modal {
             let modal_ui = self.view_track_props_modal(*track_id, draft);
-            
             stack![
                 base_ui,
-                container(text(""))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
+                container(text("")).width(Length::Fill).height(Length::Fill)
                     .style(|_| container::Style {
                         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
                         ..Default::default()
                     }),
-                container(modal_ui)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(|_| container::Style::default()) // чтобы фон не растягивался
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
-            ]
-            .into()
+            ].into()
         } else if let Some(Modal::WaypointProps { waypoint_id, draft, coord_input, .. }) = &self.modal {
             let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft, coord_input);
-            
             stack![
                 base_ui,
-                container(text(""))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
+                container(text("")).width(Length::Fill).height(Length::Fill)
                     .style(|_| container::Style {
                         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
                         ..Default::default()
                     }),
-                container(modal_ui)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .style(|_| container::Style::default()) // чтобы фон не растягивался
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
-            ]
-            .into()
-        } else if let Some(Modal::WaypointMeasure { from_name, from_lat, from_lon, to_name, to_lat, to_lon, dist_m, mag_az }) = &self.modal {
-            let modal_ui = self.view_waypoint_measure_modal(
-                from_name, *from_lat, *from_lon, 
-                to_name, *to_lat, *to_lon, 
-                *dist_m, *mag_az
-            );
-            
-            stack![
-                base_ui,
-                container(text(""))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
-                container(modal_ui)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                    .padding(modal_drag_padding(self.modal_drag_offset))
-            ]
-            .into()
+            ].into()
         } else if let Some(Modal::TrackList(state)) = &self.modal {
             let modal_ui = self.view_track_list_modal(state);
-            
             stack![
                 base_ui,
-                container(text(""))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
+                container(text("")).width(Length::Fill).height(Length::Fill)
                     .style(|_| container::Style {
                         background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
                         ..Default::default()
                     }),
-                container(modal_ui)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
-            ]
-            .into()
+            ].into()
+        } else if let Some(Modal::WaypointMeasure { from_name, from_lat, from_lon, to_name, to_lat, to_lon, dist_m, mag_az }) = &self.modal {
+            let modal_ui = self.view_waypoint_measure_modal(
+                from_name, *from_lat, *from_lon,
+                to_name, *to_lat, *to_lon,
+                *dist_m, *mag_az
+            );
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+                    .padding(modal_drag_padding(self.modal_drag_offset))
+            ].into()
         } else if let Some(Modal::ConfirmClearAll) = &self.modal {
             let modal_ui = self.view_confirm_clear_all_modal();
-            stack![ base_ui, container(text(""))
-                .width(Length::Fill).height(Length::Fill)
-                .style(|_| container::Style {
-                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                    ..Default::default()
-                }),
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
         } else if let Some(Modal::ConfirmLoadSession) = &self.modal {
             let modal_ui = self.view_confirm_load_session_modal();
-            stack![ base_ui, container(text(""))
-                .width(Length::Fill).height(Length::Fill)
-                .style(|_| container::Style {
-                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                    ..Default::default()
-                }),
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+                    .padding(modal_drag_padding(self.modal_drag_offset))
+            ].into()
+        } else if let Some(Modal::WaypointProjection { from_id, azimuth_input, distance_input }) = &self.modal {
+            let modal_ui = self.view_waypoint_projection_modal(*from_id, azimuth_input, distance_input);
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
         } else {
             base_ui.into()
+        };
+
+        // ---- Контекстное меню (верхний слой) ----
+        if let Some(ctx) = &self.context_menu {
+            let menu_ui = self.view_context_menu(ctx);
+
+            // Отступы через Space вместо padding
+            let positioned_menu = container(
+                column![
+                    Space::new().height(Length::Fixed(ctx.y)),
+                    row![
+                        Space::new().width(Length::Fixed(ctx.x)),
+                        menu_ui,
+                    ]
+                ]
+            )
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(Alignment::Start)
+            .align_y(Alignment::Start);
+
+            stack![
+                composed_ui,
+                mouse_area(
+                    container(text(""))
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .style(|_| container::Style {
+                            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.001).into()),
+                            ..Default::default()
+                        })
+                ).on_press(Message::ContextMenuClose).on_right_press(Message::ContextMenuClose),
+                positioned_menu,
+            ]
+            .into()
+        } else {
+            composed_ui
         }
-    }
+    }  
 
     fn view_map(&self) -> Element<'_, Message> {
         let map_canvas = Canvas::new(canvas::MapProgram { app: self }).width(Length::Fill).height(Length::Fill);

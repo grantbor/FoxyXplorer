@@ -5,7 +5,7 @@ use iced::widget::image::Handle as ImageHandle;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 
 use crate::osm;
-use crate::util::geo::affine;
+use crate::util::geo::{affine, merc_of};
 use crate::{App, Message};
 
 pub struct MapProgram<'a> {
@@ -15,13 +15,213 @@ pub struct MapProgram<'a> {
 impl<'a> canvas::Program<Message> for MapProgram<'a> {
     type State = ();
 
-    fn update(
+     fn update(
         &self,
         _state: &mut Self::State,
         event: &iced::Event,
         bounds: Rectangle,
         cursor: iced::mouse::Cursor,
     ) -> Option<iced::widget::Action<Message>> {
+        // ============================================================
+        // ОБРАБОТКА ПРАВОЙ КНОПКИ — КОНТЕКСТНОЕ МЕНЮ
+        // ============================================================
+        if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)) = event {
+            if let Some(pos) = cursor.position_in(bounds) {
+                let hw = bounds.width / 2.0;
+                let hh = bounds.height / 2.0;
+                let mx = self.app.cx + (pos.x as f64 - hw as f64) * self.app.scale;
+                let my = self.app.cy - (pos.y as f64 - hh as f64) * self.app.scale;
+                let (lon, lat) = crate::util::geo::lonlat_of(mx, my);
+
+                // --- Hit-test: waypoint ---
+                let mut hit_wp = None;
+                let mut min_wp = 20.0_f32;
+                for wp in &self.app.waypoints {
+                    if !wp.visible { continue; }
+                    let (wmx, wmy) = merc_of(wp.lon, wp.lat);
+                    let sp = Point::new(
+                        hw + ((wmx - self.app.cx) / self.app.scale) as f32,
+                        hh - ((wmy - self.app.cy) / self.app.scale) as f32,
+                    );
+                    let d = ((pos.x - sp.x).powi(2) + (pos.y - sp.y).powi(2)).sqrt();
+                    if d < min_wp { min_wp = d; hit_wp = Some(wp.id); }
+                }
+
+                // --- Hit-test: track (point) ---
+                let mut hit_track = None;
+                let mut hit_track_pt: (usize, usize) = (0, 0);
+                if hit_wp.is_none() {
+                    let mut min_t = 15.0_f32;
+                    for t in &self.app.tracks {
+                        if !t.visible { continue; }
+                        for (seg_idx, seg) in t.segments.iter().enumerate() {
+                            for (pt_idx, p) in seg.points.iter().enumerate() {
+                                let (m, n) = crate::util::geo::merc_of(p.lon, p.lat);
+                                let sp = Point::new(
+                                    hw + ((m - self.app.cx) / self.app.scale) as f32,
+                                    hh - ((n - self.app.cy) / self.app.scale) as f32,
+                                );
+                                let d = ((pos.x - sp.x).powi(2) + (pos.y - sp.y).powi(2)).sqrt();
+                                if d < min_t {
+                                    min_t = d;
+                                    hit_track = Some(t.id);
+                                    hit_track_pt = (seg_idx, pt_idx);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- Приоритет 1: под курсором waypoint ---
+                if let Some(id) = hit_wp {
+                    if let Some(w) = self.app.waypoints.iter().find(|w| w.id == id) {
+                        let items = vec![
+                            crate::ContextMenuItem::Label(w.name.clone()),
+                            crate::ContextMenuItem::Action(
+                                "Копировать координаты".to_string(),
+                                Message::CopyCoordinates(w.lat, w.lon),
+                            ),
+                            crate::ContextMenuItem::Action(
+                                "Свойства".to_string(),
+                                Message::OpenWaypointProps(id),
+                            ),
+                            crate::ContextMenuItem::Action(
+                                "Проекция точки".to_string(),
+                                Message::OpenWaypointProjection(id),
+                            ),
+                            crate::ContextMenuItem::Separator,
+                            crate::ContextMenuItem::Action(
+                                "Удалить".to_string(),
+                                Message::DeleteWaypointById(id),
+                            ),
+                        ];
+                        return Some(iced::widget::Action::publish(
+                            Message::ShowContextMenu(self.app.global_cursor, items),
+                        ));
+                    }
+                }
+
+                // --- Приоритет 2: под курсором трек ---
+                if let Some(id) = hit_track {
+                    if let Some(t) = self.app.tracks.iter().find(|t| t.id == id) {
+                        let (split_seg, split_pt) = hit_track_pt;
+                        let items = vec![
+                            crate::ContextMenuItem::Label(t.name.clone()),
+                            crate::ContextMenuItem::Action(
+                                "Свойства".to_string(),
+                                Message::OpenTrackProps(id),
+                            ),
+                            crate::ContextMenuItem::Action(
+                                "Таблица точек".to_string(),
+                                Message::OpenTrackList(id),
+                            ),
+                            crate::ContextMenuItem::Action(
+                                "Вместить".to_string(),
+                                Message::FitTrackById(id),
+                            ),
+                            crate::ContextMenuItem::Action(
+                                "Разделить здесь".to_string(),
+                                Message::SplitTrackAt(id, split_seg, split_pt),
+                            ),
+                            crate::ContextMenuItem::Separator,
+                            crate::ContextMenuItem::Action(
+                                "Удалить".to_string(),
+                                Message::DeleteTrackById(id),
+                            ),
+                        ];
+                        return Some(iced::widget::Action::publish(
+                            Message::ShowContextMenu(self.app.global_cursor, items),
+                        ));
+                    }
+                }
+
+                // --- Приоритет 3: выделен waypoint (один) ---
+                if self.app.selection.waypoints.len() == 1 {
+                    if let Some(id) = self.app.selection.waypoints.iter().next().copied() {
+                        if let Some(w) = self.app.waypoints.iter().find(|w| w.id == id) {
+                            let items = vec![
+                                crate::ContextMenuItem::Label(w.name.clone()),
+                                crate::ContextMenuItem::Action(
+                                    "Копировать координаты".to_string(),
+                                    Message::CopyCoordinates(w.lat, w.lon),
+                                ),
+                                crate::ContextMenuItem::Action(
+                                    "Свойства".to_string(),
+                                    Message::OpenWaypointProps(id),
+                                ),
+                                crate::ContextMenuItem::Action(
+                                    "Проекция точки".to_string(),
+                                    Message::OpenWaypointProjection(id),
+                                ),
+                                crate::ContextMenuItem::Separator,
+                                crate::ContextMenuItem::Action(
+                                    "Удалить".to_string(),
+                                    Message::DeleteWaypointById(id),
+                                ),
+                            ];
+                            return Some(iced::widget::Action::publish(
+                                Message::ShowContextMenu(self.app.global_cursor, items),
+                            ));
+                        }
+                    }
+                }
+
+                // --- Приоритет 4: выделен трек (один) ---
+                if self.app.selection.tracks.len() == 1 {
+                    if let Some(id) = self.app.selection.tracks.iter().next().copied() {
+                        if let Some(t) = self.app.tracks.iter().find(|t| t.id == id) {
+                            let (split_seg, split_pt) = hit_track_pt;
+                            let items = vec![
+                                crate::ContextMenuItem::Label(t.name.clone()),
+                                crate::ContextMenuItem::Action(
+                                    "Свойства".to_string(),
+                                    Message::OpenTrackProps(id),
+                                ),
+                                crate::ContextMenuItem::Action(
+                                    "Таблица точек".to_string(),
+                                    Message::OpenTrackList(id),
+                                ),
+                                crate::ContextMenuItem::Action(
+                                    "Вместить".to_string(),
+                                    Message::FitTrackById(id),
+                                ),
+                                crate::ContextMenuItem::Action(
+                                    "Разделить здесь".to_string(),
+                                    Message::SplitTrackAt(id, split_seg, split_pt),
+                                ),
+                                crate::ContextMenuItem::Separator,
+                                crate::ContextMenuItem::Action(
+                                    "Удалить".to_string(),
+                                    Message::DeleteTrackById(id),
+                                ),
+                            ];
+                            return Some(iced::widget::Action::publish(
+                                Message::ShowContextMenu(self.app.global_cursor, items),
+                            ));
+                        }
+                    }
+                }
+
+                // --- Приоритет 5: пустое место ---
+                let items = vec![
+                    crate::ContextMenuItem::Action(
+                        "Копировать координаты".to_string(),
+                        Message::CopyCoordinates(lat, lon),
+                    ),
+                    crate::ContextMenuItem::Action(
+                        "Создать точку".to_string(),
+                        Message::AddWaypointAt(lon, lat),
+                    ),
+                ];
+                return Some(iced::widget::Action::publish(
+                    Message::ShowContextMenu(self.app.global_cursor, items),
+                ));
+            }
+        }
+
+        // ============================================================
+        // ОБРАБОТКА ЛЕВОЙ КНОПКИ
+        // ============================================================
         if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) = event {
             if let Some(pos) = cursor.position_in(bounds) {
                 return Some(iced::widget::Action::publish(Message::MapPressed(pos)));
@@ -32,6 +232,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                 return Some(iced::widget::Action::publish(Message::MapReleased(pos)));
             }
         }
+
         None
     }
     

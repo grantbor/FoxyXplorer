@@ -3,7 +3,7 @@ use iced::mouse::ScrollDelta;
 use iced::{Point, Task};
 use coord::CoordFormat;
 
-use crate::{App, Message, Modal, DrawingTrack, Selection};
+use crate::{App, Message, Modal, DrawingTrack, Selection, ContextMenuState, ContextMenuItem};
 use crate::domain;
 use crate::io;
 use crate::session;
@@ -18,17 +18,6 @@ use std::collections::HashSet;
 use crate::{TrackRowData, TrackListState}; 
 use crate::util::geo::merc_of; 
 
-fn dist_to_segment(p: Point, a: Point, b: Point) -> f32 {
-    let dx = b.x - a.x;
-    let dy = b.y - a.y;
-    let l2 = dx * dx + dy * dy;
-    if l2 == 0.0 { return (p.x - a.x).hypot(p.y - a.y); }
-    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
-    let t = t.clamp(0.0, 1.0);
-    let proj_x = a.x + t * dx;
-    let proj_y = a.y + t * dy;
-    (p.x - proj_x).hypot(p.y - proj_y)
-}
 
 impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
@@ -49,7 +38,9 @@ impl App {
             | Message::LoadSessionPrompt | Message::LoadSessionNoPrompt
             | Message::LoadSessionPicked(_)
             | Message::SaveAndLoadSession | Message::SaveAndLoadSessionSaved(_) 
-            | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll => {
+            | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll | Message::GlobalCursorMoved(_) 
+            | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
+            | Message::CopyCoordinates(_, _)  => {
                 return self.update_ui(m); 
             }
 
@@ -58,7 +49,8 @@ impl App {
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
             | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen 
-            | Message::DeleteSelectedPoints | Message::FreehandReleased => {
+            | Message::DeleteSelectedPoints | Message::FreehandReleased 
+            | Message::DeleteTrackById(_) | Message::FitTrackById(_) |  Message::SplitTrackAt(_, _, _) => {
                 self.update_tracks(m);
             }
 
@@ -77,7 +69,10 @@ impl App {
             | Message::ToggleAllWaypointsVisible | Message::DeleteSelectedWaypoints
             | Message::OpenWaypointProps(_) | Message::AddNewWaypoint | Message::ApplyWaypointProps
             | Message::CloseWaypointProps | Message::ToggleWpSaveMenu | Message::CenterOnWaypoint(_)
-            | Message::ClearWaypointCrosshair | Message::MeasureWaypoints | Message::CloseWaypointMeasure => {
+            | Message::ClearWaypointCrosshair | Message::MeasureWaypoints | Message::CloseWaypointMeasure 
+            | Message::DeleteWaypointById(_) | Message::AddWaypointAt(_, _) |  Message::OpenWaypointProjection(_) 
+            | Message::CloseWaypointProjection | Message::ProjectAzimuthChanged(_) | Message::ProjectDistanceChanged(_) 
+            | Message::ExecuteProjection  => {
                 return self.update_waypoints(m);
             }
 
@@ -348,28 +343,6 @@ impl App {
             }
         }
 
-        // 2. Ищем трек (если не попали в точку)
-        let mut hit_track = None;
-        if hit_wp.is_none() {
-            let mut best_dist = 15.0;
-            for t in &self.tracks {
-                if !t.visible { continue; }
-                for seg in &t.segments {
-                    for w in seg.points.windows(2) {
-                        let (mx1, my1) = merc_of(w[0].lon, w[0].lat);
-                        let (mx2, my2) = merc_of(w[1].lon, w[1].lat);
-                        let p1 = Point::new((hw + (mx1 - self.cx) / self.scale) as f32, (hh - (my1 - self.cy) / self.scale) as f32);
-                        let p2 = Point::new((hw + (mx2 - self.cx) / self.scale) as f32, (hh - (my2 - self.cy) / self.scale) as f32);
-                        let d = dist_to_segment(p, p1, p2);
-                        if d < best_dist {
-                            best_dist = d;
-                            hit_track = Some(t.id);
-                        }
-                    }
-                }
-            }
-        }
-
         let ctrl = self.modifiers.control() || self.modifiers.command();
         let shift = self.modifiers.shift();
 
@@ -382,17 +355,6 @@ impl App {
                 if !self.selection.waypoints.remove(&id) { self.selection.waypoints.insert(id); }
             } else {
                 self.selection.waypoints.insert(id);
-            }
-            self.point_is_dragging = true;
-        } else if let Some(id) = hit_track {
-            if !ctrl && !shift {
-                self.selection.tracks.clear();
-                self.selection.waypoints.clear();
-            }
-            if ctrl {
-                if !self.selection.tracks.remove(&id) { self.selection.tracks.insert(id); }
-            } else {
-                self.selection.tracks.insert(id);
             }
             self.point_is_dragging = true;
         } else {
@@ -888,6 +850,12 @@ impl App {
     fn update_ui(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::KeyPressed(key, modifiers) => {
+                if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
+                    if self.context_menu.is_some() {
+                        self.context_menu = None;
+                        return Task::none();
+                    }
+                }
                 // Если открыто модальное окно — игнорируем всё, кроме Ctrl+Z/Ctrl+Y/Ctrl+A и стрелок
                 let is_modal_open = self.modal.is_some();
                 
@@ -1223,6 +1191,33 @@ impl App {
                 // --- Запрашиваем тайлы OSM для нового центра ---
                 return self.request_osm_tiles();
             }
+            Message::GlobalCursorMoved(p) => {
+                self.global_cursor = p;
+            }
+            Message::ShowContextMenu(pos, items) => {
+                self.context_menu = Some(ContextMenuState {
+                    x: pos.x,
+                    y: pos.y,
+                    items,
+                });
+            }
+            Message::ContextMenuClose => {
+                self.context_menu = None;
+            }
+            Message::ContextMenuSelect(idx) => {
+                if let Some(state) = self.context_menu.take() {
+                    if let Some(item) = state.items.into_iter().nth(idx) {
+                        if let ContextMenuItem::Action(_, action) = item {
+                            return self.update(action);
+                        }
+                    }
+                }
+            }
+            Message::CopyCoordinates(lat, lon) => {
+                let text = format!("{:.6} {:.6}", lat, lon);
+                self.status = format!("Скопировано: {}", text);
+                return iced::clipboard::write(text);
+            }
             _ => {}
         }
         Task::none() // <-- в самом конце
@@ -1475,6 +1470,69 @@ impl App {
             }
             Message::FreehandReleased => {
                 self.finish_freehand();
+            }
+            Message::DeleteTrackById(id) => {
+                self.push_undo("Удалить трек");
+                self.tracks.retain(|t| t.id != id);
+                self.selection.tracks.remove(&id);
+                self.tracks_cache.clear();
+            }
+            Message::FitTrackById(id) => {
+                self.selection.tracks.clear();
+                self.selection.tracks.insert(id);
+                self.update_tracks(Message::FitTrackToScreen);
+            }
+            Message::SplitTrackAt(id, seg_idx, pt_idx) => {
+                self.push_undo("Разделить трек");
+
+                let Some(track_arc) = self.tracks.iter().find(|t| t.id == id).cloned() else { return };
+                let track = track_arc.as_ref();
+
+                // Собираем плоский список точек
+                let mut all_points: Vec<domain::TrackPoint> = Vec::new();
+                for seg in &track.segments {
+                    all_points.extend(seg.points.iter().cloned());
+                }
+
+                // Глобальный индекс
+                let mut global_idx = 0;
+                for s in 0..seg_idx {
+                    global_idx += track.segments[s].points.len();
+                }
+                global_idx += pt_idx;
+
+                if global_idx == 0 || global_idx >= all_points.len() - 1 { return; }
+
+                let part1: Vec<_> = all_points[..=global_idx].to_vec();
+                let part2: Vec<_> = all_points[global_idx..].to_vec();
+
+                let new_name = format!("{}_Сегмент2", track.name);
+                let new_color = track.color;
+                let new_props = track.props.clone();
+
+                if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    let t = Arc::make_mut(t_mut);
+                    t.segments = vec![domain::TrackSegment { points: part1 }];
+                    domain::recompute_track_stats(t);
+                }
+
+                let mut new_track = domain::Track {
+                    id: self.next_id,
+                    name: new_name,
+                    color: new_color,
+                    visible: true,
+                    segments: vec![domain::TrackSegment { points: part2 }],
+                    source: domain::FileSource::New,
+                    props: new_props,
+                    cached_points: 0,
+                    cached_distance_m: 0.0,
+                };
+                domain::recompute_track_stats(&mut new_track);
+                self.next_id += 1;
+                self.tracks.push(Arc::new(new_track));
+
+                self.tracks_cache.clear();
+                self.status = "Трек разделен на две части".into();
             }
             _ => {}
         }
@@ -1832,6 +1890,93 @@ impl App {
             }
             Message::CloseWaypointMeasure => {
                 self.modal = None;
+            }
+            Message::DeleteWaypointById(id) => {
+                self.push_undo("Удалить точку");
+                self.waypoints.retain(|w| w.id != id);
+                self.selection.waypoints.remove(&id);
+                self.tracks_cache.clear();
+            }
+            Message::AddWaypointAt(lon, lat) => {
+                let new_wp = domain::Waypoint {
+                    id: self.next_id,
+                    name: format!("WP{}", self.next_id),
+                    lon, lat,
+                    ele: None, time: None, symbol: None, description: None,
+                    visible: true,
+                    source: domain::FileSource::New,
+                    text_color: [0, 0, 0],
+                    bg_color: [0, 255, 255],
+                };
+                self.next_id += 1;
+                self.push_undo("Добавить точку");
+                self.waypoints.push(Arc::new(new_wp.clone()));
+                self.waypoint_backup = Some(new_wp.clone());
+                self.modal = Some(Modal::WaypointProps {
+                    waypoint_id: new_wp.id,
+                    draft: new_wp,
+                    coord_input: format!("{:.6} {:.6}", lat, lon),
+                    is_new: true,
+                });
+                self.tracks_cache.clear();
+            }
+            Message::OpenWaypointProjection(id) => {
+                if self.waypoints.iter().any(|w| w.id == id) {
+                    self.modal = Some(Modal::WaypointProjection {
+                        from_id: id,
+                        azimuth_input: "0".to_string(),
+                        distance_input: "100".to_string(),
+                    });
+                }
+            }
+            Message::CloseWaypointProjection => {
+                self.modal = None;
+            }
+            Message::ProjectAzimuthChanged(s) => {
+                if let Some(Modal::WaypointProjection { azimuth_input, .. }) = &mut self.modal {
+                    *azimuth_input = s;
+                }
+            }
+            Message::ProjectDistanceChanged(s) => {
+                if let Some(Modal::WaypointProjection { distance_input, .. }) = &mut self.modal {
+                    *distance_input = s;
+                }
+            }
+            Message::ExecuteProjection => {
+                if let Some(Modal::WaypointProjection { from_id, azimuth_input, distance_input }) = &self.modal {
+                    let from_id = *from_id;
+                    let az = azimuth_input.parse::<f64>().ok();
+                    let dist = distance_input.parse::<f64>().ok();
+
+                    if let (Some(az), Some(dist)) = (az, dist) {
+                        if let Some(w) = self.waypoints.iter().find(|w| w.id == from_id) {
+                            let true_az = (az + self.declination).to_radians();
+                            let lat1 = w.lat.to_radians();
+                            let lat2 = lat1 + (dist * true_az.cos()) / 111_320.0;
+                            let lon2 = w.lon + (dist * true_az.sin()) / (111_320.0 * lat1.cos().max(1e-9));
+
+                            let new_wp = domain::Waypoint {
+                                id: self.next_id,
+                                name: format!("{}_proj", w.name),
+                                lon: lon2,
+                                lat: lat2.to_degrees(),
+                                ele: None, time: None, symbol: None, description: None,
+                                visible: true,
+                                source: domain::FileSource::New,
+                                text_color: w.text_color,
+                                bg_color: w.bg_color,
+                            };
+                            self.next_id += 1;
+                            self.push_undo("Проекция точки");
+                            self.waypoints.push(Arc::new(new_wp));
+                            self.modal = None;
+                            self.tracks_cache.clear();
+                            self.status = format!("Создана точка проекции ({} м, {:.0}°)", dist, az);
+                        }
+                    } else {
+                        self.status = "Введите корректные азимут и расстояние".into();
+                    }
+                }
             }
             _ => {}
         }
@@ -2382,6 +2527,17 @@ impl App {
                     state.last_clicked = Some(new_clicked);
                 }
                 self.tracks_cache.clear();
+            }
+            Message::DeleteTrackById(id) => {
+                self.push_undo("Удалить трек");
+                self.tracks.retain(|t| t.id != id);
+                self.selection.tracks.remove(&id);
+                self.tracks_cache.clear();
+            }
+            Message::FitTrackById(id) => {
+                self.selection.tracks.clear();
+                self.selection.tracks.insert(id);
+                self.update_tracks(Message::FitTrackToScreen);
             }
             _ => {}
         }

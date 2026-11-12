@@ -1,8 +1,8 @@
 use iced::widget::{
-    column, container, row, scrollable, text, text_input, tooltip, Space,
+    column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space,
 };
 use iced::{Alignment, Color, Element, Length, Theme};
-use crate::{App, Message};
+use crate::{App, Message, ContextMenuItem};
 use crate::ui::controls::with_tooltip;
 
 
@@ -103,23 +103,36 @@ impl App {
                 format!("{:.0}м", t.cached_distance_m)
             };
 
+            let track_id = t.id;
             let r = row![
                 self.visibility_button(t.visible, Message::ToggleTrackVisible(t.id, !t.visible)),
                 color_box,
                 container(
-                    tooltip(
-                        self.list_item(&t.name, selected, Message::SelectTrack(t.id)),
-                        container(text(t.name.clone())).padding([2, 6]).style(|theme: &Theme| {
-                            let palette = theme.extended_palette();
-                            container::Style {
-                                background: Some(palette.background.weak.color.into()),
-                                text_color: Some(palette.background.weak.text),
-                                border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
-                                ..Default::default()
-                            }
-                        }),
-                        tooltip::Position::Bottom,
-                    )
+                    mouse_area(
+                        tooltip(
+                            self.list_item(&t.name, selected, Message::SelectTrack(t.id)),
+                            container(text(t.name.clone())).padding([2, 6]).style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.weak.color.into()),
+                                    text_color: Some(palette.background.weak.text),
+                                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
+                                    ..Default::default()
+                                }
+                            }),
+                            tooltip::Position::Bottom,
+                        )
+                    ).on_right_press(Message::ShowContextMenu(
+                        self.global_cursor,
+                        vec![
+                            ContextMenuItem::Label(t.name.clone()),
+                            ContextMenuItem::Action("Свойства".to_string(), Message::OpenTrackProps(track_id)),
+                            ContextMenuItem::Action("Таблица точек".to_string(), Message::OpenTrackList(track_id)),
+                            ContextMenuItem::Action("Вместить в экран".to_string(), Message::FitTrackById(track_id)),
+                            ContextMenuItem::Separator,
+                            ContextMenuItem::Action("Удалить".to_string(), Message::DeleteTrackById(track_id)),
+                        ],
+                    ))
                 ).width(Length::Fill).clip(true),
                 container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
                 container(text(dist).size(12)).width(Length::Fixed(70.0)).align_x(Alignment::End),
@@ -261,23 +274,37 @@ impl App {
             let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
             let coord = coord::format_pair(w.lat, w.lon, self.format);
 
+            let wp_id = w.id;
             let r = row![
                 self.visibility_button(w.visible, Message::ToggleWaypointVisible(w.id, !w.visible)),
                 icon,
                 container(
-                    tooltip(
-                        self.list_item(&w.name, selected, Message::SelectWaypoint(w.id)),
-                        container(text(w.name.clone())).padding([2, 6]).style(|theme: &Theme| {
-                            let palette = theme.extended_palette();
-                            container::Style {
-                                background: Some(palette.background.weak.color.into()),
-                                text_color: Some(palette.background.weak.text),
-                                border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
-                                ..Default::default()
-                            }
-                        }),
-                        tooltip::Position::Bottom,
-                    )
+                    mouse_area(
+                        tooltip(
+                            self.list_item(&w.name, selected, Message::SelectWaypoint(w.id)),
+                            container(text(w.name.clone())).padding([2, 6]).style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.weak.color.into()),
+                                    text_color: Some(palette.background.weak.text),
+                                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
+                                    ..Default::default()
+                                }
+                            }),
+                            tooltip::Position::Bottom,
+                        )
+                    ).on_right_press(Message::ShowContextMenu(
+                        self.global_cursor,
+                        vec![
+                            ContextMenuItem::Label(w.name.clone()),
+                            ContextMenuItem::Action("Копировать координаты".to_string(), Message::CopyCoordinates(w.lat, w.lon)),
+                            ContextMenuItem::Action("Свойства".to_string(), Message::OpenWaypointProps(wp_id)),
+                            ContextMenuItem::Action("Центрировать".to_string(), Message::CenterOnWaypoint(wp_id)),
+                            ContextMenuItem::Action("Проекция точки".to_string(), Message::OpenWaypointProjection(wp_id)),
+                            ContextMenuItem::Separator,
+                            ContextMenuItem::Action("Удалить".to_string(), Message::DeleteWaypointById(wp_id)),
+                        ],
+                    ))
                 ).width(Length::Fill).clip(true),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
             ].spacing(4).align_y(Alignment::Center);
@@ -311,6 +338,14 @@ impl App {
                     self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
                 },
                 "Центрировать на точке"
+            ),
+            with_tooltip(
+                if one_wp {
+                    self.icon_button(lucide_iced::bytes::CIRCLE_ARROW_UP_RIGHT_EXIT, Message::OpenWaypointProjection(selected_id.unwrap()))
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::CIRCLE_ARROW_UP_RIGHT_EXIT)
+                },
+                "Проекция точки"
             ),
             with_tooltip(
                 if two_wps {

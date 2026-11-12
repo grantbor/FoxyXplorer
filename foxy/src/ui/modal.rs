@@ -5,7 +5,7 @@ use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
 use crate::util::coords::build_template;
 use crate::widgets::palette::get_extended_palette;
-use crate::{App, Message};
+use crate::{App, Message, ContextMenuState, ContextMenuItem};
 
 // =========================================================
 // Хелпер для форматирования даты/времени в таблице точек
@@ -600,6 +600,115 @@ impl App {
                 }
             })
             .width(Length::Fixed(400.0))
+            .into()
+    }
+    
+    pub(crate) fn view_context_menu<'a>(&'a self, state: &'a ContextMenuState) -> Element<'a, Message> {
+        let mut menu = column![].spacing(2).padding(4);
+
+        for (idx, item) in state.items.iter().enumerate() {
+            match item {
+                ContextMenuItem::Action(label, _) => {
+                    menu = menu.push(
+                        button(text(label.clone()).size(14))
+                            .width(Length::Fill)
+                            .padding([4, 12])
+                            .on_press(Message::ContextMenuSelect(idx))
+                            .style(native_theme_iced::styles::button(&self.resolved_theme)),
+                    );
+                }
+                ContextMenuItem::Label(label) => {
+                    menu = menu.push(
+                        container(text(label.clone()).size(13))
+                            .width(Length::Fill)
+                            .padding([4, 12])
+                            .style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.weak.color.into()),
+                                    text_color: Some(palette.background.weak.text),
+                                    ..Default::default()
+                                }
+                            }),
+                    );
+                }
+                ContextMenuItem::Separator => {
+                    menu = menu.push(
+                        container(text("")).width(Length::Fill).height(Length::Fixed(1.0))
+                            .style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.strong.color.into()),
+                                    ..Default::default()
+                                }
+                            }),
+                    );
+                }
+            }
+        }
+
+        container(menu)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(220.0))
+            .into()
+    }
+    pub(crate) fn view_waypoint_projection_modal<'a>(
+        &'a self,
+        _from_id: u64,
+        azimuth_input: &'a str,
+        distance_input: &'a str,
+    ) -> Element<'a, Message> {
+        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
+        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
+
+        let content = column![
+            text("Проекция точки").size(20),
+            text("Создать новую точку по азимуту и расстоянию от исходной.").size(13),
+            Space::new().height(8),
+            row![
+                text("Азимут (°):").width(120),
+                text_input("0", azimuth_input)
+                    .on_input(Message::ProjectAzimuthChanged)
+                    .width(120).padding(input_pad).style(input_style.clone()),
+            ].align_y(Alignment::Center),
+            row![
+                text("Расстояние (м):").width(120),
+                text_input("100", distance_input)
+                    .on_input(Message::ProjectDistanceChanged)
+                    .width(120).padding(input_pad).style(input_style.clone()),
+            ].align_y(Alignment::Center),
+            Space::new().height(8),
+            row![
+                self.btn("Создать").on_press(Message::ExecuteProjection),
+                self.btn_secondary("Отмена").on_press(Message::CloseWaypointProjection),
+            ].spacing(10)
+        ].spacing(12).padding(20);
+
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(450.0))
             .into()
     }
 }
