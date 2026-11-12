@@ -5,7 +5,7 @@ use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
 use crate::util::coords::build_template;
 use crate::widgets::palette::get_extended_palette;
-use crate::{App, Message, ContextMenuState, ContextMenuItem};
+use crate::{App, Message, ContextMenuState, ContextMenuItem, ColorPickerKind};
 
 // =========================================================
 // Хелпер для форматирования даты/времени в таблице точек
@@ -212,7 +212,7 @@ impl App {
         color_btns.push(
             button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
                 .width(24).height(24).padding(0)
-                .on_press(Message::ToggleColorPicker)
+                .on_press(Message::ToggleColorPicker(ColorPickerKind::LineColor))
                 .style(native_theme_iced::styles::button(&self.resolved_theme))
                 .into()
         );
@@ -222,9 +222,16 @@ impl App {
         for &c in &self.palette {
             fill_color_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
         }
+        fill_color_btns.push(
+            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
+                .width(24).height(24).padding(0)
+                .on_press(Message::ToggleColorPicker(ColorPickerKind::FillColor))
+                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .into()
+        );
         let fill_color_row = row(fill_color_btns).spacing(2);
 
-        let color_picker_ui: Element<'a, Message> = if self.show_color_picker {
+        let line_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::LineColor) {
             let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
             for chunk in ext_palette.chunks(8) {
@@ -239,9 +246,25 @@ impl App {
             column![].into()
         };
 
+        let fill_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::FillColor) {
+            let ext_palette = get_extended_palette();
+            let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
+            for chunk in ext_palette.chunks(8) {
+                let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
+                for &c in chunk {
+                    row_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
+                }
+                grid_rows.push(row(row_btns).spacing(2).into());
+            }
+            container(column(grid_rows).spacing(2)).padding([0, 120]).into()
+        } else {
+            column![].into()
+        };
+
         let fill_fields: Element<'a, Message> = if draft.poly_type == domain::PolyType::Polygon {
             column![
                 row![text("Fill Color:").width(120), fill_color_row].align_y(Alignment::Center),
+                fill_picker_ui,   // ← добавить
                 row![
                     text("Fill Type:").width(120),
                     pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged)
@@ -306,7 +329,7 @@ impl App {
             ].align_y(Alignment::Center).spacing(4),
 
             row![text("Line Color:").width(120), color_row].align_y(Alignment::Center),
-            color_picker_ui,
+            line_picker_ui,
 
             row![
                 text("Width:").width(120),
@@ -384,8 +407,61 @@ impl App {
                 .into()
         };
 
-        let text_color_row = row(text_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c))).collect::<Vec<_>>()).spacing(2);
-        let bg_color_row = row(bg_colors.iter().map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c))).collect::<Vec<_>>()).spacing(2);
+        let mut text_color_btns: Vec<Element<'a, Message>> = text_colors
+            .iter()
+            .map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c)))
+            .collect();
+        text_color_btns.push(
+            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
+                .width(24).height(24).padding(0)
+                .on_press(Message::ToggleColorPicker(ColorPickerKind::WpTextColor))
+                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .into()
+        );
+        let text_color_row = row(text_color_btns).spacing(2);
+
+        let mut bg_color_btns: Vec<Element<'a, Message>> = bg_colors
+            .iter()
+            .map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c)))
+            .collect();
+        bg_color_btns.push(
+            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
+                .width(24).height(24).padding(0)
+                .on_press(Message::ToggleColorPicker(ColorPickerKind::WpBgColor))
+                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .into()
+        );
+        let bg_color_row = row(bg_color_btns).spacing(2);
+        
+        let text_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpTextColor) {
+            let ext_palette = get_extended_palette();
+            let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
+            for chunk in ext_palette.chunks(8) {
+                let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
+                for &c in chunk {
+                    row_btns.push(make_color_btn(c, Message::DraftWpTextColorChanged(c)));
+                }
+                grid_rows.push(row(row_btns).spacing(2).into());
+            }
+            container(column(grid_rows).spacing(2)).padding([0, 100]).into()
+        } else {
+            column![].into()
+        };
+
+        let bg_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpBgColor) {
+            let ext_palette = get_extended_palette();
+            let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
+            for chunk in ext_palette.chunks(8) {
+                let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
+                for &c in chunk {
+                    row_btns.push(make_color_btn(c, Message::DraftWpBgColorChanged(c)));
+                }
+                grid_rows.push(row(row_btns).spacing(2).into());
+            }
+            container(column(grid_rows).spacing(2)).padding([0, 100]).into()
+        } else {
+            column![].into()
+        };
 
         let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
         let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
@@ -442,9 +518,10 @@ impl App {
                     .on_input(Message::DraftWpEleChanged).width(100)
                     .padding(input_pad).style(input_style.clone()),
             ],
-
             row![text("Цвет текста:").width(100), text_color_row].align_y(Alignment::Center),
+            text_picker_ui,
             row![text("Цвет фона:").width(100), bg_color_row].align_y(Alignment::Center),
+            bg_picker_ui,
             
             row![
                 self.btn_secondary("Вложение").on_press(Message::None),

@@ -253,7 +253,7 @@ pub(crate) enum Message {
     DraftFillColorChanged([u8; 3]), DraftFillTypeChanged(domain::FillType),
     DraftCallsignChanged(String), DraftNum1Changed(String), DraftNum2Changed(String), DraftSuffixChanged(String),
     DraftDateYesterday, DraftDateToday, DraftDateChanged(String),
-    ApplyTrackProps, ToggleColorPicker,
+    ApplyTrackProps, ToggleColorPicker(ColorPickerKind),
     WindowResized(Size), WindowMoved(Point), DividerPressed, DividerReleased, CursorMoved(Point),
     OpenWaypointProps(u64), CloseWaypointProps, ApplyWaypointProps,
     DraftWpNameChanged(String), DraftWpDescChanged(String), DraftWpEleChanged(String),
@@ -316,6 +316,14 @@ pub(crate) enum Tool {
     Freehand,
     AddWaypoint,
     Ruler,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ColorPickerKind {
+    LineColor,
+    FillColor,
+    WpTextColor,
+    WpBgColor,
 }
 
 pub(crate) struct DrawingTrack {
@@ -393,7 +401,7 @@ pub(crate) struct App {
     pub(crate) modal: Option<Modal>,
     pub(crate) track_backup: Option<domain::Track>, 
     pub(crate) last_track_click: Option<(u64, std::time::Instant)>,
-    pub(crate) show_color_picker: bool,
+    pub(crate) show_color_picker: Option<ColorPickerKind>,
     pub(crate) window_size: Size,
     pub(crate) window_pos: Point,
     pub(crate) right_panel_width: f32,
@@ -503,7 +511,7 @@ impl App {
                     last_track_clicked: None, last_waypoint_clicked: None,
                     search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
                     palette: load_palette(), modal: None, track_backup: None, last_track_click: None, 
-                    show_color_picker: false,
+                    show_color_picker: None,
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
@@ -548,7 +556,7 @@ impl App {
             last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None, last_waypoint_clicked: None,
             search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
-            palette: load_palette(), modal: None, track_backup: None, last_track_click: None, show_color_picker: false,
+            palette: load_palette(), modal: None, track_backup: None, last_track_click: None, show_color_picker: None,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
             show_track_save_menu: false, show_wp_save_menu: false,

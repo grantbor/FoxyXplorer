@@ -60,8 +60,8 @@ impl App {
             | Message::DraftNum1Changed(_) | Message::DraftNum2Changed(_) | Message::DraftSuffixChanged(_)
             | Message::DraftDateToday | Message::DraftDateYesterday 
             | Message::DraftColorChanged(_) | Message::DraftFillColorChanged(_) | Message::DraftWidthChanged(_)
-            | Message::DraftStyleChanged(_) | Message::DraftTypeChanged(_) | Message::DraftFillTypeChanged(_)
-            | Message::ToggleColorPicker => {
+            | Message::DraftStyleChanged(_) | Message::DraftTypeChanged(_) | Message::DraftFillTypeChanged(_) 
+            | Message::ToggleColorPicker(_)  => {
                 self.update_track_modal(m);
             }
 
@@ -1225,7 +1225,7 @@ impl App {
                 self.waypoint_crosshair = None;
                 self.track_backup = None;
                 self.waypoint_backup = None;
-                self.show_color_picker = false;
+                self.show_color_picker = None;
                 self.show_track_save_menu = false;
                 self.show_wp_save_menu = false;
                 self.space_pan_active = false;
@@ -1411,6 +1411,7 @@ impl App {
                         self.tracks_cache.clear();
                     }
                 }
+                self.show_color_picker = None;
                 self.modal = None;
             }
             Message::ToggleTrackSaveMenu => {
@@ -1697,12 +1698,17 @@ impl App {
                     }
                     tid = Some(*track_id);
                 }
-                self.show_color_picker = false;
+                self.show_color_picker = None;   // ← должно быть
                 if let Some(id) = tid { self.update_track_preview(id); }
             }
+
             Message::DraftFillColorChanged(c) => {
                 let mut tid = None;
-                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.fill_color = c; tid = Some(*track_id); }
+                if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
+                    draft.fill_color = c;
+                    tid = Some(*track_id);
+                }
+                self.show_color_picker = None;   // ← ЭТО, скорее всего, отсутствует
                 if let Some(id) = tid { self.update_track_preview(id); }
             }
             Message::DraftWidthChanged(s) => {
@@ -1727,8 +1733,12 @@ impl App {
                 if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal { draft.fill_type = t; tid = Some(*track_id); }
                 if let Some(id) = tid { self.update_track_preview(id); }
             }
-            Message::ToggleColorPicker => {
-                self.show_color_picker = !self.show_color_picker;
+            Message::ToggleColorPicker(kind) => {
+                self.show_color_picker = if self.show_color_picker == Some(kind) {
+                    None
+                } else {
+                    Some(kind)
+                };
             }
             _ => {}
         }
@@ -1889,6 +1899,7 @@ impl App {
                     }
                 }
                 self.tracks_cache.clear();
+                self.show_color_picker = None;
                 self.modal = None;
                 self.waypoint_crosshair = None;
             }
@@ -2080,15 +2091,20 @@ impl App {
             Message::DraftWpTextColorChanged(c) => {
                 let mut tid = None;
                 if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
-                    draft.text_color = c; tid = Some(*waypoint_id);
+                    draft.text_color = c;
+                    tid = Some(*waypoint_id);
                 }
+                self.show_color_picker = None;   // ← добавить, если нет
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
+
             Message::DraftWpBgColorChanged(c) => {
                 let mut tid = None;
                 if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
-                    draft.bg_color = c; tid = Some(*waypoint_id);
+                    draft.bg_color = c;
+                    tid = Some(*waypoint_id);
                 }
+                self.show_color_picker = None;   // ← добавить, если нет
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::DraftWpCoordsChanged(s) => {
