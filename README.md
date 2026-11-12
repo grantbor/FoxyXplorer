@@ -1,5 +1,5 @@
 FoxyXplorer — картографическое приложение для работы с треками и точками
-Copyright (C) 2026 <Grant Borodin>
+Copyright (C) 2026 Grant Borodin
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
