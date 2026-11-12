@@ -7,22 +7,12 @@ use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 use crate::osm;
 use crate::util::geo::{affine};
 use crate::{App, Message};
+use crate::util::geo::dist_to_segment;
 
 pub struct MapProgram<'a> {
     pub app: &'a App,
 }
 
-fn dist_to_segment(p: Point, a: Point, b: Point) -> f32 {
-    let dx = b.x - a.x;
-    let dy = b.y - a.y;
-    let l2 = dx * dx + dy * dy;
-    if l2 == 0.0 { return (p.x - a.x).hypot(p.y - a.y); }
-    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
-    let t = t.clamp(0.0, 1.0);
-    let proj_x = a.x + t * dx;
-    let proj_y = a.y + t * dy;
-    (p.x - proj_x).hypot(p.y - proj_y)
-}
 
 impl<'a> canvas::Program<Message> for MapProgram<'a> {
     type State = ();

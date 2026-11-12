@@ -17,6 +17,7 @@ use crate::UndoState;
 use std::collections::HashSet; 
 use crate::{TrackRowData, TrackListState}; 
 use crate::util::geo::merc_of; 
+use crate::util::geo::dist_to_segment;
 
 
 impl App {
@@ -355,6 +356,18 @@ impl App {
                 if !self.selection.waypoints.remove(&id) { self.selection.waypoints.insert(id); }
             } else {
                 self.selection.waypoints.insert(id);
+            }
+            self.point_is_dragging = true;
+        } else if let Some(track_id) = self.hit_test_track_at(p, 15.0) {
+            if !ctrl && !shift {
+                self.selection.tracks.clear();
+                self.selection.waypoints.clear();
+                self.selection.points.clear();
+            }
+            if ctrl {
+                if !self.selection.tracks.remove(&track_id) { self.selection.tracks.insert(track_id); }
+            } else {
+                self.selection.tracks.insert(track_id);
             }
             self.point_is_dragging = true;
         } else {
@@ -2541,6 +2554,46 @@ impl App {
             }
             _ => {}
         }
+    }
+    
+    // =========================================================================
+    // Восстановление выделения трека на карте
+    // =========================================================================
+    
+    fn hit_test_track_at(&self, p: Point, threshold: f32) -> Option<u64> {
+        let sz = self.last_bounds.get();
+        let hw = sz.width as f64 / 2.0;
+        let hh = sz.height as f64 / 2.0;
+
+        let mut best: Option<(f32, u64)> = None;
+
+        for t in &self.tracks {
+            if !t.visible {
+                continue;
+            }
+            for seg in &t.segments {
+                if seg.points.len() < 2 {
+                    continue;
+                }
+                for w in seg.points.windows(2) {
+                    let (mx1, my1) = merc_of(w[0].lon, w[0].lat);
+                    let (mx2, my2) = merc_of(w[1].lon, w[1].lat);
+                    let p1 = Point::new(
+                        (hw + (mx1 - self.cx) / self.scale) as f32,
+                        (hh - (my1 - self.cy) / self.scale) as f32,
+                    );
+                    let p2 = Point::new(
+                        (hw + (mx2 - self.cx) / self.scale) as f32,
+                        (hh - (my2 - self.cy) / self.scale) as f32,
+                    );
+                    let d = dist_to_segment(p, p1, p2);
+                    if d < threshold && best.map_or(true, |(bd, _)| d < bd) {
+                        best = Some((d, t.id));
+                    }
+                }
+            }
+        }
+        best.map(|(_, id)| id)
     }
 
     // =========================================================================
