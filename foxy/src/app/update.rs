@@ -51,7 +51,7 @@ impl App {
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
             | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen 
             | Message::DeleteSelectedPoints | Message::FreehandReleased 
-            | Message::DeleteTrackById(_) | Message::FitTrackById(_) |  Message::SplitTrackAt(_, _, _) => {
+            | Message::DeleteTrackById(_) | Message::FitTrackById(_) |  Message::SplitTrackAt(_, _, _)  => {
                 self.update_tracks(m);
             }
 
@@ -668,6 +668,7 @@ impl App {
              
             Message::MapPressed(p) => {
                 self.cursor = Some(p);
+                self.search_focused = false;
                 
                 if self.active_tool == crate::Tool::Pan || self.space_pan_active {
                     self.dragging = true;
@@ -815,12 +816,22 @@ impl App {
                 self.refresh_status();
             }
             Message::Fit => {
-                if !self.osm_active() {
+                // Приоритет: сетка → локальная карта. OSM — только если нет ни сетки, ни локальной.
+                let did_fit = if self.fit_to_grid() {
+                    true
+                } else if !self.osm_active() {
                     let idx = self.active;
                     self.fit_to_layer(idx);
+                    true
+                } else {
+                    false
+                };
+
+                if did_fit {
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();   // ← добавлено: камера сдвинулась, треки надо перерисовать
                     self.refresh_status();
                 }
             }
@@ -896,8 +907,13 @@ impl App {
                         _ => {}
                     }
                 }
-
-                if !is_modal_open {
+                if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
+                    if self.search_focused {
+                        self.search_focused = false;
+                        return Task::none();
+                    }
+                }
+                if !is_modal_open && !self.search_focused {
                     // 1. Инструменты (без модификаторов, с учетом обеих раскладок)
                     if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
                         if self.active_tool == crate::Tool::Ruler {
@@ -1049,10 +1065,12 @@ impl App {
             }
             Message::SearchTracksChanged(q) => {
                 self.search_tracks = q;
+                self.search_focused = true;      // ← добавить
                 self.tracks_cache.clear();
             }
             Message::SearchWaypointsChanged(q) => {
                 self.search_waypoints = q;
+                self.search_focused = true;      // ← добавить
                 self.tracks_cache.clear();
             }
             Message::ModalDragStart => {
@@ -1084,6 +1102,7 @@ impl App {
                 }
                 
                 self.active_tool = tool;
+                self.search_focused = false;
                 self.dragging = false;
                 self.modal = None;
                 self.canvas_cache.clear();
@@ -1286,6 +1305,7 @@ impl App {
                 }
             }
             Message::SelectTrack(id) => {
+                self.search_focused = false;
                 let now = Instant::now();
                 let is_double_click = self.last_track_click.map_or(false, |(last_id, last_time)| {
                     last_id == id && now.duration_since(last_time).as_millis() < 300
@@ -1720,6 +1740,7 @@ impl App {
     fn update_waypoints(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::SelectWaypoint(id) => {
+                self.search_focused = false;
                 let now = Instant::now();
                 let is_double_click = self.last_waypoint_click.map_or(false, |(last_id, last_time)| {
                     last_id == id && now.duration_since(last_time).as_millis() < 300
@@ -2653,4 +2674,49 @@ impl App {
             }
         }
     }
+    fn fit_to_grid(&mut self) -> bool {
+        if self.grid.is_none() {
+            return false;
+        }
+        
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        let mut found = false;
+        
+        for line in &self.lines {
+            for &(mx, my) in line {
+                if !mx.is_finite() || !my.is_finite() {
+                    continue;
+                }
+                if mx < min_x { min_x = mx; }
+                if mx > max_x { max_x = mx; }
+                if my < min_y { min_y = my; }
+                if my > max_y { max_y = my; }
+                found = true;
+            }
+        }
+        
+        if !found {
+            return false;
+        }
+        
+        let w = (max_x - min_x).max(0.001);
+        let h = (max_y - min_y).max(0.001);
+        let sz = self.last_bounds.get();
+        let vw = sz.width as f64;
+        let vh = sz.height as f64;
+        
+        let (pad_x, pad_y) = if vw < vh { (100.0, 0.0) } else { (0.0, 100.0) };
+        let scale_x = w / (vw - pad_x).max(1.0);
+        let scale_y = h / (vh - pad_y).max(1.0);
+        
+        self.scale = scale_x.max(scale_y).max(0.1).min(10000.0);
+        self.cx = (min_x + max_x) / 2.0;
+        self.cy = (min_y + max_y) / 2.0;
+        
+        true
+    }
+    
 }

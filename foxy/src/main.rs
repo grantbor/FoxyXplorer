@@ -429,6 +429,7 @@ pub(crate) struct App {
     pub(crate) ruler_points: Vec<(f64, f64)>, // (lon, lat)
     pub(crate) context_menu: Option<ContextMenuState>,
     pub(crate) global_cursor: Point,
+    pub(crate) search_focused: bool,
 }
 
 pub(crate) enum Modal {
@@ -500,7 +501,7 @@ impl App {
                     next_id: session.next_id, selection: Selection::default(),
                     last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
                     last_track_clicked: None, last_waypoint_clicked: None,
-                    search_tracks: String::new(), search_waypoints: String::new(),
+                    search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
                     palette: load_palette(), modal: None, track_backup: None, last_track_click: None, 
                     show_color_picker: false,
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
@@ -546,7 +547,7 @@ impl App {
             selection: Selection::default(),
             last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None, last_waypoint_clicked: None,
-            search_tracks: String::new(), search_waypoints: String::new(),
+            search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
             palette: load_palette(), modal: None, track_backup: None, last_track_click: None, show_color_picker: false,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,

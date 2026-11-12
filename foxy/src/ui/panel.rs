@@ -1,5 +1,5 @@
 use iced::widget::{
-    column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space,
+    column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space, stack,
 };
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::{App, Message, ContextMenuItem};
@@ -7,6 +7,57 @@ use crate::ui::controls::with_tooltip;
 
 
 impl App {
+    fn search_input<'a>(
+        &'a self,
+        placeholder: &'a str,
+        value: &'a str,
+        on_input: fn(String) -> Message,
+        on_clear: Message,
+    ) -> Element<'a, Message> {
+        let mut pad = native_theme_iced::input_padding(&self.resolved_theme);
+        pad.right += 22.0;
+
+        let input = text_input(placeholder, value)
+            .padding(pad)
+            .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+            .on_input(on_input)
+            .size(12);
+
+        // Второй слой stack! присутствует всегда — либо кнопка, либо пустышка.
+        // Это стабилизирует дерево виджетов, и text_input не пересоздаётся.
+        let trailing: Element<'a, Message> = if value.is_empty() {
+            Space::new()
+                .width(Length::Fixed(22.0))
+                .height(Length::Fixed(22.0))
+                .into()
+        } else {
+            iced::widget::button(
+                iced::widget::container(
+                    lucide_iced::themed_icon(lucide_iced::bytes::CIRCLE_X, 14.0)
+                )
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+            )
+            .width(Length::Fixed(22.0))
+            .height(Length::Fixed(22.0))
+            .padding(0)
+            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .on_press(on_clear)
+            .into()
+        };
+
+        stack![
+            input,
+            container(trailing)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::End)
+                .align_y(Alignment::Center)
+                .padding([0, 3]),
+        ]
+        .into()
+    }
+    
     pub(crate) fn view_right_panel(&self) -> Element<'_, Message> {
         column![
             self.view_maps_section(),
@@ -58,7 +109,7 @@ impl App {
     }
 
     fn view_tracks_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Tracks ({})", self.tracks.len())).size(14);
+        let header = text(format!("Треки ({})", self.tracks.len())).size(14);
 
         let all_visible = self.tracks.iter().all(|t| t.visible);
         let top_bar = row![
@@ -66,11 +117,12 @@ impl App {
                 self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllTracksVisible),
                 if all_visible { "Скрыть все треки" } else { "Показать все треки" }
             ),
-            text_input("Поиск треков...", &self.search_tracks)
-                .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                .on_input(Message::SearchTracksChanged)
-                .size(12),
+            self.search_input(
+                "Поиск треков...",
+                &self.search_tracks,
+                Message::SearchTracksChanged,
+                Message::SearchTracksChanged(String::new()),
+            ),
         ]
         .spacing(4);
 
@@ -242,7 +294,7 @@ impl App {
     }
 
     fn view_waypoints_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Waypoints ({})", self.waypoints.len())).size(14);
+        let header = text(format!("Точки ({})", self.waypoints.len())).size(14);
 
         let all_visible = self.waypoints.iter().all(|w| w.visible);
         let top_bar = row![
@@ -250,11 +302,12 @@ impl App {
                 self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllWaypointsVisible),
                 if all_visible { "Скрыть все точки" } else { "Показать все точки" }
             ),
-            text_input("Поиск точек...", &self.search_waypoints)
-                .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::text_input(&self.resolved_theme))
-                .on_input(Message::SearchWaypointsChanged)
-                .size(12),
+            self.search_input(
+                "Поиск точек...",
+                &self.search_waypoints,
+                Message::SearchWaypointsChanged,
+                Message::SearchWaypointsChanged(String::new()),
+            ),
         ].spacing(4);
 
         let cols = row![
