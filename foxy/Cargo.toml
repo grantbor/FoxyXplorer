@@ -24,3 +24,13 @@ tokio = { version = "1", features = ["time"] }
 resvg = "0.48" 
 tiny-skia = "0.11"
 
+[package.metadata.packager]
+product-name = "FoxyXplorer"
+identifier = "org.grantbor.foxyxplorer"
+icons = ["assets/icon.png"]
+out-dir = "dist"
+formats = ["appimage"]
+before-packaging-command = "cargo build --release"
+
+[package.metadata.packager.linux]
+

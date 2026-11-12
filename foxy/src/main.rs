@@ -1001,15 +1001,20 @@ fn main() -> iced::Result {
     // 2. Читаем сессию (как было)
     let session = session::load_session();
     
+    #[cfg(target_os = "linux")]
+    let platform_specific = PlatformSpecific {
+        application_id: "foxy".to_string(),
+        ..Default::default()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let platform_specific = PlatformSpecific::default();
+
     let mut window_settings = iced::window::Settings {
         size: Size::new(1130.0, 880.0),
         min_size: Some(Size::new(640.0, 480.0)),
         exit_on_close_request: false,
         icon,
-        platform_specific: PlatformSpecific {
-        application_id: "foxy".to_string(),
-        ..Default::default()
-    },
+        platform_specific,
         ..Default::default()
     };
     
