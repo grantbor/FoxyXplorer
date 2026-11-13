@@ -887,7 +887,11 @@ impl App {
             .spacing(4)
             .height(Length::Fill),
             text(self.status.as_str()),
-            text(info),
+            row![
+                text(info),
+                Space::new().width(Length::Fill),
+                text(format!("FoxyXplorer v{}", env!("CARGO_PKG_VERSION"))).size(11),
+            ].align_y(Alignment::Center),
         ]
         .spacing(4)
         .padding(4)

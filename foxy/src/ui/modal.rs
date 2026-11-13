@@ -209,26 +209,17 @@ impl App {
         for &c in &self.palette {
             color_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
         }
-        color_btns.push(
-            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
-                .width(24).height(24).padding(0)
-                .on_press(Message::ToggleColorPicker(ColorPickerKind::LineColor))
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
-                .into()
-        );
+        
+        color_btns.push(self.chevron_toggle(ColorPickerKind::LineColor));
+        
         let color_row = row(color_btns).spacing(2);
 
         let mut fill_color_btns: Vec<Element<'a, Message>> = Vec::new();
         for &c in &self.palette {
             fill_color_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
         }
-        fill_color_btns.push(
-            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
-                .width(24).height(24).padding(0)
-                .on_press(Message::ToggleColorPicker(ColorPickerKind::FillColor))
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
-                .into()
-        );
+        fill_color_btns.push(self.chevron_toggle(ColorPickerKind::FillColor));
+        
         let fill_color_row = row(fill_color_btns).spacing(2);
 
         let line_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::LineColor) {
@@ -411,26 +402,18 @@ impl App {
             .iter()
             .map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c)))
             .collect();
-        text_color_btns.push(
-            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
-                .width(24).height(24).padding(0)
-                .on_press(Message::ToggleColorPicker(ColorPickerKind::WpTextColor))
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
-                .into()
-        );
+            
+        text_color_btns.push(self.chevron_toggle(ColorPickerKind::WpTextColor));
+        
         let text_color_row = row(text_color_btns).spacing(2);
 
         let mut bg_color_btns: Vec<Element<'a, Message>> = bg_colors
             .iter()
             .map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c)))
             .collect();
-        bg_color_btns.push(
-            button(lucide_iced::themed_icon(lucide_iced::bytes::CHEVRON_DOWN, 16.0))
-                .width(24).height(24).padding(0)
-                .on_press(Message::ToggleColorPicker(ColorPickerKind::WpBgColor))
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
-                .into()
-        );
+            
+        bg_color_btns.push(self.chevron_toggle(ColorPickerKind::WpBgColor));
+        
         let bg_color_row = row(bg_color_btns).spacing(2);
         
         let text_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpTextColor) {
@@ -546,7 +529,8 @@ impl App {
             .width(Length::Fixed(550.0))
             .into()
     }
-
+    
+    
     // =========================================================
     // Измерение между точками (линейка)
     // =========================================================
@@ -607,6 +591,19 @@ impl App {
             .into()
     }
 
+    fn chevron_toggle<'a>(&'a self, kind: ColorPickerKind) -> Element<'a, Message> {
+        let icon = if self.show_color_picker == Some(kind) {
+            lucide_iced::bytes::CHEVRON_UP
+        } else {
+            lucide_iced::bytes::CHEVRON_DOWN
+        };
+        button(lucide_iced::themed_icon(icon, 16.0))
+            .width(24).height(24).padding(0)
+            .on_press(Message::ToggleColorPicker(kind))
+            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .into()
+    }
+    
     // =========================================================
     // Подтверждение Clear All
     // =========================================================
