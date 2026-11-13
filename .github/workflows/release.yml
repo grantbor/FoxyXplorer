@@ -29,8 +29,7 @@ jobs:
             libxcb1 libxcb-dri3-0 libxcb-glx0 libxcb-present0 \
             libxcb-randr0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxshmfence1 \
             libdbus-1-3 libexpat1 libpciaccess0 libsensors5 \
-            zlib1g libzstd1 \
-            libfuse2
+            zlib1g libzstd1
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -41,13 +40,62 @@ jobs:
             foxy/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
 
+      - name: Download linuxdeploy
+        working-directory: ./foxy
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
+          chmod +x linuxdeploy
+
       - name: Build AppImage
         working-directory: ./foxy
         env:
-          APPIMAGE_EXTRACT_AND_RUN: 1   # linuxdeploy — сам AppImage, FUSE в CI нестабилен
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NO_STRIP: 1
         run: |
-          chmod +x build-appimage.fish
-          ./build-appimage.fish
+          cargo build --release
+
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          cp target/release/foxyXplorer AppDir/usr/bin/
+          cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png
+
+          cat > AppDir/usr/share/applications/foxyxplorer.desktop <<'EOF'
+          [Desktop Entry]
+          Name=FoxyXplorer
+          Exec=foxyXplorer
+          Icon=foxyxplorer
+          Type=Application
+          Categories=Utility;
+          EOF
+
+          # Динамический поиск путей к библиотекам (Ubuntu использует x86_64-linux-gnu)
+          LIBS=""
+          for lib in \
+            libdbus-1.so.3 libexpat.so.1 libpciaccess.so.0 libsensors.so.5 \
+            libz.so.1 libzstd.so.1 \
+            libwayland-client.so.0 libwayland-egl.so.1 libwayland-server.so.0 \
+            libxkbcommon.so.0 libX11.so.6 libX11-xcb.so.1 libXau.so.6 \
+            libXdmcp.so.6 libXext.so.6 libxcb.so.1 libxcb-dri3.so.0 \
+            libxcb-glx.so.0 libxcb-present.so.0 libxcb-randr.so.0 \
+            libxcb-shm.so.0 libxcb-sync.so.1 libxcb-xfixes.so.0 libxshmfence.so.1
+          do
+            LIB_PATH=$(ldconfig -p | grep "$lib" | awk '{print $NF}' | head -n 1)
+            if [ -z "$LIB_PATH" ]; then
+              echo "WARNING: Library $lib not found in ldconfig"
+            else
+              LIBS="$LIBS --library $LIB_PATH"
+            fi
+          done
+
+          ./linuxdeploy --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/foxyxplorer.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png \
+            $LIBS \
+            --exclude-library "libsystemd*" \
+            --exclude-library "libvulkan*" \
+            --output appimage
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
@@ -80,7 +128,7 @@ jobs:
         run: cargo build --release
 
       - name: Install cargo-wix
-        run: cargo install cargo-wix --version 0.3.9 --locked
+        run: cargo install cargo-wix
 
       - name: Build MSI
         working-directory: ./foxy
