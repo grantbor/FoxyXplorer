@@ -84,34 +84,34 @@ fn main() {
 
 /// Fetches the latest Lucide release tag from the GitHub API.
 fn fetch_latest_version() -> String {
-    let response = ureq::get("https://api.github.com/repos/lucide-icons/lucide/releases/latest")
-        .header("Accept", "application/vnd.github+json")
-        .call()
-        .unwrap_or_else(|e| panic!("failed to query GitHub API for latest Lucide release: {e}"));
-
-    let mut reader = response.into_body().into_reader();
-    let mut body = String::new();
-    reader
-        .read_to_string(&mut body)
-        .unwrap_or_else(|e| panic!("failed to read GitHub API response: {e}"));
-
+    //  response = ureq::get("https://api.github.com/repos/lucide-icons/lucide/releases/latest")
+    //  .header("Accept", "application/vnd.github+json")
+    //  .call()
+    //  .unwrap_or_else(|e| panic!("failed to query GitHub API for latest Lucide release: {e}"));
+    // 
+    //  mut reader = response.into_body().into_reader();
+    //  mut body = String::new();
+    // der
+    //  .read_to_string(&mut body)
+    //  .unwrap_or_else(|e| panic!("failed to read GitHub API response: {e}"));
+    // 
     // Parse tag_name from JSON without pulling in serde_json.
-    let marker = "\"tag_name\":\"";
-    let start = body.find(marker).unwrap_or_else(|| {
-        panic!(
-            "GitHub API response missing tag_name field:\n{}",
-            &body[..body.len().min(500)]
-        )
-    }) + marker.len();
-    let end = body[start..].find('"').unwrap_or_else(|| {
-        panic!(
-            "GitHub API response has unparseable tag_name:\n{}",
-            &body[..body.len().min(500)]
-        )
-    });
-    body[start..start + end].to_string()
+    //  marker = "\"tag_name\":\"";
+    //  start = body.find(marker).unwrap_or_else(|| {
+    //  panic!(
+    //      "GitHub API response missing tag_name field:\n{}",
+    //      &body[..body.len().min(500)]
+    //  )
+    // + marker.len();
+    //  end = body[start..].find('"').unwrap_or_else(|| {
+    //  panic!(
+    //      "GitHub API response has unparseable tag_name:\n{}",
+    //      &body[..body.len().min(500)]
+    //  )
+    // 
+    // y[start..start + end].to_string()
+    "1.72.0" .to_string()
 }
-
 /// Downloads the latest Lucide release tarball, extracts only the SVG icons,
 /// and returns the path to the extracted icons directory.
 fn fetch_icons(out_dir: &PathBuf) -> PathBuf {

@@ -50,3 +50,4 @@ panic = "abort"
 
 [package.metadata.wix]
 eula = false
+before-packaging-command = "bash ./build-universal.sh"
