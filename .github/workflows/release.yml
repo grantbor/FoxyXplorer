@@ -133,7 +133,7 @@ jobs:
       - name: Build MSI
         working-directory: ./foxy
         # --nocapture — вывести лог; -C -p -C x64 — принять лицензию и указать arch
-        run: cargo wix --no-build --nocapture --accept-license --arch x64
+        run: cargo wix --no-build --nocapture --arch x64
 
       - name: Upload portable EXE
         uses: actions/upload-artifact@v4
@@ -151,9 +151,9 @@ jobs:
   # macOS: universal .app → .dmg через cargo-packager
   # ──────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust (universal target)
         uses: dtolnay/rust-toolchain@stable
@@ -161,7 +161,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -177,7 +177,7 @@ jobs:
         run: cargo packager --release --formats dmg --target universal-apple-darwin
 
       - name: Upload DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-dmg
           path: foxy/dist/*.dmg
