@@ -37,3 +37,9 @@ before-packaging-command = "cargo build --release"
 
 [package.metadata.packager.linux]
 
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"

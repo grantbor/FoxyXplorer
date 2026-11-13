@@ -1,0 +1,31 @@
+# Rust
+/target
+Cargo.lock.bak
+
+# AppImage / linuxdeploy
+/AppDir
+/squashfs-root
+*.AppImage
+/linuxdeploy
+/appimagetool
+
+# cargo-packager
+/dist
+
+# диагностика
+deps-loaded.txt
+
+# Windows
+*.msi
+*.exe
+*.pdb
+
+# macOS
+*.dmg
+*.DS_Store
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db

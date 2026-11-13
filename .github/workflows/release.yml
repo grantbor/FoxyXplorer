@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Запуск при пуше тега, например v0.2.0
+
+permissions:
+  contents: write # Нужно для создания релиза и загрузки артефактов
+
+jobs:
+  # --- Сборка для Linux (AppImage) ---
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libudev-dev pkg-config
+          # iced/winit может требовать эти библиотеки для сборки
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-packager
+        run: cargo install cargo-packager
+      
+      - name: Build AppImage
+        run: cargo packager --release --formats appimage
+        working-directory: ./foxy # Если Cargo.toml находится в подпапке
+      
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: foxy/dist/*.AppImage # Проверьте путь к выходной папке
+
+  # --- Сборка для Windows (MSI и EXE) ---
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-wix
+        run: cargo install cargo-wix --version 0.3.9 --locked
+      
+      - name: Build Release Binary
+        run: cargo build --release
+        working-directory: ./foxy
+      
+      - name: Build MSI Installer
+        run: cargo wix --no-build --nocapture -C -p -C x64
+        working-directory: ./foxy
+      
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi
+          path: foxy/target/wix/*.msi
+      
+      - name: Upload Portable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: foxy/target/release/foxy.exe
+
+  # --- Сборка для macOS (DMG) ---
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin # Universal Binary
+      
+      - name: Install cargo-packager
+        run: cargo install cargo-packager
+      
+      - name: Build DMG
+        run: cargo packager --release --formats dmg --target universal-apple-darwin
+        working-directory: ./foxy
+      
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: foxy/dist/*.dmg
