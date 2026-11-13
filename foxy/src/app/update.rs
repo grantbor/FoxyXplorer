@@ -13,6 +13,7 @@ use crate::{load_kit, save_session};
 
 use std::sync::Arc;
 use crate::UndoState;
+use crate::{AppTheme, theme_pair};
 
 use std::collections::HashSet; 
 use crate::{TrackRowData, TrackListState}; 
@@ -41,7 +42,7 @@ impl App {
             | Message::SaveAndLoadSession | Message::SaveAndLoadSessionSaved(_) 
             | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll | Message::GlobalCursorMoved(_) 
             | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
-            | Message::CopyCoordinates(_, _)  => {
+            | Message::CopyCoordinates(_, _) |  Message::ToggleTheme | Message::RefreshSystemTheme => {
                 return self.update_ui(m); 
             }
 
@@ -96,7 +97,7 @@ impl App {
             // --- Система и прочее ---
             Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(_, _)
-            | Message::RefreshSystemTheme | Message::None => {
+            | Message::None => {
                 return self.update_system(m);
             }
             
@@ -178,6 +179,17 @@ impl App {
             "DegMinSec" => CoordFormat::DegMinSec,
             _ => CoordFormat::Decimal,
         };
+        
+        if let Some(t) = &sess.theme {
+            self.current_theme = match t.as_str() {
+                "light" => AppTheme::Light,
+                _       => AppTheme::Dark,
+            };
+            let (th, r) = theme_pair(self.current_theme);
+            self.theme = th;
+            self.resolved_theme = r;
+        }
+
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.canvas_cache.clear();
@@ -1284,6 +1296,21 @@ impl App {
                 self.status = format!("Скопировано: {}", text);
                 return iced::clipboard::write(text);
             }
+            Message::ToggleTheme => {
+                self.current_theme = match self.current_theme {
+                    AppTheme::Light => AppTheme::Dark,
+                    AppTheme::Dark  => AppTheme::Light,
+                };
+                let (t, r) = theme_pair(self.current_theme);
+                self.theme = t;
+                self.resolved_theme = r;
+
+                // Кэши надо сбросить — цвета линий/подписей на канвасах завязаны на тему.
+                self.canvas_cache.clear();
+                self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
+                self.tracks_cache.clear();
+            }
             _ => {}
         }
         Task::none() // <-- в самом конце
@@ -2088,16 +2115,6 @@ impl App {
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
-            Message::RefreshSystemTheme => {
-                #[cfg(not(target_os = "windows"))]
-                {
-                    if let Ok((theme, resolved, _, _)) = native_theme_iced::from_system() {
-                        self.theme = theme;
-                        self.resolved_theme = resolved;
-                    }
-                }
-                // На Windows — намеренно no-op: тема фиксирована.
-            }
 
             Message::DraftWpBgColorChanged(c) => {
                 let mut tid = None;
@@ -2417,10 +2434,14 @@ impl App {
                 self.osm_canvas_cache.clear();
             }
             Message::RefreshSystemTheme => {
-                if let Ok((theme, resolved, _, _)) = native_theme_iced::from_system() {
-                    self.theme = theme;
-                    self.resolved_theme = resolved;
+                #[cfg(not(target_os = "windows"))]
+                {
+                    if let Ok((theme, resolved, _, _)) = native_theme_iced::from_system() {
+                        self.theme = theme;
+                        self.resolved_theme = resolved;
+                    }
                 }
+                // На Windows — no-op: тема фиксирована.
             }
             Message::None => {}
             _ => {}

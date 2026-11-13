@@ -20,6 +20,8 @@ pub struct Session {
     pub version: u32,
     pub last_kit: Option<PathBuf>,
     pub view: SessionView,
+    #[serde(default)]
+    pub theme: Option<String>, 
     pub tracks: Vec<Track>,
     pub waypoints: Vec<Waypoint>,
     pub next_id: u64,

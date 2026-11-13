@@ -1,4 +1,5 @@
-mod app; // <-- ДОБАВЛЕН МОДУЛЬ APP
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+mod app; 
 mod canvas;
 mod domain;
 mod io;
@@ -304,6 +305,7 @@ pub(crate) enum Message {
     ProjectAzimuthChanged(String),
     ProjectDistanceChanged(String),
     ExecuteProjection,
+    ToggleTheme,
     None,
 }
 
@@ -316,6 +318,12 @@ pub(crate) enum Tool {
     Freehand,
     AddWaypoint,
     Ruler,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppTheme {
+    Light,
+    Dark,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,6 +361,10 @@ pub(crate) fn build_session(app: &App) -> session::Session {
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
         },
+       theme: Some(match app.current_theme {
+            AppTheme::Light => "light".to_string(),
+            AppTheme::Dark  => "dark".to_string(),
+        }), 
         tracks: app.tracks.iter().map(|t| t.as_ref().clone()).collect(),
         waypoints: app.waypoints.iter().map(|w| w.as_ref().clone()).collect(),
         next_id: app.next_id,
@@ -411,6 +423,7 @@ pub(crate) struct App {
     pub(crate) show_track_save_menu: bool,
     pub(crate) show_wp_save_menu: bool,
     pub(crate) theme: iced::Theme,
+    pub(crate) current_theme: AppTheme,
     pub(crate) resolved_theme: ResolvedTheme, 
     pub(crate) simplify_tolerance: f64,     // Значение по умолчанию 2.0. В будущем будет меняться через настройки.
     pub(crate) tracks: Vec<Arc<domain::Track>>,
@@ -470,6 +483,28 @@ fn modal_drag_padding(offset: Point) -> iced::Padding {
     pad
 }
 
+pub(crate) fn theme_pair(theme: AppTheme) -> (iced::Theme, ResolvedTheme) {
+    let (preset, is_dark) = match theme {
+        AppTheme::Light => ("catppuccin-latte", false),
+        AppTheme::Dark  => ("catppuccin-mocha", true),
+    };
+    if let Ok((t, r)) = native_theme_iced::from_preset(preset, is_dark) {
+        (t, r)
+    } else {
+        // Fallback, если пресета нет в вашей версии native_theme_iced
+        match theme {
+            AppTheme::Light => (
+                iced::Theme::Light,
+                native_theme_iced::from_preset("default", false).unwrap().1,
+            ),
+            AppTheme::Dark => (
+                iced::Theme::Dark,
+                native_theme_iced::from_preset("default", true).unwrap().1,
+            ),
+        }
+    }
+}
+
 impl App {
     pub(crate) fn osm_active(&self) -> bool {
         self.active >= self.layers.len()
@@ -482,7 +517,11 @@ impl App {
         }
     }
 
-    fn new(theme: iced::Theme, resolved_theme: ResolvedTheme) -> (App, Task<Message>) {
+    fn new (
+        theme: iced::Theme,
+        resolved_theme: ResolvedTheme,
+        initial_theme_kind: AppTheme,
+    ) -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
         let force_osm = args.iter().any(|a| a == "--osm");
         let dir_arg = args.iter().skip(1).find(|a| !a.starts_with("--")).cloned();
@@ -521,7 +560,8 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN 
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
+                    current_theme: initial_theme_kind
                 };
 
                 for t in &mut app.tracks { 
@@ -536,7 +576,15 @@ impl App {
                 app.format = match session.view.format_str.as_str() {
                     "DegMin" => CoordFormat::DegMin, "DegMinSec" => CoordFormat::DegMinSec, _ => CoordFormat::Decimal,
                 };
-
+                if let Some(t) = &session.theme {
+                    app.current_theme = match t.as_str() {
+                        "light" => AppTheme::Light,
+                        _       => AppTheme::Dark,
+                    };
+                    let (th, r) = theme_pair(app.current_theme);
+                    app.theme = th;
+                    app.resolved_theme = r;
+                }
                 app.status = format!("Сессия восстановлена ({} треков, {} точек)", app.tracks.len(), app.waypoints.len());
                 let task = app.request_osm_tiles();
                 return (app, task);
@@ -565,7 +613,8 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
+            current_theme: initial_theme_kind
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -1049,9 +1098,13 @@ fn main() -> iced::Result {
     }
         
     iced::application(
-        move || App::new(initial_theme.clone(), initial_resolved.clone()), 
-        App::update, 
-        App::view
+        move || App::new(
+            initial_theme.clone(),
+            initial_resolved.clone(),
+            AppTheme::Dark,
+        ),
+        App::update,
+        App::view,
     )
     .title("FoxyXplorer")
     .window(window_settings)

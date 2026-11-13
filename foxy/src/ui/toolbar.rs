@@ -2,16 +2,17 @@ use iced::widget::{button, column, container, row, text, tooltip, Space};
 use iced::{Alignment, Element, Length, Theme};
 use crate::{App, Message};
 use crate::ui::controls::with_tooltip;
+use crate::AppTheme;
 
 impl App {
     pub(crate) fn view_top_toolbar(&self) -> Element<'_, Message> {
         row![
             with_tooltip(
-                self.btn("Карты").on_press(Message::PickKit),
+                self.btn_secondary("Карты").on_press(Message::PickKit),
                 "Загрузить комплект карт или карту"
             ),
             with_tooltip(
-                self.btn("Геоданные").on_press(Message::PickTrack),
+                self.btn_secondary("Геоданные").on_press(Message::PickTrack),
                 "Загрузить треки / точки (GPX, PLT, WPT, MS)"
             ),
             with_tooltip(
@@ -40,6 +41,17 @@ impl App {
             with_tooltip(
                 self.btn_secondary(self.format_short_name()).on_press(Message::CycleFormat),
                 format!("Формат координат (сейчас {})", self.format_name())
+            ),
+            with_tooltip(
+                self.icon_button(
+                    if self.current_theme == AppTheme::Dark {
+                        lucide_iced::bytes::SUN
+                    } else {
+                        lucide_iced::bytes::MOON
+                    },
+                    Message::ToggleTheme,
+                ),
+                "Переключить тему",
             ),
 
             Space::new().width(Length::Fill),
