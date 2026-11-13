@@ -1,7 +1,8 @@
 [package]
 name = "foxyXplorer"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
+authors = ["Grant Borodin"]
 license = "GPL-3.0-or-later"
 
 [build-dependencies]
@@ -43,3 +44,6 @@ strip = true
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+
+[package.metadata.wix]
+eula = false

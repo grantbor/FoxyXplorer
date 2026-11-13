@@ -199,7 +199,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
 
       - name: Install cargo-packager
-        run: cargo install cargo-packager --version 0.15.2 --locked
+        run: cargo install cargo-packager --version 0.11.8 --locked
 
       - name: Build DMG (universal)
         working-directory: ./foxy
