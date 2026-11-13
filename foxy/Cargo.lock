@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "foxyXplorer"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "coord",
  "declination",
@@ -2743,8 +2743,6 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 [[package]]
 name = "lucide-iced"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94fabbea6aa0acb35c3366cd354b8bc136ad3d42e9d6493059149056f421aa37"
 dependencies = [
  "flate2",
  "iced",

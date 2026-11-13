@@ -1,3 +1,6 @@
+[patch.crates-io]
+lucide-iced = { path = "vendor/lucide-iced" }
+
 [package]
 name = "foxyXplorer"
 version = "0.2.1"
