@@ -38,6 +38,7 @@ icons = ["assets/icon.png"]
 out-dir = "dist"
 formats = ["appimage"]
 before-packaging-command = "cargo build --release"
+before-packaging-command = "bash ./build-universal.sh"
 
 [package.metadata.packager.linux]
 
@@ -50,4 +51,3 @@ panic = "abort"
 
 [package.metadata.wix]
 eula = false
-before-packaging-command = "bash ./build-universal.sh"
