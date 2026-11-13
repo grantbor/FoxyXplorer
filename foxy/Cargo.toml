@@ -1,6 +1,3 @@
-[patch.crates-io]
-lucide-iced = { path = "vendor/lucide-iced" }
-
 [package]
 name = "foxyXplorer"
 version = "0.2.1"
@@ -36,8 +33,6 @@ product-name = "FoxyXplorer"
 identifier = "org.grantbor.foxyxplorer"
 icons = ["assets/icon.png"]
 out-dir = "dist"
-formats = ["appimage"]
-before-packaging-command = "cargo build --release"
 before-packaging-command = "bash ./build-universal.sh"
 
 [package.metadata.packager.linux]
@@ -48,6 +43,9 @@ strip = true
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+
+[patch.crates-io]
+lucide-iced = { path = "vendor/lucide-iced" }
 
 [package.metadata.wix]
 eula = false
