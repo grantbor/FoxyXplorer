@@ -3,92 +3,159 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'  # Запуск при пуше тега, например v0.2.0
+      - 'v*'
 
 permissions:
-  contents: write # Нужно для создания релиза и загрузки артефактов
+  contents: write
 
 jobs:
-  # --- Сборка для Linux (AppImage) ---
+  # ──────────────────────────────────────────────────────────────
+  # Linux: AppImage через linuxdeploy (build-appimage.fish)
+  # ──────────────────────────────────────────────────────────────
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install system dependencies
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system libraries (runtime for AppImage bundling)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libudev-dev pkg-config
-          # iced/winit может требовать эти библиотеки для сборки
-      
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Install cargo-packager
-        run: cargo install cargo-packager
-      
+          sudo apt-get install -y \
+            libxkbcommon0 libwayland-client0 libwayland-server0 libwayland-egl1 \
+            libx11-6 libx11-xcb1 libxau6 libxdmcp6 libxext6 \
+            libxcb1 libxcb-dri3-0 libxcb-glx0 libxcb-present0 \
+            libxcb-randr0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxshmfence1 \
+            libdbus-1-3 libexpat1 libpciaccess0 libsensors5 \
+            zlib1g libzstd1 \
+            libfuse2
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            foxy/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
+
       - name: Build AppImage
-        run: cargo packager --release --formats appimage
-        working-directory: ./foxy # Если Cargo.toml находится в подпапке
-      
-      - name: Upload Artifact
+        working-directory: ./foxy
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1   # linuxdeploy — сам AppImage, FUSE в CI нестабилен
+        run: |
+          chmod +x build-appimage.fish
+          ./build-appimage.fish
+
+      - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: foxy/dist/*.AppImage # Проверьте путь к выходной папке
+          path: foxy/*.AppImage
 
-  # --- Сборка для Windows (MSI и EXE) ---
+  # ──────────────────────────────────────────────────────────────
+  # Windows: portable .exe + .msi через cargo-wix
+  # ──────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Rust
+
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            foxy/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
+
+      - name: Build release
+        working-directory: ./foxy
+        run: cargo build --release
+
       - name: Install cargo-wix
         run: cargo install cargo-wix --version 0.3.9 --locked
-      
-      - name: Build Release Binary
-        run: cargo build --release
+
+      - name: Build MSI
         working-directory: ./foxy
-      
-      - name: Build MSI Installer
-        run: cargo wix --no-build --nocapture -C -p -C x64
-        working-directory: ./foxy
-      
+        # --nocapture — вывести лог; -C -p -C x64 — принять лицензию и указать arch
+        run: cargo wix --no-build --nocapture --accept-license --arch x64
+
+      - name: Upload portable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: foxy/target/release/foxyXplorer.exe
+
       - name: Upload MSI
         uses: actions/upload-artifact@v4
         with:
           name: windows-msi
           path: foxy/target/wix/*.msi
-      
-      - name: Upload Portable EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-exe
-          path: foxy/target/release/foxy.exe
 
-  # --- Сборка для macOS (DMG) ---
+  # ──────────────────────────────────────────────────────────────
+  # macOS: universal .app → .dmg через cargo-packager
+  # ──────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Rust
+
+      - name: Install Rust (universal target)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin # Universal Binary
-      
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            foxy/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
+
       - name: Install cargo-packager
         run: cargo install cargo-packager
-      
-      - name: Build DMG
-        run: cargo packager --release --formats dmg --target universal-apple-darwin
+
+      - name: Build DMG (universal)
         working-directory: ./foxy
-      
+        run: cargo packager --release --formats dmg --target universal-apple-darwin
+
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
           path: foxy/dist/*.dmg
+
+  # ──────────────────────────────────────────────────────────────
+  # GitHub Release: прикрепить все артефакты к тегу
+  # ──────────────────────────────────────────────────────────────
+  release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten
+        run: |
+          mkdir -p release
+          find artifacts -type f \
+            \( -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
+            -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true

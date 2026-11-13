@@ -19,3 +19,5 @@ maps/
 *.map
 *.gpx
 !tests/fixtures/**
+
+foxy/*.fish
