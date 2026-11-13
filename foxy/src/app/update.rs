@@ -20,6 +20,10 @@ use crate::{TrackRowData, TrackListState};
 use crate::util::geo::merc_of; 
 use crate::util::geo::dist_to_segment;
 
+fn is_space(key: &iced::keyboard::Key) -> bool {
+    matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
+        || matches!(key, iced::keyboard::Key::Character(c) if c == " ")
+}
 
 impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
@@ -958,7 +962,7 @@ impl App {
                     }
 
                     // 2. Space (только если не печатаем в поле)
-                    if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) = key {
+                    if is_space(&key) {
                         self.space_pan_active = true;
                         return Task::none();
                     }
@@ -1055,7 +1059,7 @@ impl App {
                 }
             }
             Message::KeyReleased(key) => {
-                if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) = key {
+                if is_space(&key) {
                     self.space_pan_active = false;
                 }
             }

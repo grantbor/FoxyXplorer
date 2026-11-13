@@ -93,7 +93,6 @@ pub(crate) struct TrackListState {
     pub last_clicked: Option<(usize, usize)>,
 }
 
-
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
     let mut notes = Vec::new();
 
