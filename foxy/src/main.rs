@@ -987,6 +987,29 @@ impl App {
     }
 }
 
+/// Начальная пара (iced::Theme, ResolvedTheme).
+/// На Windows всегда фиксированный пресет — система игнорируется.
+#[cfg(target_os = "windows")]
+fn initial_theme_pair() -> (iced::Theme, ResolvedTheme) {
+    if let Ok((t, r)) = native_theme_iced::from_preset("catppuccin-mocha", true) {
+        (t, r)
+    } else {
+        (iced::Theme::Dark, native_theme_iced::from_preset("default", true).unwrap().1)
+    }
+}
+
+/// На остальных ОС — системная тема, а при ошибке тот же пресет.
+#[cfg(not(target_os = "windows"))]
+fn initial_theme_pair() -> (iced::Theme, ResolvedTheme) {
+    if let Ok((t, r, _, _)) = native_theme_iced::from_system() {
+        (t, r)
+    } else if let Ok((t, r)) = native_theme_iced::from_preset("catppuccin-mocha", true) {
+        (t, r)
+    } else {
+        (iced::Theme::Dark, native_theme_iced::from_preset("default", true).unwrap().1)
+    }
+}
+
 fn main() -> iced::Result {
 
     // 1. Загружаем иконку (без паники, если что-то не так)
@@ -1018,21 +1041,13 @@ fn main() -> iced::Result {
         ..Default::default()
     };
     
+    let (initial_theme, initial_resolved) = initial_theme_pair();
 
     if let Some(s) = &session {
         if let Some((w, h)) = s.view.window_size { window_settings.size = Size::new(w, h); }
         if let Some((x, y)) = s.view.window_pos { window_settings.position = iced::window::Position::Specific(Point::new(x, y)); }
     }
-
-    let (initial_theme, initial_resolved) = 
-        if let Ok((t, r, _, _)) = native_theme_iced::from_system() {
-            (t, r)
-        } else if let Ok((t, r)) = native_theme_iced::from_preset("catppuccin-mocha", true) {
-            (t, r)
-        } else {
-            (iced::Theme::Dark, native_theme_iced::from_preset("default", true).unwrap().1)
-        };
-
+        
     iced::application(
         move || App::new(initial_theme.clone(), initial_resolved.clone()), 
         App::update, 

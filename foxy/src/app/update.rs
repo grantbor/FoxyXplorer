@@ -2088,14 +2088,15 @@ impl App {
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
-            Message::DraftWpTextColorChanged(c) => {
-                let mut tid = None;
-                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
-                    draft.text_color = c;
-                    tid = Some(*waypoint_id);
+            Message::RefreshSystemTheme => {
+                #[cfg(not(target_os = "windows"))]
+                {
+                    if let Ok((theme, resolved, _, _)) = native_theme_iced::from_system() {
+                        self.theme = theme;
+                        self.resolved_theme = resolved;
+                    }
                 }
-                self.show_color_picker = None;   // ← добавить, если нет
-                if let Some(id) = tid { self.update_waypoint_preview(id); }
+                // На Windows — намеренно no-op: тема фиксирована.
             }
 
             Message::DraftWpBgColorChanged(c) => {
@@ -2105,6 +2106,16 @@ impl App {
                     tid = Some(*waypoint_id);
                 }
                 self.show_color_picker = None;   // ← добавить, если нет
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            
+            Message::DraftWpTextColorChanged(c) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
+                    draft.text_color = c;    // ← вот здесь читается поле
+                    tid = Some(*waypoint_id);
+                }
+                self.show_color_picker = None;
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }
             Message::DraftWpCoordsChanged(s) => {

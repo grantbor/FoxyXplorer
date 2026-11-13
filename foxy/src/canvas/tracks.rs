@@ -211,7 +211,7 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
 
                 let text_len = wp.name.chars().count() as f32;
                 let box_w = (text_len * 12.0).max(40.0) + 10.0;
-                let box_h = 28.0;
+                let box_h = 24.0;
                 let box_x = pt.x - box_w / 2.0;
                 let box_y = pt.y - 40.0;
 
@@ -232,7 +232,7 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     content: wp.name.clone(),
                     position: Point::new(box_x + box_w / 2.0, box_y + box_h / 2.0),
                     color: fg_color,
-                    size: iced::Pixels(18.0),
+                    size: iced::Pixels(14.0),
                     align_x: iced::widget::text::Alignment::Center,
                     align_y: iced::alignment::Vertical::Center,
                     ..Default::default()
