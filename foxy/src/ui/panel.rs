@@ -197,6 +197,10 @@ impl App {
         let has_wps = !self.selection.waypoints.is_empty();
         let one_track = self.selection.tracks.len() == 1;
         let selected_id = self.selection.tracks.iter().next().copied();
+        let multi_seg_selected = self.selection.tracks.len() == 1
+            && self.tracks.iter()
+                .find(|t| self.selection.tracks.contains(&t.id))
+                .map_or(false, |t| t.segments.len() > 1);
 
         let row_normal = row![
             with_tooltip(
@@ -224,6 +228,14 @@ impl App {
                 "Таблица точек"
             ),
             with_tooltip(
+                if multi_seg_selected {
+                    self.icon_button(lucide_iced::bytes::GIT_GRAPH, Message::SplitTrackBySegments)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::GIT_GRAPH)
+                },
+                "Разделить трек по сегментам"
+            ),
+            with_tooltip(
                 if has_tracks {
                     self.icon_button(lucide_iced::bytes::SCAN_EYE, Message::FitTrackToScreen)
                 } else {
@@ -232,7 +244,11 @@ impl App {
                 "Вместить треки в экран"
             ),
             with_tooltip(
-                self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu),
+                if has_tracks {
+                    self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleTrackSaveMenu)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::SAVE)
+                },
                 "Сохранить треки..."
             ),
             Space::new().width(Length::Fill),
@@ -417,7 +433,11 @@ impl App {
                 "Измерить расстояние  между двумя точками и азимут с первой на вторую"
             ),
             with_tooltip(
-                self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu),
+                if has_wps {
+                    self.icon_button(lucide_iced::bytes::SAVE, Message::ToggleWpSaveMenu)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::SAVE)
+                },
                 "Сохранить точки..."
             ),
             Space::new().width(Length::Fill),

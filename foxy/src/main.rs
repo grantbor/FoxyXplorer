@@ -259,7 +259,7 @@ pub(crate) enum Message {
     OpenWaypointProps(u64), CloseWaypointProps, ApplyWaypointProps,
     DraftWpNameChanged(String), DraftWpDescChanged(String), DraftWpEleChanged(String),
     DraftWpTextColorChanged([u8; 3]), DraftWpBgColorChanged([u8; 3]), DraftWpCoordsChanged(String),
-    AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks,
+    AddNewWaypoint, ToggleTrackSaveMenu, ToggleWpSaveMenu, RefreshSystemTheme, SimplifyTracks, SplitTrackBySegments, 
     OpenTrackList(u64),
     CloseTrackList,
     SelectTrackPoint(usize, usize), // (sect, pt_idx)

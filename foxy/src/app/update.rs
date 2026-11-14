@@ -56,7 +56,7 @@ impl App {
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
             | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen 
             | Message::DeleteSelectedPoints | Message::FreehandReleased 
-            | Message::DeleteTrackById(_) | Message::FitTrackById(_) |  Message::SplitTrackAt(_, _, _)  => {
+            | Message::DeleteTrackById(_) | Message::FitTrackById(_) | Message::SplitTrackBySegments |  Message::SplitTrackAt(_, _, _)  => {
                 self.update_tracks(m);
             }
 
@@ -1470,6 +1470,61 @@ impl App {
                 // 3. Обновляем UI
                 self.tracks_cache.clear();
                 self.status = format!("Треки упрощены (допуск {} м)", self.simplify_tolerance);
+            }
+            
+            Message::SplitTrackBySegments => {
+                // Только для одного выделенного трека с >1 сегментов.
+                if self.selection.tracks.len() != 1 { return; }
+                let id = *self.selection.tracks.iter().next().unwrap();
+
+                let Some(track_arc) = self.tracks.iter().find(|t| t.id == id).cloned() else { return };
+                let track = track_arc.as_ref();
+                let n_segments = track.segments.len();
+                if n_segments <= 1 { return; }
+
+                self.push_undo("Разделить трек посегментно");
+
+                let original_name = track.name.clone();
+                let color = track.color;
+                let visible = track.visible;
+                let base_props = track.props.clone();
+                let segments: Vec<_> = track.segments.clone();
+                let pos = self.tracks.iter().position(|t| t.id == id).unwrap();
+
+                let mut new_tracks: Vec<Arc<domain::Track>> = Vec::new();
+                for (i, seg) in segments.into_iter().enumerate() {
+                    let new_name = format!("{}_Segment_{}", original_name, i + 1);
+                    let mut new_props = base_props.clone();
+                    new_props.description = new_name.clone();
+
+                    // Первый сегмент сохраняет исходный id (rename), остальные — новые.
+                    // Source = New для всех: файл-источник больше не соответствует ни
+                    // одному треку после разбиения. Save As — правильный путь.
+                    let mut nt = domain::Track {
+                        id: if i == 0 { id } else { self.next_id },
+                        name: new_name,
+                        color,
+                        visible,
+                        segments: vec![seg],
+                        source: domain::FileSource::New,
+                        props: new_props,
+                        cached_points: 0,
+                        cached_distance_m: 0.0,
+                    };
+                    if i != 0 { self.next_id += 1; }
+                    domain::recompute_track_stats(&mut nt);
+                    new_tracks.push(Arc::new(nt));
+                }
+
+                // Вставляем разбиение на место оригинала, порядок сохраняется.
+                self.tracks.remove(pos);
+                for (i, t) in new_tracks.into_iter().enumerate() {
+                    self.tracks.insert(pos + i, t);
+                }
+
+                self.selection.tracks.clear();
+                self.tracks_cache.clear();
+                self.status = format!("Разделено на {} сегментов", n_segments);
             }
             Message::DeleteSelectedPoints => {
                 // Защита: не удаляем, если открыто модальное окно (например, редактируется текст)
