@@ -95,14 +95,12 @@ jobs:
           # Динамический поиск путей к библиотекам.
           # ВАЖНО: libxcb-dri3, libxcb-glx, libxcb-present сюда НЕ включены —
           # они привязаны к GPU-драйверу и должны браться из системы.
+                    # Бандлим только то, что не связано с GPU/X11-драйвером.
+          # X11/xcb/wayland — из системы (иначе конфликт с NVIDIA/Mesa).
           LIBS=""
           for lib in \
             libdbus-1.so.3 libexpat.so.1 libpciaccess.so.0 libsensors.so.5 \
-            libz.so.1 libzstd.so.1 \
-            libwayland-client.so.0 libwayland-egl.so.1 libwayland-server.so.0 \
-            libxkbcommon.so.0 libX11.so.6 libX11-xcb.so.1 libXau.so.6 \
-            libXdmcp.so.6 libXext.so.6 libxcb.so.1 libxcb-randr.so.0 \
-            libxcb-shm.so.0 libxcb-sync.so.1 libxcb-xfixes.so.0 libxshmfence.so.1
+            libz.so.1 libzstd.so.1
           do
             LIB_PATH=$(ldconfig -p | grep "$lib" | awk '{print $NF}' | head -n 1)
             if [ -z "$LIB_PATH" ]; then
@@ -117,6 +115,12 @@ jobs:
             --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png \
             $LIBS \
             --exclude-library "libsystemd*" \
+            --exclude-library "libbsd*" \
+            --exclude-library "libcap*" \
+            --exclude-library "libgcrypt*" \
+            --exclude-library "liblz4*" \
+            --exclude-library "liblzma*" \
+            --exclude-library "libmd*" \
             --exclude-library "libvulkan*" \
             --exclude-library "libGL*" \
             --exclude-library "libEGL*" \
@@ -124,9 +128,14 @@ jobs:
             --exclude-library "libGLdispatch*" \
             --exclude-library "libdrm*" \
             --exclude-library "libgbm*" \
-            --exclude-library "libxcb-dri*" \
-            --exclude-library "libxcb-glx*" \
-            --exclude-library "libxcb-present*" \
+            --exclude-library "libX11*" \
+            --exclude-library "libXau*" \
+            --exclude-library "libXdmcp*" \
+            --exclude-library "libXext*" \
+            --exclude-library "libxcb*" \
+            --exclude-library "libwayland*" \
+            --exclude-library "libxkbcommon*" \
+            --exclude-library "libffi*" \
             --output appimage
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
