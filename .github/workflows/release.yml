@@ -92,15 +92,16 @@ jobs:
           Categories=Utility;
           EOF
 
-          # Динамический поиск путей к библиотекам (Ubuntu использует x86_64-linux-gnu)
+          # Динамический поиск путей к библиотекам.
+          # ВАЖНО: libxcb-dri3, libxcb-glx, libxcb-present сюда НЕ включены —
+          # они привязаны к GPU-драйверу и должны браться из системы.
           LIBS=""
           for lib in \
             libdbus-1.so.3 libexpat.so.1 libpciaccess.so.0 libsensors.so.5 \
             libz.so.1 libzstd.so.1 \
             libwayland-client.so.0 libwayland-egl.so.1 libwayland-server.so.0 \
             libxkbcommon.so.0 libX11.so.6 libX11-xcb.so.1 libXau.so.6 \
-            libXdmcp.so.6 libXext.so.6 libxcb.so.1 libxcb-dri3.so.0 \
-            libxcb-glx.so.0 libxcb-present.so.0 libxcb-randr.so.0 \
+            libXdmcp.so.6 libXext.so.6 libxcb.so.1 libxcb-randr.so.0 \
             libxcb-shm.so.0 libxcb-sync.so.1 libxcb-xfixes.so.0 libxshmfence.so.1
           do
             LIB_PATH=$(ldconfig -p | grep "$lib" | awk '{print $NF}' | head -n 1)
@@ -117,8 +118,16 @@ jobs:
             $LIBS \
             --exclude-library "libsystemd*" \
             --exclude-library "libvulkan*" \
+            --exclude-library "libGL*" \
+            --exclude-library "libEGL*" \
+            --exclude-library "libGLX*" \
+            --exclude-library "libGLdispatch*" \
+            --exclude-library "libdrm*" \
+            --exclude-library "libgbm*" \
+            --exclude-library "libxcb-dri*" \
+            --exclude-library "libxcb-glx*" \
+            --exclude-library "libxcb-present*" \
             --output appimage
-
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
@@ -153,24 +162,11 @@ jobs:
         working-directory: ./foxy
         run: cargo build --release
 
-      - name: Install cargo-wix
-        run: cargo install cargo-wix
-
-      - name: Build MSI
-        working-directory: ./foxy
-        run: cargo wix --no-build --nocapture
-
       - name: Upload portable EXE
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
           path: foxy/target/release/foxyXplorer.exe
-
-      - name: Upload MSI
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-msi
-          path: foxy/target/wix/*.msi
 
   # ──────────────────────────────────────────────────────────────
   # macOS: universal .app → .dmg через cargo-packager
