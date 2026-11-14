@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version='1.0' encoding='windows-1252'?>
 <?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
     <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
 <?else ?>
@@ -13,7 +13,7 @@
         UpgradeCode='A3FA8115-A5AE-433E-B7AE-F587D5689C3B'
         Manufacturer='Grant Borodin'
         Language='1033'
-        Codepage='65001'
+        Codepage='1252'
         Version='$(var.Version)'>
 
         <Package Id='*'
@@ -23,8 +23,7 @@
             Languages='1033'
             Compressed='yes'
             InstallScope='perMachine'
-            Codepage='65001'
-            SummaryCodepage='1251'
+            SummaryCodepage='1252'
             />
         <Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER" />
         <MajorUpgrade
@@ -59,11 +58,11 @@
                                 Source='$(var.CargoTargetBinDir)\foxyXplorer.exe'
                                 KeyPath='yes'/>
                             <Shortcut Id="ApplicationStartMenuShortcut"
+                                      Directory="ApplicationProgramsFolder"
                                       Name="FoxyXplorer"
-                                      Description="Картографическое приложение для локальных задач"
+                                      Description="Cartographic application for local tasks"
                                       Target="[Bin]foxyXplorer.exe"
-                                      WorkingDirectory="Bin"/>
-                            <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
+                                      WorkingDirectory="Bin"/><RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
                         </Component>
                     </Directory>
                 </Directory>
