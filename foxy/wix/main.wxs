@@ -23,7 +23,8 @@
             Languages='1033'
             Compressed='yes'
             InstallScope='perMachine'
-            SummaryCodepage='65001'
+            Codepage='65001'
+            SummaryCodepage='1251'
             />
         <Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER" />
         <MajorUpgrade
