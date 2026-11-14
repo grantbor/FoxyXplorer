@@ -7,6 +7,7 @@ pub mod text;
 pub mod time;
 pub mod ms;
 pub mod wpt;
+pub mod kml;
 
 pub const FEET: f64 = 0.3048;
 

@@ -271,6 +271,14 @@ impl App {
                 },
                 "Сохранить в MS"
             ),
+             with_tooltip(
+                 if has_tracks || has_wps {
+                     self.btn_secondary("KML").on_press(Message::SaveTracksKml)
+                 } else {
+                     self.btn_secondary("KML")
+                 },
+                 "Сохранить в KML (Google Earth)"
+             ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu),
@@ -456,6 +464,14 @@ impl App {
                 },
                 "Сохранить в MS"
             ),
+             with_tooltip(
+                 if has_tracks || has_wps {
+                     self.btn_secondary("KML").on_press(Message::SaveTracksKml)
+                 } else {
+                     self.btn_secondary("KML")
+                 },
+                 "Сохранить в KML (Google Earth)"
+             ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu),

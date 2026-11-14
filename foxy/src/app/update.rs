@@ -92,6 +92,7 @@ impl App {
             Message::SaveTracksPlt | Message::SaveTracksPltPicked(_)
             | Message::SaveTracksGpx | Message::SaveTracksGpxPicked(_)
             | Message::SaveTracksMs | Message::SaveTracksMsPicked(_)
+            | Message::SaveTracksKml | Message::SaveTracksKmlPicked(_)
             | Message::SaveWaypointsWptNew | Message::SaveWaypointsWptNewPicked(_)
             | Message::SaveWaypointsWptAppend | Message::SaveWaypointsWptAppendPicked(_)
             | Message::SaveTrackProps | Message::SaveTrackPropsPicked(_) => {
@@ -2244,6 +2245,37 @@ impl App {
             }
             Message::SaveTracksMsPicked(None) => {}
             
+            Message::SaveTracksKml => {
+                let name = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
+                    .unwrap_or_else(|| "tracks".to_string());
+
+                let mut dialog = rfd::AsyncFileDialog::new()
+                    .set_file_name(format!("{}.kml", name))
+                    .add_filter("KML", &["kml"]);
+
+                if let Some(kit) = &self.last_kit {
+                    let dir = kit.join("10-Tracks");
+                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
+                }
+                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksKmlPicked);
+            }
+            Message::SaveTracksKmlPicked(Some(path)) => {
+                let sel_tracks: Vec<_> = self.tracks.iter()
+                    .filter(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| t.as_ref()).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter()
+                    .filter(|w| self.selection.waypoints.contains(&w.id))
+                    .map(|w| w.as_ref()).collect();
+                if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Сохранено в {}", path.display());
+                }
+            }
+            Message::SaveTracksKmlPicked(None) => {}
+            
             Message::SaveWaypointsWptNew => {
                 let date_str = date_offset(0).replace("-", "");
                 let default_name = format!("Waypoints_{}.wpt", date_str);
@@ -2392,7 +2424,7 @@ impl App {
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
-                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt"])
+                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml"])
                             .pick_files()
                             .await
                     },

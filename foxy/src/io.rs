@@ -70,6 +70,7 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
         "plt" => (false, geoio::plt::read(&bytes)),
         "ms" => (false, geoio::ms::read(&bytes)),
         "wpt" => (false, geoio::wpt::read(&bytes)),
+        "kml" => (false, geoio::kml::read(&bytes)),
         _ => return Err(format!("формат не поддерживается: {}", path.display())),
     };
     
@@ -241,6 +242,50 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+pub fn save_kml(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
+    let mut gd = geoio::GeoData::default();
+
+    for t in tracks {
+        let segments = t.segments.iter().map(|seg| {
+            seg.points.iter().map(|p| geoio::TrackPoint {
+                lat: p.lat,
+                lon: p.lon,
+                ele_m: p.ele,
+                time: p.time,
+            }).collect()
+        }).collect();
+
+        let color_str = if t.color != [0, 0, 0] {
+            Some(format!("#{:02X}{:02X}{:02X}", t.color[0], t.color[1], t.color[2]))
+        } else {
+            None
+        };
+
+        gd.tracks.push(geoio::Track {
+            name: t.name.clone(),
+            segments,
+            gpx_color: color_str,
+            ..Default::default()
+        });
+    }
+
+    for w in waypoints {
+        gd.waypoints.push(geoio::Waypoint {
+            name: w.name.clone(),
+            lon: w.lon,
+            lat: w.lat,
+            ele_m: w.ele,
+            time: w.time,
+            description: w.description.clone().unwrap_or_default(),
+            text_color: w.text_color,
+            bg_color: w.bg_color,
+        });
+    }
+
+    let xml = geoio::kml::write(&gd);
+    std::fs::write(path, xml).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 pub fn save_wpt(waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
     let geo_wps: Vec<geoio::Waypoint> = waypoints.iter().map(|w| geoio::Waypoint {
         name: ozi_hack(&w.name),
@@ -309,6 +354,7 @@ pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
             save_wpt(waypoints, path)
         },
         "ms" => save_ms(tracks, waypoints, path),
+        "kml" => save_kml(tracks, waypoints, path),
         _ => Err(format!("Формат {} не поддерживается для сохранения", ext)),
     }
 }

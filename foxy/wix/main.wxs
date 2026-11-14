@@ -76,7 +76,7 @@
             InstallScope='perMachine'
             SummaryCodepage='1252'
             />
-
+        <Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER" />
         <MajorUpgrade
             Schedule='afterInstallInitialize'
             DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
@@ -85,6 +85,9 @@
         <Property Id='DiskPrompt' Value='foxyXplorer Installation'/>
 
         <Directory Id='TARGETDIR' Name='SourceDir'>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="FoxyXplorer"/>
+            </Directory>
             <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
                 <Directory Id='APPLICATIONFOLDER' Name='foxyXplorer'>
                     
@@ -126,6 +129,12 @@
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\foxyXplorer.exe'
                                 KeyPath='yes'/>
+                            <Shortcut Id="ApplicationStartMenuShortcut"
+                                      Name="FoxyXplorer"
+                                      Description="Картографическое приложение для локальных задач"
+                                      Target="[Bin]foxyXplorer.exe"
+                                      WorkingDirectory="Bin"/>
+                            <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
                         </Component>
                     </Directory>
                 </Directory>
@@ -169,8 +178,8 @@
           The product icon is the graphic that appears in the Add/Remove
           Programs control panel for the application.
         -->
-        <!--<Icon Id='ProductICO' SourceFile='wix\Product.ico'/>-->
-        <!--<Property Id='ARPPRODUCTICON' Value='ProductICO' />-->
+        <Icon Id='ProductICO' SourceFile='..\assets\icon.ico'/>
+        <Property Id='ARPPRODUCTICON' Value='ProductICO' />
 
         
         <!--
@@ -185,7 +194,7 @@
         <!--<Property Id='ARPHELPLINK' Value='ChangeMe'/>-->
 
         <UI>
-            <UIRef Id='WixUI_FeatureTree'/>
+            <UIRef Id='WixUI_InstallDir'/>
             
             <!--
               Enabling the EULA dialog in the installer is a three step process:

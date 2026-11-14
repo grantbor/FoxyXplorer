@@ -241,6 +241,7 @@ pub(crate) enum Message {
     SaveTracksPlt, SaveTracksPltPicked(Option<PathBuf>),
     SaveTracksGpx, SaveTracksGpxPicked(Option<PathBuf>),
     SaveTracksMs, SaveTracksMsPicked(Option<PathBuf>),
+    SaveTracksKml, SaveTracksKmlPicked(Option<PathBuf>),
     ToggleWaypointVisible(u64, bool), SelectWaypoint(u64),
     SaveWaypointsWptNew, SaveWaypointsWptNewPicked(Option<PathBuf>),
     SaveWaypointsWptAppend, SaveWaypointsWptAppendPicked(Option<PathBuf>),

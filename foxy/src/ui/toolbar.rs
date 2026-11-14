@@ -81,14 +81,14 @@ impl App {
             let is_active = self.active_tool == tool;
             
             let btn = button(
-                container(lucide_iced::themed_icon(icon, 32.0))
+                container(lucide_iced::themed_icon(icon, 26.0))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .center_x(Length::Fill) 
                     .center_y(Length::Fill) 
             )
-            .width(Length::Fixed(48.0))
-            .height(Length::Fixed(48.0))
+            .width(Length::Fixed(40.0))
+            .height(Length::Fixed(40.0))
             .padding(0)
             .on_press(Message::SelectTool(tool));
 
@@ -124,7 +124,7 @@ impl App {
             make_tool_btn(crate::Tool::Ruler, lucide_iced::bytes::RULER, "Линейка (R)"),
         ]
         .spacing(4)
-        .padding([10, 0])
+        .padding([4, 4])
         .width(Length::Fixed(56.0))
         .into()
     }
