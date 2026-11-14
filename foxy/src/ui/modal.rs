@@ -3,7 +3,6 @@ use iced::widget::{
 };
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
-use crate::util::coords::build_template;
 use crate::widgets::palette::get_extended_palette;
 use crate::{App, Message, ContextMenuState, ContextMenuItem, ColorPickerKind};
 
@@ -98,7 +97,7 @@ impl App {
             // Заголовок с кнопкой закрытия
             row![
                 mouse_area(
-                    container(text(format!("Track List - {}", track_name)).size(18))
+                    container(text(format!("Список точек - {}", track_name)).size(18))
                         .width(Length::Fill)
                         .padding(4)
                         .style(|theme: &Theme| {
@@ -171,7 +170,7 @@ impl App {
             domain::FillType::CrossHatch, domain::FillType::Solid
         ];
 
-        let template = build_template(draft);
+        let template = draft.description.as_str();
 
         let extra_fields: Element<'a, Message> = if draft.callsign == "Zadacha" {
             row![].into()
@@ -254,10 +253,10 @@ impl App {
 
         let fill_fields: Element<'a, Message> = if draft.poly_type == domain::PolyType::Polygon {
             column![
-                row![text("Fill Color:").width(120), fill_color_row].align_y(Alignment::Center),
+                row![text("Цвет заливки:").width(120), fill_color_row].align_y(Alignment::Center),
                 fill_picker_ui,   // ← добавить
                 row![
-                    text("Fill Type:").width(120),
+                    text("Тип заливки:").width(120),
                     pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged)
                         .padding(native_theme_iced::button_padding(&self.resolved_theme))
                         .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
@@ -293,8 +292,8 @@ impl App {
             ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
-                text("Description:").width(120),
-                text_input("Введите описание...", &draft.description)
+                text("Имя:").width(120),
+                text_input("Введите имя...", &draft.description)
                     .on_input(Message::DraftDescChanged).width(280)
                     .padding(input_pad).style(input_style.clone())
             ].align_y(Alignment::Center),
@@ -319,21 +318,21 @@ impl App {
                 extra_fields
             ].align_y(Alignment::Center).spacing(4),
 
-            row![text("Line Color:").width(120), color_row].align_y(Alignment::Center),
+            row![text("Цвет линии:").width(120), color_row].align_y(Alignment::Center),
             line_picker_ui,
 
             row![
-                text("Width:").width(120),
+                text("Толщина:").width(120),
                 text_input("", &draft.line_width.to_string())
                     .on_input(Message::DraftWidthChanged).width(50)
                     .padding(input_pad).style(input_style.clone()),
-                container(text("Line Style:")).padding([0, 10]),
+                container(text("Стиль линии:")).padding([0, 10]),
                 pick_list(line_styles, Some(draft.line_style.clone()), Message::DraftStyleChanged)
                     .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
 
             row![
-                text("Type:").width(120),
+                text("Тип:").width(120),
                 pick_list(poly_types, Some(draft.poly_type.clone()), Message::DraftTypeChanged)
                     .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
