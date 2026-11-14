@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "foxyXplorer"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "coord",
  "declination",

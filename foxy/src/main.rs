@@ -383,6 +383,7 @@ pub(crate) struct App {
     pub(crate) lines: Vec<Vec<(f64, f64)>>,
     pub(crate) show_grid: bool,
     pub(crate) show_labels: bool,
+    pub(crate) compact_view: bool,
     pub(crate) declination: f64,
     pub(crate) format: CoordFormat,
     pub(crate) cx: f64,
@@ -561,7 +562,7 @@ impl App {
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
                     rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
-                    current_theme: initial_theme_kind
+                    current_theme: initial_theme_kind, compact_view: false,
                 };
 
                 for t in &mut app.tracks { 
@@ -614,7 +615,7 @@ impl App {
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
             rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
-            current_theme: initial_theme_kind
+            current_theme: initial_theme_kind, compact_view: false,
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -862,42 +863,65 @@ impl App {
         );
 
         // ---- Базовый интерфейс ----
-        let base_ui = column![
-            self.view_top_toolbar(),
-            row![
-                stack![
-                    container(self.view_map()).width(Length::Fill).height(Length::Fill),
-                    container(self.view_tool_palette())
-                        .width(Length::Fixed(56.0))
-                        .height(Length::Fill)
-                        .style(|_| container::Style::default()),
-                ].width(Length::Fill).height(Length::Fill),
-                mouse_area(
-                    container(text(""))
-                        .width(Length::Fixed(6.0))
-                        .height(Length::Fill)
-                        .style(|_| container::Style {
-                            background: Some(Color::from_rgb(0.2, 0.2, 0.25).into()),
-                            ..Default::default()
-                        })
-                ).on_press(Message::DividerPressed).on_release(Message::DividerReleased),
-                container(self.view_right_panel())
-                    .width(Length::Fixed(self.right_panel_width))
-                    .height(Length::Fill),
-            ]
-            .spacing(4)
-            .height(Length::Fill),
-            text(self.status.as_str()),
-            row![
-                text(info),
-                Space::new().width(Length::Fill),
-                text(format!("FoxyXplorer v{}", env!("CARGO_PKG_VERSION"))).size(11),
-            ].align_y(Alignment::Center),
-        ]
-        .spacing(4)
-        .padding(4)
-        .width(Length::Fill)
-        .height(Length::Fill);
+        let base_ui: Element<'_, Message> = {
+            let map_stack: Element<Message> = stack![
+                container(self.view_map()).width(Length::Fill).height(Length::Fill),
+                container(self.view_tool_palette())
+                    .width(Length::Fixed(56.0))
+                    .height(Length::Fill)
+                    .style(|_| container::Style::default()),
+            ].width(Length::Fill).height(Length::Fill).into();
+
+            let map_row: Element<Message> = if self.compact_view {
+                row![map_stack].spacing(4).height(Length::Fill).into()
+            } else {
+                row![
+                    map_stack,
+                    mouse_area(
+                        container(text(""))
+                            .width(Length::Fixed(6.0))
+                            .height(Length::Fill)
+                            .style(|_| container::Style {
+                                background: Some(Color::from_rgb(0.2, 0.2, 0.25).into()),
+                                ..Default::default()
+                            })
+                    ).on_press(Message::DividerPressed).on_release(Message::DividerReleased),
+                    container(self.view_right_panel())
+                        .width(Length::Fixed(self.right_panel_width))
+                        .height(Length::Fill),
+                ].spacing(4).height(Length::Fill).into()
+            };
+
+            // В компактном режиме показываем подсказку "[Tab]" перед версией,
+            // чтобы пользователь не забыл, как выйти.
+            let right_info: Element<Message> = if self.compact_view {
+                row![
+                    text("Нажмите Tab, чтобы включить панели"),
+                    Space::new().width(Length::Fixed(16.0)),
+                    text(format!("FoxyXplorer v{}", env!("CARGO_PKG_VERSION"))).size(11),
+                ].align_y(Alignment::Center).into()
+            } else {
+                text(format!("FoxyXplorer v{}", env!("CARGO_PKG_VERSION"))).size(11).into()
+            };
+
+            let mut layout = column![]
+                .spacing(4).padding(4)
+                .width(Length::Fill).height(Length::Fill);
+            if !self.compact_view {
+                layout = layout.push(self.view_top_toolbar());
+            }
+            layout = layout.push(map_row);
+            layout = layout.push(text(self.status.as_str()));
+            layout = layout.push(
+                row![
+                    text(info),
+                    Space::new().width(Length::Fill),
+                    right_info,
+                ].align_y(Alignment::Center)
+            );
+
+            layout.into()
+        };
 
         // ---- Модальные окна (промежуточный слой) ----
         let composed_ui: Element<'_, Message> = if let Some(Modal::TrackProps { track_id, draft }) = &self.modal {

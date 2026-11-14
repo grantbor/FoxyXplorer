@@ -930,6 +930,9 @@ impl App {
                         return Task::none();
                     }
                 }
+                if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab) = key {
+                    self.compact_view = !self.compact_view;
+                }
                 if !is_modal_open && !self.search_focused {
                     // 1. Инструменты (без модификаторов, с учетом обеих раскладок)
                     if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
