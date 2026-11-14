@@ -110,7 +110,7 @@ impl App {
             Message::OpenTrackList(_) | Message::CloseTrackList | Message::SelectTrackPoint(_, _)
             | Message::DeleteSelectedTrackPoints
             | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
-            | Message::SelectPointsOutsideGrid => {
+            | Message::SelectPointsOutsideGrid | Message::StitchSegments => {
                 self.update_track_list(m);
             }
         }
@@ -2741,6 +2741,79 @@ impl App {
                     self.update_track_list(Message::OpenTrackList(id));
                     self.tracks_cache.clear();
                 }
+            }
+            Message::StitchSegments => {
+                self.modal_drag_offset = Point::ORIGIN;
+                let Some(Modal::TrackList(state)) = &self.modal else { return };
+                let id = state.track_id;
+
+                let mut points: Vec<(usize, usize)> = state.selected_points.iter().copied().collect();
+                if points.len() != 2 {
+                    self.status = "Выделите две точки: последнюю сегмента N и первую сегмента N+1".into();
+                    return;
+                }
+                points.sort();
+                let (sect_a, pt_a) = points[0];
+                let (sect_b, pt_b) = points[1];
+
+                if sect_b != sect_a + 1 {
+                    self.status = "Точки должны быть из соседних сегментов".into();
+                    return;
+                }
+
+                let seg_a_idx = sect_a - 1;
+                let seg_b_idx = sect_b - 1;
+
+                // Валидация + расстояние — до мутации, чтобы не держать заимствование
+                let (dist, err) = {
+                    let Some(t) = self.tracks.iter().find(|t| t.id == id) else { return };
+                    if seg_a_idx >= t.segments.len() || seg_b_idx >= t.segments.len() {
+                        (0.0, Some("Сегменты не найдены"))
+                    } else if pt_a + 1 != t.segments[seg_a_idx].points.len() {
+                        (0.0, Some("Первая точка должна быть последней в сегменте"))
+                    } else if pt_b != 0 {
+                        (0.0, Some("Вторая точка должна быть первой в сегменте"))
+                    } else {
+                        let last_a = &t.segments[seg_a_idx].points[pt_a];
+                        let first_b = &t.segments[seg_b_idx].points[pt_b];
+                        let d = domain::haversine_m(last_a.lat, last_a.lon, first_b.lat, first_b.lon);
+                        (d, None)
+                    }
+                };
+                if let Some(msg) = err {
+                    self.status = msg.into();
+                    return;
+                }
+
+                self.push_undo("Сшить сегменты");
+
+                // Допуск «это одна и та же точка» — 1.5 метра. Увеличить — если
+                // на стыках бывают более заметные GPS-расхождения, которые
+                // пользователь всё равно хочет схлопнуть.
+                const DUP_TOLERANCE_M: f64 = 1.5;
+                let dedup = dist < DUP_TOLERANCE_M;
+
+                if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    let t_m = Arc::make_mut(t_mut);
+                    let mut seg_b_points = t_m.segments[seg_b_idx].points.clone();
+                    if dedup {
+                        seg_b_points.remove(0);
+                    }
+                    t_m.segments[seg_a_idx].points.extend(seg_b_points);
+                    t_m.segments.remove(seg_b_idx);
+                    domain::recompute_track_stats(t_m);
+                }
+
+                // Переоткрыть TrackList, чтобы обновить индексы строк
+                self.modal = None;
+                self.update_track_list(Message::OpenTrackList(id));
+                self.tracks_cache.clear();
+
+                self.status = if dedup {
+                    format!("Сшито, дубликат удалён (Δ{:.1} м)", dist)
+                } else {
+                    format!("Сшито с новым ребром (Δ{:.1} м)", dist)
+                };
             }
             Message::SelectPointsOutsideGrid => {
                 if let Some(Modal::TrackList(state)) = &mut self.modal {

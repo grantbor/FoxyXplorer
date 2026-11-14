@@ -123,6 +123,13 @@ impl App {
                 self.btn_secondary("Разделить").on_press_maybe(
                     state.last_clicked.map(|(s, p)| Message::SplitTrackAtPoint(s, p))
                 ),
+                self.btn_secondary("Сшить").on_press_maybe(
+                    if state.selected_points.len() == 2 {
+                        Some(Message::StitchSegments)
+                    } else {
+                        None
+                    }
+                ),                
                 self.btn_secondary("Вне сетки").on_press(Message::SelectPointsOutsideGrid),
                 self.btn_secondary("Удалить").on_press(Message::DeleteSelectedTrackPoints),
                 Space::new().width(Length::Fill),

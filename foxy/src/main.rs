@@ -266,6 +266,7 @@ pub(crate) enum Message {
     DeleteSelectedTrackPoints,
     CenterOnTrackPoint(usize, usize),
     SplitTrackAtPoint(usize, usize),
+    StitchSegments,
     SelectPointsOutsideGrid,
     ModalDragStart, TrackListUp, TrackListDown, FitTrackToScreen,CenterOnWaypoint(u64),
     ClearWaypointCrosshair,
