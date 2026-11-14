@@ -34,40 +34,40 @@
         <Property Id='DiskPrompt' Value='foxyXplorer Installation'/>
 
         <Directory Id='TARGETDIR' Name='SourceDir'>
+            <!-- Добавляем папку для меню Пуск -->
             <Directory Id="ProgramMenuFolder">
                 <Directory Id="ApplicationProgramsFolder" Name="FoxyXplorer"/>
             </Directory>
+        
             <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
                 <Directory Id='APPLICATIONFOLDER' Name='foxyXplorer'>
                     <Directory Id='Bin' Name='bin'>
-                        <Component Id='Path' Guid='87740A4E-DB11-431D-ABF8-3245F27732CA' KeyPath='yes'>
-                            <Environment
-                                Id='PATH'
-                                Name='PATH'
-                                Value='[Bin]'
-                                Permanent='no'
-                                Part='last'
-                                Action='set'
-                                System='yes'/>
-                        </Component>
+                        <!-- Компонент с exe (per-machine) -->
                         <Component Id='binary0' Guid='*'>
-                            <File
-                                Id='exe0'
-                                Name='foxyXplorer.exe'
-                                DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\foxyXplorer.exe'
-                                KeyPath='yes'/>
-                            <Shortcut Id="ApplicationStartMenuShortcut"
-                                      Directory="ApplicationProgramsFolder"
-                                      Name="FoxyXplorer"
-                                      Description="Cartographic application for local tasks"
-                                      Target="[Bin]foxyXplorer.exe"
-                                      WorkingDirectory="Bin"/><RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
+                            <File Id='exe0' Name='foxyXplorer.exe' DiskId='1'
+                                  Source='$(var.CargoTargetBinDir)\foxyXplorer.exe' KeyPath='yes'/>
+                        </Component>
+        
+                        <!-- НОВЫЙ компонент для ярлыка (per-user) -->
+                        <Component Id='ApplicationShortcut' Guid='*'>
+                            <!-- KeyPath: запись в реестре HKCU -->
+                            <RegistryValue Root='HKCU' Key='Software\FoxyXplorer'
+                                           Name='installed' Type='integer' Value='1' KeyPath='yes'/>
+                            <!-- Сам ярлык -->
+                            <Shortcut Id='ApplicationStartMenuShortcut'
+                                      Directory='ApplicationProgramsFolder'
+                                      Name='FoxyXplorer'
+                                      Description='Cartographic application for local tasks'
+                                      Target='[Bin]foxyXplorer.exe'
+                                      WorkingDirectory='Bin'/>
+                            <!-- Удаление папки из Пуск при деинсталляции -->
+                            <RemoveFolder Id='CleanUpShortCut' Directory='ApplicationProgramsFolder' On='uninstall'/>
                         </Component>
                     </Directory>
                 </Directory>
             </Directory>
         </Directory>
+        
 
         <Feature
             Id='Binaries'
@@ -78,8 +78,10 @@
             AllowAdvertise='no'
             Display='expand'
             Absent='disallow'>
+        
             <ComponentRef Id='binary0'/>
-
+            <ComponentRef Id='ApplicationShortcut'/>   <!-- сюда -->
+        
             <Feature
                 Id='Environment'
                 Title='PATH Environment Variable'
@@ -89,7 +91,6 @@
                 <ComponentRef Id='Path'/>
             </Feature>
         </Feature>
-
         <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
         <Icon Id='ProductICO' SourceFile='wix\icon.ico'/>
         <Property Id='ARPPRODUCTICON' Value='ProductICO' />
