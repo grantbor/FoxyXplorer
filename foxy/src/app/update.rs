@@ -54,7 +54,7 @@ impl App {
             Message::Layer(_) | Message::SelectTrack(_) | Message::ToggleTrackVisible(_, _)
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
-            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen 
+            | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen | Message::MergeTracks
             | Message::DeleteSelectedPoints | Message::FreehandReleased 
             | Message::DeleteTrackById(_) | Message::FitTrackById(_) | Message::SplitTrackBySegments |  Message::SplitTrackAt(_, _, _)  => {
                 self.update_tracks(m);
@@ -758,8 +758,10 @@ impl App {
                     }
                     self.cursor = Some(p);
                 } else if self.active_tool == crate::Tool::SelectPoints {
+                    self.cursor = Some(p);
                     self.handle_select_points_move(p);
                 } else if self.active_tool == crate::Tool::SelectObjects {
+                    self.cursor = Some(p);
                     self.handle_select_objects_move(p);
                 } else if self.active_tool == crate::Tool::Freehand {
                     if self.freehand_is_drawing {
@@ -1470,6 +1472,57 @@ impl App {
                 // 3. Обновляем UI
                 self.tracks_cache.clear();
                 self.status = format!("Треки упрощены (допуск {} м)", self.simplify_tolerance);
+            }
+            Message::MergeTracks => {
+                // Нужно минимум 2 выделенных трека
+                if self.selection.tracks.len() < 2 { return; }
+
+                // «Первый» = самый верхний в списке (порядок `self.tracks`).
+                // HashSet не хранит порядок, поэтому ориентируемся на позицию в UI.
+                let Some(target_id) = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| t.id)
+                else { return };
+
+                self.push_undo("Объединить треки");
+
+                // Собираем сегменты и id остальных выделенных в порядке списка
+                let mut extra_segments: Vec<domain::TrackSegment> = Vec::new();
+                let mut other_ids: Vec<u64> = Vec::new();
+                for t in &self.tracks {
+                    if t.id == target_id { continue; }
+                    if !self.selection.tracks.contains(&t.id) { continue; }
+                    for seg in &t.segments {
+                        extra_segments.push(domain::TrackSegment { points: seg.points.clone() });
+                    }
+                    other_ids.push(t.id);
+                }
+
+                if extra_segments.is_empty() && other_ids.is_empty() {
+                    // Защита: если выделены только id, которых нет в списке
+                    return;
+                }
+
+                // Дописываем сегменты в целевой трек, помечаем как New
+                if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == target_id) {
+                    let t_m = Arc::make_mut(t_mut);
+                    for seg in extra_segments {
+                        t_m.segments.push(seg);
+                    }
+                    // После объединения источник-файл больше не соответствует содержимому
+                    t_m.source = domain::FileSource::New;
+                    domain::recompute_track_stats(t_m);
+                }
+
+                // Удаляем остальные
+                self.tracks.retain(|t| !other_ids.contains(&t.id));
+
+                // Выделение — только целевой трек
+                self.selection.tracks.clear();
+                self.selection.tracks.insert(target_id);
+
+                self.tracks_cache.clear();
+                self.status = format!("Объединено треков: {}", other_ids.len() + 1);
             }
             
             Message::SplitTrackBySegments => {

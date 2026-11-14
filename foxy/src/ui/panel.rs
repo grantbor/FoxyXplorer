@@ -201,7 +201,8 @@ impl App {
             && self.tracks.iter()
                 .find(|t| self.selection.tracks.contains(&t.id))
                 .map_or(false, |t| t.segments.len() > 1);
-
+        let mergeable = self.selection.tracks.len() >= 2;
+        
         let row_normal = row![
             with_tooltip(
                 if one_track {
@@ -226,6 +227,14 @@ impl App {
                     self.icon_button_disabled(lucide_iced::bytes::LIST)
                 },
                 "Таблица точек"
+            ),
+            with_tooltip(
+                if mergeable {
+                    self.icon_button(lucide_iced::bytes::GIT_MERGE, Message::MergeTracks)
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::GIT_MERGE)
+                },
+                "Объединить выделенные треки в один"
             ),
             with_tooltip(
                 if multi_seg_selected {
