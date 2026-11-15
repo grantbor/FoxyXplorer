@@ -6,7 +6,7 @@ use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 
 use crate::osm;
 use crate::util::geo::{affine};
-use crate::{App, Message};
+use crate::{App, Message, BasemapSource};
 use crate::util::geo::dist_to_segment;
 
 pub struct MapProgram<'a> {
@@ -225,6 +225,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                     let sz = bounds.size();
                     let max_z = match app.online_basemap() {
                         Some(crate::BasemapSource::Sentinel2) => Some(14u8),
+                        Some(BasemapSource::Esri) => Some(19),
                         _ => None,
                     };
                     let (_z, tiles) = osm::visible_tiles(
@@ -232,6 +233,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         sz.width as f64, sz.height as f64,
                         max_z,
                     );
+                    
 
                     for id in tiles {
                         let rect = osm::tile_screen_rect(
@@ -275,6 +277,11 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                             "Sentinel-2 cloudless by EOX IT Services GmbH \
                             (Contains modified Copernicus Sentinel data 2024) — CC BY 4.0",
                             720.0,
+                        ),
+                        Some(crate::BasemapSource::Esri) => (
+                            "Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, \
+                            AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, and the GIS User Community",
+                            900.0,
                         ),
                         _ => (
                             "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team",

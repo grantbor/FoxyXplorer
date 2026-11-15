@@ -62,6 +62,7 @@ impl OsmCache {
         let (src, ext) = match self.source {
             BasemapSource::Osm => ("osm", "png"),
             BasemapSource::Sentinel2 => ("s2", "jpg"),
+            BasemapSource::Esri => ("esri", "jpg"),
         };
         self.dir
             .join(src)
@@ -185,11 +186,14 @@ fn cleanup_if_needed(dir: &Path, cfg: &OsmCacheConfig) {
 
 pub fn client() -> Client {
     let user_agent = format!(
-        "FoxyXplorer/{} (+https://github.com/grantbor/FoxyXplorer; contact: your-email@example.com)",
+        "FoxyXplorer/{} (+https://github.com/grantbor/FoxyXplorer)",
         env!("CARGO_PKG_VERSION")
     );
     Client::builder()
         .user_agent(user_agent)
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .https_only(true)
         .build()
         .expect("reqwest client")
 }

@@ -325,6 +325,7 @@ pub(crate) enum Tool {
 pub(crate) enum BasemapSource {
     Osm,
     Sentinel2,
+    Esri,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,6 +526,8 @@ impl App {
             Some(BasemapSource::Osm)
         } else if self.active == self.layers.len() + 1 {
             Some(BasemapSource::Sentinel2)
+        } else if self.active == self.layers.len() + 2 {
+            Some(BasemapSource::Esri)
         } else {
             None
         }
@@ -543,6 +546,10 @@ impl App {
             Some(BasemapSource::Sentinel2) => format!(
                 "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{}/{}/{}.jpg",
                 id.0, id.2, id.1   // ← ВАЖНО: {z}/{y}/{x}, не {z}/{x}/{y}
+            ),
+            Some(BasemapSource::Esri) => format!(
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{}/{}/{}.jpg",
+                id.0, id.2, id.1   // порядок {z}/{y}/{x}, как у Sentinel-2
             ),
             None => String::new(),
         }
@@ -610,6 +617,8 @@ impl App {
                 if let Some(kit_path) = &app.last_kit { app.apply_kit(load_kit(kit_path)); }
 
                 app.cx = session.view.cx; app.cy = session.view.cy; app.scale = session.view.scale;
+                // При восстановлении сессии любой онлайн-источник сводится к OSM.
+                // Локальные карты (active < layers.len()) сохраняются как были.
                 app.active = session.view.active.min(app.layers.len());
                 app.show_grid = session.view.show_grid; app.show_labels = session.view.show_labels;
                 app.format = match session.view.format_str.as_str() {
@@ -841,6 +850,7 @@ impl App {
         let sz = self.last_bounds.get();
         let max_z = match self.online_basemap() {
             Some(BasemapSource::Sentinel2) => Some(14u8),
+            Some(BasemapSource::Esri) => Some(19),
             _ => None,
         };
         let (z, tiles) = osm::visible_tiles(
@@ -848,6 +858,7 @@ impl App {
             sz.width as f64, sz.height as f64,
             max_z,
         );
+        
         self.osm_z = z;
 
         let mut tasks: Vec<Task<Message>> = Vec::new();
@@ -898,6 +909,7 @@ impl App {
                 let label = match src {
                     BasemapSource::Osm => "OSM",
                     BasemapSource::Sentinel2 => "Sentinel-2",
+                    BasemapSource::Esri => "ESRI",
                 };
                 format!("{} z{} (кэш {}, в очереди {})", label, self.osm_z, cached, pending)
             }

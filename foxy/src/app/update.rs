@@ -179,6 +179,7 @@ impl App {
         self.cy = sess.view.cy;
         self.scale = sess.view.scale;
         self.active = sess.view.active.min(self.layers.len());
+        self.osm_cache.set_source(crate::BasemapSource::Osm);
         self.show_grid = sess.view.show_grid;
         self.show_labels = sess.view.show_labels;
         self.format = match sess.view.format_str.as_str() {
@@ -1334,7 +1335,7 @@ impl App {
     fn update_tracks(&mut self, m: Message) {
         match m {
             Message::Layer(i) => {
-                if i <= self.layers.len() + 1 {
+                if i <= self.layers.len() + 2 {
                     self.active = i;
                     if let Some(src) = self.online_basemap() {
                         self.osm_cache.set_source(src);
