@@ -348,9 +348,13 @@ pub(crate) fn build_session(app: &App) -> session::Session {
         CoordFormat::DegMinSec => "DegMinSec",
     }.to_string();
 
+
+    
     session::Session {
         version: 1,
         last_kit: app.last_kit.clone(),
+        last_open_dir: app.last_open_dir.clone(),
+        last_save_dir: app.last_save_dir.clone(),
         view: session::SessionView {
             cx: app.cx,
             cy: app.cy,
@@ -365,7 +369,7 @@ pub(crate) fn build_session(app: &App) -> session::Session {
        theme: Some(match app.current_theme {
             AppTheme::Light => "light".to_string(),
             AppTheme::Dark  => "dark".to_string(),
-        }), 
+        }),
         tracks: app.tracks.iter().map(|t| t.as_ref().clone()).collect(),
         waypoints: app.waypoints.iter().map(|w| w.as_ref().clone()).collect(),
         next_id: app.next_id,
@@ -411,6 +415,8 @@ pub(crate) struct App {
     pub(crate) search_tracks: String,
     pub(crate) search_waypoints: String,
     pub(crate) last_kit: Option<PathBuf>, 
+    pub(crate) last_open_dir: Option<PathBuf>,
+    pub(crate) last_save_dir: Option<PathBuf>,
     pub(crate) palette: Vec<[u8; 3]>,
     pub(crate) modal: Option<Modal>,
     pub(crate) track_backup: Option<domain::Track>, 
@@ -563,7 +569,8 @@ impl App {
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
                     rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
-                    current_theme: initial_theme_kind, compact_view: false,
+                    current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
+                
                 };
 
                 for t in &mut app.tracks { 
@@ -616,7 +623,7 @@ impl App {
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
             rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
-            current_theme: initial_theme_kind, compact_view: false,
+            current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
         };
 
         let kit_path: Option<PathBuf> = if force_osm {
@@ -629,7 +636,7 @@ impl App {
 
         if let Some(p) = kit_path {
             if app.apply_kit(load_kit(&p)) {
-                app.last_kit = Some(p.clone());
+                app.last_kit = Some(p.to_path_buf());
                 session::save_last_kit(&p);
             }
         }

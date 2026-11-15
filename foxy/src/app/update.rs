@@ -170,6 +170,8 @@ impl App {
             domain::recompute_track_stats(Arc::make_mut(t));
         }
         self.last_kit = sess.last_kit.clone();
+        self.last_open_dir = sess.last_open_dir.clone();
+        self.last_save_dir = sess.last_save_dir.clone();
         if let Some(kit) = &self.last_kit {
             self.apply_kit(crate::load_kit(kit));
         }
@@ -2269,7 +2271,6 @@ impl App {
             _ => {}
         }
     }
-
     // =========================================================================
     // 7. Сохранение файлов
     // =========================================================================
@@ -2281,25 +2282,29 @@ impl App {
                     .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
                     .unwrap_or_else(|| "track".to_string());
 
-                let mut dialog = rfd::AsyncFileDialog::new()
-                    .set_file_name(format!("{}.plt", name))
-                    .add_filter("OziExplorer Track", &["plt"]);
-                
-                if let Some(kit) = &self.last_kit {
-                    let dir = kit.join("10-Tracks");
-                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
-                }
+            let dialog = self.save_dialog_with_dir(
+                &format!("{}.plt", name),
+                "OziExplorer Track",
+                &["plt"],
+            );
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksPltPicked);
             }
+            
             Message::SaveTracksPltPicked(Some(path)) => {
-                let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()).collect();
-                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
+                let sel_tracks: Vec<_> = self.tracks.iter()
+                    .filter(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| t.as_ref()).collect();
+                let sel_wps: Vec<_> = self.waypoints.iter()
+                    .filter(|w| self.selection.waypoints.contains(&w.id))
+                    .map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
                     self.status = format!("Ошибка: {e}");
                 } else {
                     self.status = format!("Сохранено в {}", path.display());
+                    // remember_save_dir НЕ вызывать
                 }
             }
+            
             Message::SaveTracksPltPicked(None) => {}
             
             Message::SaveTracksGpx => {
@@ -2307,7 +2312,7 @@ impl App {
                     .find(|t| self.selection.tracks.contains(&t.id))
                     .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
                     .unwrap_or_else(|| "tracks".to_string());
-
+    
                 let mut dialog = rfd::AsyncFileDialog::new()
                     .set_file_name(format!("{}.gpx", name))
                     .add_filter("GPX", &["gpx"]);
@@ -2335,16 +2340,17 @@ impl App {
                     .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
                     .unwrap_or_else(|| "tracks".to_string());
 
-                let mut dialog = rfd::AsyncFileDialog::new()
-                    .set_file_name(format!("{}.ms", name))
-                    .add_filter("Guru Maps", &["ms"]);
-                
-                if let Some(kit) = &self.last_kit {
-                    let dir = kit.join("10-Tracks");
-                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
-                }
-                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksMsPicked);
+                let dialog = self.save_dialog_with_dir(
+                    &format!("{}.ms", name),
+                    "Guru Maps",
+                    &["ms"],
+                );
+                return Task::perform(
+                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
+                    Message::SaveTracksMsPicked,
+                );
             }
+            
             Message::SaveTracksMsPicked(Some(path)) => {
                 let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()).collect();
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
@@ -2362,15 +2368,15 @@ impl App {
                     .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
                     .unwrap_or_else(|| "tracks".to_string());
 
-                let mut dialog = rfd::AsyncFileDialog::new()
-                    .set_file_name(format!("{}.kml", name))
-                    .add_filter("KML", &["kml"]);
-
-                if let Some(kit) = &self.last_kit {
-                    let dir = kit.join("10-Tracks");
-                    if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
-                }
-                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksKmlPicked);
+                let dialog = self.save_dialog_with_dir(
+                    &format!("{}.kml", name),
+                    "KML",
+                    &["kml"],
+                );
+                return Task::perform(
+                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
+                    Message::SaveTracksKmlPicked,
+                );
             }
             Message::SaveTracksKmlPicked(Some(path)) => {
                 let sel_tracks: Vec<_> = self.tracks.iter()
@@ -2399,19 +2405,12 @@ impl App {
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
                 }
                 return Task::perform(
-                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, 
-                    Message::SaveWaypointsWptNewPicked
+                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
+                    Message::SaveWaypointsWptNewPicked,
                 );
             }
-            Message::SaveWaypointsWptNewPicked(Some(path)) => {
-                let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
-                if let Err(e) = io::save_any(&[], &sel_wps, &path) {
-                    self.status = format!("Ошибка: {e}");
-                } else {
-                    self.status = format!("Сохранено в {}", path.display());
-                }
-            }
-            Message::SaveWaypointsWptNewPicked(None) => {}
+            
+            Message::SaveWaypointsWptNewPicked(None) => {}            
 
             Message::SaveWaypointsWptAppend => {
                 let mut dialog = rfd::AsyncFileDialog::new()
@@ -2420,8 +2419,13 @@ impl App {
                     let dir = kit.join("10-Tracks");
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
                 }
-                return Task::perform(async move { dialog.pick_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveWaypointsWptAppendPicked);
+                return Task::perform(
+                    async move { dialog.pick_file().await.map(|h| h.path().to_path_buf()) },
+                    Message::SaveWaypointsWptAppendPicked,
+                );
             }
+
+
             Message::SaveWaypointsWptAppendPicked(Some(path)) => {
                 let mut all_wps = Vec::new();
                 if let Ok(content) = io::load_user_file(&path, &mut self.next_id) {
@@ -2443,11 +2447,11 @@ impl App {
 
             Message::SaveTrackProps => {
                 if let Some(Modal::TrackProps { draft, .. }) = &self.modal {
-                    let default_name = format!("{}.plt", draft.description); 
+                    let default_name = format!("{}.plt", draft.description);
                     let mut dialog = rfd::AsyncFileDialog::new()
                         .set_file_name(&default_name)
                         .add_filter("OziExplorer Track", &["plt"]);
-                    
+
                     if let Some(kit) = &self.last_kit {
                         let tracks_dir = kit.join("10-Tracks");
                         if tracks_dir.is_dir() {
@@ -2463,23 +2467,21 @@ impl App {
                     );
                 }
             }
+            
             Message::SaveTrackPropsPicked(Some(path)) => {
                 self.modal_drag_offset = Point::ORIGIN;
-                // 1. Достаем id, чтобы освободить self.modal
                 let track_id = if let Some(Modal::TrackProps { track_id, .. }) = &self.modal {
                     *track_id
                 } else {
-                    return Task::none(); // или можно просто ничего не делать
+                    return Task::none();
                 };
 
-                // 2. Сохраняем на диск (только читаем данные)
                 let save_result = if let Some(t) = self.tracks.iter().find(|t| t.id == track_id) {
                     io::save_plt(t, &path)
                 } else {
                     Err("Трек не найден".to_string())
                 };
 
-                // 3. Обрабатываем результат и меняем self
                 match save_result {
                     Err(e) => {
                         self.status = format!("Ошибка сохранения: {e}");
@@ -2487,12 +2489,12 @@ impl App {
                     Ok(_) => {
                         self.push_undo("Сохранение трека в файл");
                         self.status = format!("Сохранено в {}", path.display());
-                        
+                        // remember_save_dir НЕ вызывать
                         if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == track_id) {
                             let t_m = Arc::make_mut(t_mut);
-                            t_m.source = domain::FileSource::File { 
-                                path: path.clone(), 
-                                read_only: false 
+                            t_m.source = domain::FileSource::File {
+                                path: path.clone(),
+                                read_only: false
                             };
                             t_m.name = t_m.props.description.clone();
                         }
@@ -2501,6 +2503,7 @@ impl App {
                     }
                 }
             }
+            
             Message::SaveTrackPropsPicked(None) => {}
             _ => {}
         }
@@ -2532,12 +2535,15 @@ impl App {
             Message::KitPicked(None) => {}
             
             Message::PickTrack => {
+                let dir = self.last_open_dir.clone();
                 return Task::perform(
-                    async {
-                        rfd::AsyncFileDialog::new()
-                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml"])
-                            .pick_files()
-                            .await
+                    async move {
+                        let mut dialog = rfd::AsyncFileDialog::new()
+                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml"]);
+                        if let Some(d) = dir {
+                            dialog = dialog.set_directory(&d);
+                        }
+                        dialog.pick_files().await
                     },
                     |files| Message::TracksPicked(
                         files.map(|fs| fs.into_iter().map(|f| f.path().to_path_buf()).collect())
@@ -2545,6 +2551,11 @@ impl App {
                 );
             }
             Message::TracksPicked(Some(paths)) => {
+                if let Some(first) = paths.first() {
+                    if let Some(parent) = first.parent() {
+                        self.last_open_dir = Some(parent.to_path_buf());
+                    }
+                }
                 for path in paths {
                     match io::load_user_file(&path, &mut self.next_id) {
                         Ok(content) => {
@@ -2942,6 +2953,30 @@ impl App {
             }
         }
     }
+    
+    fn save_dialog_with_dir(
+        &self,
+        default_name: &str,
+        filter_name: &str,
+        filter_ext: &[&str],
+    ) -> rfd::AsyncFileDialog {
+        let mut dialog = rfd::AsyncFileDialog::new()
+            .set_file_name(default_name)
+            .add_filter(filter_name, filter_ext);
+        if let Some(dir) = &self.last_save_dir {
+            dialog = dialog.set_directory(dir);
+        } else if let Some(kit) = &self.last_kit {
+            let sub = kit.join("10-Tracks");
+            if sub.is_dir() {
+                dialog = dialog.set_directory(&sub);
+            } else {
+                dialog = dialog.set_directory(kit);
+            }
+        }
+        dialog
+    }
+
+    
     fn fit_to_grid(&mut self) -> bool {
         if self.grid.is_none() {
             return false;
@@ -2988,3 +3023,4 @@ impl App {
     }
     
 }
+

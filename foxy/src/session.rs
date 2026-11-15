@@ -25,6 +25,11 @@ pub struct Session {
     pub tracks: Vec<Track>,
     pub waypoints: Vec<Waypoint>,
     pub next_id: u64,
+    #[serde(default)]
+    pub last_open_dir: Option<PathBuf>,
+
+    #[serde(default)]
+    pub last_save_dir: Option<PathBuf>,
 }
 
 pub fn foxy_config_dir() -> PathBuf {
@@ -93,3 +98,4 @@ pub fn clear_session_files() {
     let _ = std::fs::remove_file(session_path());
     let _ = std::fs::remove_file(last_kit_path());
 }
+
