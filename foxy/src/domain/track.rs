@@ -28,8 +28,18 @@ impl std::fmt::Display for PolyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum FillType { None, Diagonal1, Diagonal2, CrossHatch, Solid }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FillType {
+    Solid,
+    None,
+    Diagonal1,
+    Diagonal2,
+    CrossHatch,
+    DiagCross,
+    Horizontal,
+    Vertical,
+}
+
 impl Default for FillType { fn default() -> Self { Self::None } }
 impl std::fmt::Display for FillType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }

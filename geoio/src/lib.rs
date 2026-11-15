@@ -48,6 +48,7 @@ pub struct PltStyle {
     /// Цвет как целое BGR, как в Ozi (255 = красный).
     pub color: u32,
     pub skip: u32,
+    pub poly_flag: u32,
     pub kind: u32,
     pub fill_style: u32,
     pub fill_color: u32,
@@ -61,6 +62,7 @@ impl Default for PltStyle {
             width: 2,
             color: 255,
             skip: 0,
+            poly_flag: 0,
             kind: 0,
             fill_style: 2,
             fill_color: 8_421_376,

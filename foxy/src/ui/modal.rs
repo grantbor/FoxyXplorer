@@ -1,5 +1,5 @@
 use iced::widget::{
-    button, column, container, mouse_area, pick_list, row, scrollable, text, text_input, Space,
+    button, column, container, mouse_area, pick_list, row, scrollable, text, text_input, tooltip, Space,
 };
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
@@ -26,7 +26,10 @@ impl App {
     // =========================================================
     // Таблица точек (Track List)
     // =========================================================
-    pub(crate) fn view_track_list_modal<'a>(&'a self, state: &'a crate::TrackListState) -> Element<'a, Message> {
+    pub(crate) fn view_track_list_modal<'a>(
+        &'a self,
+        state: &'a crate::TrackListState,
+    ) -> Element<'a, Message> {
         let track_name = self.tracks.iter().find(|t| t.id == state.track_id).map(|t| t.name.as_str()).unwrap_or("Unknown");
         
         let header = container(
@@ -160,7 +163,7 @@ impl App {
     // =========================================================
     // Свойства трека
     // =========================================================
-    pub(crate) fn view_track_props_modal<'a>(&'a self, _id: u64, draft: &'a domain::TrackProps) -> Element<'a, Message> {
+    pub(crate) fn view_track_props_modal<'a>(&'a self, id: u64, draft: &'a domain::TrackProps) -> Element<'a, Message> {
         let callsigns = vec![
             "Lisa".to_string(), "Veter".to_string(), "Kinolog".to_string(), 
             "BPLA".to_string(), "Bort".to_string(), "Zadacha".to_string(), 
@@ -173,11 +176,33 @@ impl App {
         ];
         let poly_types = vec![domain::PolyType::Line, domain::PolyType::Polygon];
         let fill_types = vec![
-            domain::FillType::None, domain::FillType::Diagonal1, domain::FillType::Diagonal2, 
-            domain::FillType::CrossHatch, domain::FillType::Solid
+            domain::FillType::None,
+            domain::FillType::Solid,
+            domain::FillType::Diagonal1,
+            domain::FillType::Diagonal2,
+            domain::FillType::CrossHatch,
+            domain::FillType::DiagCross,
+            domain::FillType::Horizontal,
+            domain::FillType::Vertical,
         ];
 
         let template = draft.description.as_str();
+        
+        // Извлекаем исходный путь из Track, а не из TrackProps.
+        // draft — это копия props, в ней нет source. Track ищем по id.
+        let file_source: Option<&'a std::path::Path> = self.tracks.iter()
+            .find(|t| t.id == id)
+            .and_then(|t| match &t.source {
+                domain::FileSource::File { path, .. } => Some(path.as_path()),
+                _ => None,
+            });
+
+        let file_name: &'a str = file_source
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("Создан в сессии");
+
+        let file_path: Option<&'a std::path::Path> = file_source;
 
         let extra_fields: Element<'a, Message> = if draft.callsign == "Zadacha" {
             row![].into()
@@ -304,6 +329,62 @@ impl App {
                     .on_input(Message::DraftDescChanged).width(280)
                     .padding(input_pad).style(input_style.clone())
             ].align_y(Alignment::Center),
+            
+            // Исходный файл (read-only + tooltip с путём)
+            {
+            let file_field: Element<'a, Message> = if let Some(path) = file_path {
+                container(
+                    tooltip(
+                        text_input("", file_name)
+                            .padding(input_pad)
+                            .width(Length::Fill)
+                            .style(|theme: &Theme, _status| {
+                                let palette = theme.extended_palette();
+                                iced::widget::text_input::Style {
+                                    background: palette.background.weak.color.into(),
+                                    border: iced::Border {
+                                        color: palette.background.strong.color,
+                                        width: 1.0,
+                                        radius: 4.0.into(),
+                                    },
+                                    icon: palette.background.weak.text,
+                                    placeholder: palette.background.weak.text,
+                                    value: palette.background.weak.text,
+                                    selection: palette.primary.weak.color,
+                                }
+                            }),
+                        container(text(path.display().to_string()))
+                            .padding([4, 8])
+                            .style(|theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                container::Style {
+                                    background: Some(palette.background.weak.color.into()),
+                                    text_color: Some(palette.background.weak.text),
+                                    border: iced::Border {
+                                        color: palette.background.strong.color,
+                                        width: 1.0,
+                                        radius: 4.0.into(),
+                                    },
+                                    ..Default::default()
+                                }
+                            }),
+                        iced::widget::tooltip::Position::Bottom,
+                    )
+                )
+                .width(Length::Fill)
+                .into()
+            } else {
+                container(text(file_name).size(14))
+                    .padding([6, 8])
+                    .width(Length::Fill)
+                    .into()
+            };
+
+                row![
+                    text("Исходник:").width(120),
+                    file_field,
+                ].align_y(Alignment::Center)
+            },
 
             row![
                 text("Дата:").width(120),

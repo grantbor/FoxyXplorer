@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 use std::path::Path;
-use crate::domain::{Track, TrackPoint, TrackSegment, Waypoint, FileSource, TrackProps, PolyType, FillType, recompute_track_stats};
+use crate::domain::{
+    Track, TrackPoint, TrackSegment, Waypoint, FileSource, TrackProps,
+    PolyType, FillType, LineStyle, recompute_track_stats,
+};
 
 
 pub struct LoadedContent {
@@ -64,6 +67,7 @@ fn rgb_to_ozi(c: [u8; 3]) -> u32 {
 pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
+
     
     let (is_read_only, data) = match ext.as_str() {
         "gpx" => (true, geoio::gpx::read(&bytes)),
@@ -80,8 +84,6 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
     for (i, t) in gd.tracks.into_iter().enumerate() {
         let color = if let Some(c) = t.gpx_color.as_deref().and_then(parse_gpx_color) {
             c
-        } else if t.style.color != 0 {
-            ozi_to_rgb(t.style.color)
         } else {
             next_color(i)
         };
@@ -96,6 +98,34 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             }).collect();
             segments.push(TrackSegment { points });
         }
+        
+        let line_style = match t.style.kind {
+            0 => LineStyle::Solid,
+            1 => LineStyle::Dash,
+            2 => LineStyle::Dot,
+            3 => LineStyle::DashDot,
+            4 => LineStyle::DashDotDot,
+            _ => LineStyle::Solid,
+        };
+
+        let fill_type = match t.style.fill_style {
+            0 => FillType::Solid,
+            1 => FillType::None,
+            2 => FillType::Diagonal1,
+            3 => FillType::Diagonal2,
+            4 => FillType::CrossHatch,
+            5 => FillType::DiagCross,
+            6 => FillType::Horizontal,
+            7 => FillType::Vertical,
+            _ => FillType::None,
+        };
+
+        let poly_type = match t.style.poly_flag {
+            10 | 20 => PolyType::Polygon,
+            _ => PolyType::Line,
+        };
+        
+        let fill_color = ozi_to_rgb(t.style.fill_color);
         
         let name = if t.name.is_empty() {
             format!("{}: trk#{}", path.file_stem().unwrap_or_default().to_string_lossy(), i + 1)
@@ -112,9 +142,14 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             source: FileSource::File { path: path.to_path_buf(), read_only: is_read_only },
             cached_points: 0,
             cached_distance_m: 0.0,
-            props: TrackProps {          
-                description: name, 
+            props: TrackProps {
+                description: name,
                 line_color: color,
+                line_style,
+                fill_type,
+                fill_color,
+                line_width: t.style.width as f32,
+                poly_type, 
                 ..Default::default()
             },
         };
@@ -210,34 +245,45 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
             time: p.time,
         }).collect()
     }).collect();
-    
+
     let mut geo_track = geoio::Track {
-        name: ozi_hack(&track.props.description), // <-- ПРИМЕНИЛИ ЗДЕСЬ
+        name: ozi_hack(&track.props.description),
         segments,
         ..Default::default()
     };
+
+    geo_track.style.kind = match track.props.line_style {
+        LineStyle::Solid      => 0,
+        LineStyle::Dash       => 1,
+        LineStyle::Dot        => 2,
+        LineStyle::DashDot    => 3,
+        LineStyle::DashDotDot => 4,
+    };
     
-    geo_track.style.color = rgb_to_ozi(track.props.line_color);
-    geo_track.style.width = track.props.line_width as u32;
-    
-    // Настройки заливки
-    geo_track.style.fill_color = rgb_to_ozi(track.props.fill_color);
-    
+    geo_track.style.poly_flag = if track.props.poly_type == PolyType::Polygon {
+        10
+    } else {
+        0
+    };
+
     if track.props.poly_type == PolyType::Polygon {
-        // Спецификация OziExplorer для PLT (Field 7):
-        // 0 = bsSolid, 1 = bsClear (None), 2 = bsBdiagonal, 3 = bsFdiagonal, 
-        // 4 = bsCross, 5 = bsDiagCross, 6 = bsHorizontal, 7 = bsVertical
         geo_track.style.fill_style = match track.props.fill_type {
-            FillType::Solid => 0,
-            FillType::None => 1,
-            FillType::Diagonal1 => 2, // bsBdiagonal
-            FillType::Diagonal2 => 3, // bsFdiagonal
-            FillType::CrossHatch => 4, // bsCross
+            FillType::Solid       => 0,
+            FillType::None        => 1,
+            FillType::Diagonal1   => 2,
+            FillType::Diagonal2   => 3,
+            FillType::CrossHatch  => 4,
+            FillType::DiagCross   => 5,
+            FillType::Horizontal  => 6,
+            FillType::Vertical    => 7,
         };
     } else {
-        geo_track.style.fill_style = 1; // По умолчанию bsClear (None)
+        geo_track.style.fill_style = 1;
     }
-    
+    geo_track.style.fill_color = rgb_to_ozi(track.props.fill_color);
+    geo_track.style.color = rgb_to_ozi(track.props.line_color);
+    geo_track.style.width = track.props.line_width as u32;
+
     let bytes = geoio::plt::write(&geo_track, geoio::text::Encoding::Cp1251);
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }

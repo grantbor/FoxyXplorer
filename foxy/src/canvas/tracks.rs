@@ -8,31 +8,65 @@ pub struct TrackProgram<'a> {
 }
 
 // Вспомогательная функция для создания пунктирной линии
-fn create_dashed_path(points: &[Point], dash_len: f32, gap_len: f32) -> CanvasPath {
+/// Паттерн (dash/gap/dash/gap/...) для каждого стиля линии.
+/// Пустой слайс = сплошная линия.
+fn line_style_pattern(style: &crate::domain::LineStyle) -> &'static [f32] {
+    use crate::domain::LineStyle;
+    match style {
+        LineStyle::Solid      => &[],
+        LineStyle::Dash       => &[10.0, 8.0],
+        LineStyle::Dot        => &[2.0, 6.0],
+        LineStyle::DashDot    => &[10.0, 6.0, 2.0, 6.0],
+        LineStyle::DashDotDot => &[10.0, 6.0, 2.0, 6.0, 2.0, 6.0],
+    }
+}
+
+/// Рисует линию через точки по паттерну чередования [dash, gap, dash, gap, ...].
+/// Пустой паттерн = сплошная линия.
+fn create_patterned_path(points: &[Point], pattern: &[f32]) -> CanvasPath {
     CanvasPath::new(|p| {
+        if pattern.is_empty() {
+            let mut first = true;
+            for &pt in points {
+                if first { p.move_to(pt); first = false; }
+                else { p.line_to(pt); }
+            }
+            return;
+        }
+
         for w in points.windows(2) {
             let p1 = w[0];
             let p2 = w[1];
             let dx = p2.x - p1.x;
             let dy = p2.y - p1.y;
             let dist = (dx * dx + dy * dy).sqrt();
-            
             if dist == 0.0 { continue; }
-            
+
             let dir_x = dx / dist;
             let dir_y = dy / dist;
+
             let mut d = 0.0;
-            
+            let mut idx = 0;
+            // Чётные индексы в паттерне — рисуем, нечётные — пропускаем.
+            let mut is_dash = true;
+
             while d < dist {
-                let d_end = (d + dash_len).min(dist);
-                p.move_to(Point::new(p1.x + dir_x * d, p1.y + dir_y * d));
-                p.line_to(Point::new(p1.x + dir_x * d_end, p1.y + dir_y * d_end));
-                d += dash_len + gap_len;
+                let seg_len = pattern[idx % pattern.len()];
+                let d_end = (d + seg_len).min(dist);
+
+                if is_dash {
+                    p.move_to(Point::new(p1.x + dir_x * d, p1.y + dir_y * d));
+                    p.line_to(Point::new(p1.x + dir_x * d_end, p1.y + dir_y * d_end));
+                }
+
+                d = d_end;
+                idx += 1;
+                is_dash = !is_dash;
             }
         }
     })
 }
-
+// 
 fn draw_crosshair(frame: &mut canvas::Frame, pt: Point) {
     let circle = CanvasPath::circle(pt, 16.0);
     frame.stroke(&circle, canvas::Stroke::default().with_color(Color::WHITE).with_width(3.0));
@@ -79,8 +113,8 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                 if !t.visible { continue; }
                 let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
                 let width = t.props.line_width.max(1.0);
-                let is_dashed = t.props.line_style == crate::domain::LineStyle::Dash;
                 let is_polygon = t.props.poly_type == crate::domain::PolyType::Polygon;
+                let line_pattern = line_style_pattern(&t.props.line_style);
 
                 for seg in &t.segments {
                     if seg.points.len() < 2 { continue; }
@@ -106,16 +140,20 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     }
 
                     // Путь для линии
-                    let path = if is_dashed && !is_polygon {
-                        create_dashed_path(&screen_pts, 10.0, 8.0)
+                    let mut stroke_pts = screen_pts.clone();
+                    if is_polygon && stroke_pts.len() >= 2 {
+                        stroke_pts.push(stroke_pts[0]);
+                    }
+
+                    let path = if !line_pattern.is_empty() {
+                        create_patterned_path(&stroke_pts, line_pattern)
                     } else {
                         CanvasPath::new(|p| {
                             let mut first = true;
-                            for &pt in &screen_pts {
+                            for &pt in &stroke_pts {
                                 if first { p.move_to(pt); first = false; }
                                 else { p.line_to(pt); }
                             }
-                            if is_polygon { p.close(); }
                         })
                     };
 

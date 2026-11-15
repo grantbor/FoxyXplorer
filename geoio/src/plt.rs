@@ -56,7 +56,8 @@ pub fn read(bytes: &[u8]) -> Result<GeoData, GeoError> {
         width: num(1, d.width),
         color: num(2, d.color),
         skip: num(4, d.skip),
-        kind: num(5, d.kind),
+        poly_flag: num(5, 0), 
+        kind: num(9, d.kind),
         fill_style: num(6, d.fill_style),
         fill_color: num(7, d.fill_color),
         tail: if f.len() > 8 { f[8..].join(",").trim().to_string() } else { d.tail.clone() },
@@ -107,8 +108,9 @@ pub fn write(track: &Track, enc: Encoding) -> Vec<u8> {
     let mut out = String::new();
     out.push_str("OziExplorer Track Point File Version 2.1\r\nWGS 84\r\nAltitude is in Feet\r\nReserved 3\r\n");
     out.push_str(&format!(
-        "0,{},{},{},{},{},{},{},{}\r\n",
-        s.width, s.color, name, s.skip, s.kind, s.fill_style, s.fill_color, s.tail
+        // БЫЛО: "0,{},{},{},{},{},{},{},{}\r\n", ..., s.tail
+        "0,{},{},{},{},{},{},{},-1,{}\r\n",
+        s.width, s.color, name, s.skip, s.poly_flag, s.fill_style, s.fill_color, s.kind
     ));
     out.push_str(&format!("{count}\r\n"));
     for seg in &track.segments {

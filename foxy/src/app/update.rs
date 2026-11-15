@@ -42,11 +42,11 @@ impl App {
             | Message::KeyPressed(_, _) | Message::KeyReleased(_) 
             | Message::SaveSessionAs | Message::SaveSessionAsPicked(_)
             | Message::LoadSessionPrompt | Message::LoadSessionNoPrompt
-            | Message::LoadSessionPicked(_)
+            | Message::LoadSessionPicked(_) 
             | Message::SaveAndLoadSession | Message::SaveAndLoadSessionSaved(_) 
             | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll | Message::GlobalCursorMoved(_) 
             | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
-            | Message::CopyCoordinates(_, _) |  Message::ToggleTheme | Message::RefreshSystemTheme => {
+            | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme => {
                 return self.update_ui(m); 
             }
 
