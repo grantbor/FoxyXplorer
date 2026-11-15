@@ -322,6 +322,12 @@ pub(crate) enum Tool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BasemapSource {
+    Osm,
+    Sentinel2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppTheme {
     Light,
     Dark,
@@ -514,8 +520,32 @@ pub(crate) fn theme_pair(theme: AppTheme) -> (iced::Theme, ResolvedTheme) {
 }
 
 impl App {
+    pub(crate) fn online_basemap(&self) -> Option<BasemapSource> {
+        if self.active == self.layers.len() {
+            Some(BasemapSource::Osm)
+        } else if self.active == self.layers.len() + 1 {
+            Some(BasemapSource::Sentinel2)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn osm_active(&self) -> bool {
-        self.active >= self.layers.len()
+        self.online_basemap().is_some()
+    }
+    
+    fn tile_url(&self, id: osm::TileId) -> String {
+        match self.online_basemap() {
+            Some(BasemapSource::Osm) => format!(
+                "https://tile-a.openstreetmap.fr/hot/{}/{}/{}.png",
+                id.0, id.1, id.2
+            ),
+            Some(BasemapSource::Sentinel2) => format!(
+                "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{}/{}/{}.jpg",
+                id.0, id.2, id.1   // ← ВАЖНО: {z}/{y}/{x}, не {z}/{x}/{y}
+            ),
+            None => String::new(),
+        }
     }
     fn format_short_name(&self) -> &'static str {
         match self.format {
@@ -809,7 +839,15 @@ impl App {
         if !self.osm_active() { return Task::none(); }
 
         let sz = self.last_bounds.get();
-        let (z, tiles) = osm::visible_tiles(self.cx, self.cy, self.scale, sz.width as f64, sz.height as f64);
+        let max_z = match self.online_basemap() {
+            Some(BasemapSource::Sentinel2) => Some(14u8),
+            _ => None,
+        };
+        let (z, tiles) = osm::visible_tiles(
+            self.cx, self.cy, self.scale,
+            sz.width as f64, sz.height as f64,
+            max_z,
+        );
         self.osm_z = z;
 
         let mut tasks: Vec<Task<Message>> = Vec::new();
@@ -820,7 +858,7 @@ impl App {
 
             let client = self.osm_client.clone();
             let disk = self.osm_cache.disk_path(id);
-            let url = format!("https://tile-a.openstreetmap.fr/hot/{}/{}/{}.png", id.0, id.1, id.2);
+            let url = self.tile_url(id);
             tasks.push(Task::perform(
                 async move {
                     if let Ok(bytes) = std::fs::read(&disk) { return (id, Ok(bytes)); }
@@ -853,16 +891,20 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // ---- Строка с информацией (как было) ----
-        let name = if self.osm_active() {
-            let pending = self.osm_cache.pending.borrow().len();
-            let cached = self.osm_cache.mem.borrow().len();
-            format!("OSM z{} (кэш {}, в очереди {})", self.osm_z, cached, pending)
-        } else {
-            self.layers
+        let name = match self.online_basemap() {
+            Some(src) => {
+                let pending = self.osm_cache.pending.borrow().len();
+                let cached = self.osm_cache.mem.borrow().len();
+                let label = match src {
+                    BasemapSource::Osm => "OSM",
+                    BasemapSource::Sentinel2 => "Sentinel-2",
+                };
+                format!("{} z{} (кэш {}, в очереди {})", label, self.osm_z, cached, pending)
+            }
+            None => self.layers
                 .get(self.active)
                 .map(|l| l.name.clone())
-                .unwrap_or_else(|| "-".into())
+                .unwrap_or_else(|| "-".into()),
         };
         
         let info = format!(
@@ -927,7 +969,6 @@ impl App {
                     right_info,
                 ].align_y(Alignment::Center)
             );
-
             layout.into()
         };
 

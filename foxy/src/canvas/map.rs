@@ -223,12 +223,14 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                     );
 
                     let sz = bounds.size();
+                    let max_z = match app.online_basemap() {
+                        Some(crate::BasemapSource::Sentinel2) => Some(14u8),
+                        _ => None,
+                    };
                     let (_z, tiles) = osm::visible_tiles(
-                        app.cx,
-                        app.cy,
-                        app.scale,
-                        sz.width as f64,
-                        sz.height as f64,
+                        app.cx, app.cy, app.scale,
+                        sz.width as f64, sz.height as f64,
+                        max_z,
                     );
 
                     for id in tiles {
@@ -268,23 +270,27 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         }
                     }
 
-                    let attr_w = 470.0_f32.min(bounds.width);
+                    let (attr_text, attr_w_target): (&str, f32) = match app.online_basemap() {
+                        Some(crate::BasemapSource::Sentinel2) => (
+                            "Sentinel-2 cloudless by EOX IT Services GmbH \
+                            (Contains modified Copernicus Sentinel data 2024) — CC BY 4.0",
+                            720.0,
+                        ),
+                        _ => (
+                            "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team",
+                            470.0,
+                        ),
+                    };
+                    let attr_w = attr_w_target.min(bounds.width);
                     let attr_h = 20.0_f32;
                     frame.fill_rectangle(
-                        Point::new(
-                            bounds.width - attr_w - 4.0,
-                            bounds.height - attr_h - 4.0,
-                        ),
+                        Point::new(bounds.width - attr_w - 4.0, bounds.height - attr_h - 4.0),
                         Size::new(attr_w, attr_h),
                         Color::from_rgba8(0, 0, 0, 0.6),
                     );
                     frame.fill_text(canvas::Text {
-                        content: "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team"
-                            .to_string(),
-                        position: Point::new(
-                            bounds.width - 8.0,
-                            bounds.height - attr_h / 2.0 - 4.0,
-                        ),
+                        content: attr_text.to_string(),
+                        position: Point::new(bounds.width - 8.0, bounds.height - attr_h / 2.0 - 4.0),
                         color: Color::WHITE,
                         size: iced::Pixels(11.0),
                         align_x: iced::widget::text::Alignment::Right,

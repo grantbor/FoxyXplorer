@@ -74,7 +74,7 @@ impl App {
         let kit_name = self.layers.first().map(|l| l.kit_name.as_str()).unwrap_or("");
         
         let header = row![
-            text(format!("Карты ({})", self.layers.len() + 1)).size(14),
+            text(format!("Карты ({})", self.layers.len() + 2)).size(14),
             Space::new().width(Length::Fill),
             if !kit_name.is_empty() {
                 text(kit_name).size(11).color(Color::from_rgb(0.6, 0.6, 0.6))
@@ -93,10 +93,16 @@ impl App {
             );
         }
         
-        // Карта OSM
+        // OSM (было)
         let osm_idx = self.layers.len();
         list = list.push(
-            self.list_item("Openstreetmap (HOT)", self.osm_active(), Message::Layer(osm_idx))
+            self.list_item("Openstreetmap (HOT)", self.osm_active() && self.active == osm_idx, Message::Layer(osm_idx))
+        );
+        
+        // Sentinel-2 (новое)
+        let s2_idx = self.layers.len() + 1;
+        list = list.push(
+            self.list_item("Sentinel-2 cloudless", self.active == s2_idx, Message::Layer(s2_idx))
         );
         
         column![

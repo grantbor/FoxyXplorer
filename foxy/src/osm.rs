@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use iced::widget::image::Handle;
 use reqwest::Client;
+use crate::BasemapSource;
 
 pub type TileId = (u8, u32, u32);
 
@@ -31,28 +32,42 @@ pub struct OsmCache {
     pub mem: RefCell<HashMap<TileId, Option<Handle>>>,
     pub pending: RefCell<HashSet<TileId>>,
     pub dir: PathBuf,
+    pub source: BasemapSource, 
 }
 
 impl OsmCache {
     pub fn new(cfg: &OsmCacheConfig) -> Self {
         let dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("foxy")
-            .join("osm");
+            .join("foxy");       // ← без .join("osm")
         let _ = std::fs::create_dir_all(&dir);
         cleanup_if_needed(&dir, cfg);
         Self {
             mem: RefCell::new(HashMap::new()),
             pending: RefCell::new(HashSet::new()),
             dir,
+            source: BasemapSource::Osm,
+        }
+    }
+    
+    pub fn set_source(&mut self, source: BasemapSource) {
+        if self.source != source {
+            self.source = source;
+            self.mem.borrow_mut().clear();
+            self.pending.borrow_mut().clear();
         }
     }
 
     pub fn disk_path(&self, id: TileId) -> PathBuf {
+        let (src, ext) = match self.source {
+            BasemapSource::Osm => ("osm", "png"),
+            BasemapSource::Sentinel2 => ("s2", "jpg"),
+        };
         self.dir
+            .join(src)
             .join(id.0.to_string())
             .join(id.1.to_string())
-            .join(format!("{}.png", id.2))
+            .join(format!("{}.{}", id.2, ext))
     }
 
     pub fn get(&self, id: TileId) -> Option<Option<Handle>> {
@@ -80,10 +95,13 @@ fn collect_files(dir: &Path, out: &mut Vec<CacheFile>) {
         let path = entry.path();
         if path.is_dir() {
             collect_files(&path, out);
-        } else if path.extension().and_then(|s| s.to_str()) == Some("png") {
-            if let Ok(meta) = entry.metadata() {
-                if let (Ok(mtime), size) = (meta.modified(), meta.len()) {
-                    out.push(CacheFile { path, mtime, size });
+        } else {
+            let ext = path.extension().and_then(|s| s.to_str());
+            if matches!(ext, Some("png") | Some("jpg")) {
+                if let Ok(meta) = entry.metadata() {
+                    if let (Ok(mtime), size) = (meta.modified(), meta.len()) {
+                        out.push(CacheFile { path, mtime, size });
+                    }
                 }
             }
         }
@@ -206,9 +224,13 @@ pub fn visible_tiles(
     scale: f64,
     view_w: f64,
     view_h: f64,
+    max_z: Option<u8>,
 ) -> (u8, Vec<TileId>) {
     let (_lon_c, lat_c) = crate::util::geo::lonlat_of(cx, cy);
-    let z = zoom_for_scale(scale, lat_c);
+    let mut z = zoom_for_scale(scale, lat_c);
+    if let Some(m) = max_z {
+        z = z.min(m);
+    }
 
     let half_w_m = view_w / 2.0 * scale;
     let half_h_m = view_h / 2.0 * scale;

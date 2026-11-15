@@ -1334,8 +1334,11 @@ impl App {
     fn update_tracks(&mut self, m: Message) {
         match m {
             Message::Layer(i) => {
-                if i <= self.layers.len() {
+                if i <= self.layers.len() + 1 {
                     self.active = i;
+                    if let Some(src) = self.online_basemap() {
+                        self.osm_cache.set_source(src);
+                    }
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
