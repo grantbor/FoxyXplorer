@@ -1037,6 +1037,12 @@ impl App {
                                 self.tracks_cache.clear();
                             }
                         }
+                        // G | П — открыть Геоданные (как кнопка «Геоданные» в тулбаре)
+                        iced::keyboard::Key::Character(c) 
+                            if c == "g" || c == "G" || c == "п" || c == "П" => 
+                        {
+                            return self.update_system(Message::PickTrack);
+                        }
                         iced::keyboard::Key::Character(c) 
                             if c == "d" || c == "D" || c == "в" || c == "В" => 
                         {
@@ -2016,7 +2022,7 @@ impl App {
                 let (lon, lat) = lonlat_of(self.cx, self.cy);
                 let new_wp = domain::Waypoint {
                     id: self.next_id,
-                    name: "New WP".into(),
+                    name: "Новая точка".into(),
                     lon,
                     lat,
                     ele: None, time: None, symbol: None, description: None,
