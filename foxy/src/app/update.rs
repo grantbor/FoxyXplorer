@@ -279,7 +279,7 @@ impl App {
 
         let new_wp = domain::Waypoint {
             id: self.next_id,
-            name: format!("WP{}", self.next_id),
+            name: format!("Новая точка {}", self.next_id),
             lon, lat,
             ele: None, time: None, symbol: None, description: None,
             visible: true,
@@ -2142,7 +2142,7 @@ impl App {
             Message::AddWaypointAt(lon, lat) => {
                 let new_wp = domain::Waypoint {
                     id: self.next_id,
-                    name: format!("WP{}", self.next_id),
+                    name: format!("Новая точка{}", self.next_id),
                     lon, lat,
                     ele: None, time: None, symbol: None, description: None,
                     visible: true,

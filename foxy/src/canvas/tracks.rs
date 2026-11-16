@@ -2,6 +2,7 @@ use iced::widget::canvas::{self, Geometry, Path as CanvasPath};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 use crate::util::geo::merc_of;
 use crate::{App, Message};
+use iced::advanced::text::{Paragraph, Text, LineHeight, Shaping};
 
 pub struct TrackProgram<'a> {
     pub app: &'a App,
@@ -246,9 +247,24 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                 if !wp.visible { continue; }
                 let (mx, my) = merc_of(wp.lon, wp.lat);
                 let pt = to_screen(mx, my);
+                
+                type Para = <iced::Renderer as iced::advanced::text::Renderer>::Paragraph;
 
-                let text_len = wp.name.chars().count() as f32;
-                let box_w = (text_len * 12.0).max(40.0) + 10.0;
+                let paragraph = Para::with_text(Text {
+                    content: &wp.name,
+                    bounds: iced::Size::INFINITE,
+                    size: iced::Pixels(14.0),
+                    line_height: LineHeight::default(),
+                    font: iced::Font::default(),
+                    shaping: Shaping::Basic,
+                    align_x: iced::widget::text::Alignment::Left,
+                    align_y: iced::alignment::Vertical::Top,
+                    wrapping: iced::advanced::text::Wrapping::None,
+                });
+                let text_w = paragraph.min_bounds().width;
+
+                let padding_h = 8.0;
+                let box_w = (text_w + 2.0 * padding_h).max(40.0);
                 let box_h = 24.0;
                 let box_x = pt.x - box_w / 2.0;
                 let box_y = pt.y - 40.0;
