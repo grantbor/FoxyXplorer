@@ -910,6 +910,22 @@ impl App {
                         return Task::none();
                     }
                 }
+                // Модальное окно — закрыть по Escape (как кнопка «Отмена»)
+                if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
+                    if self.modal.is_some() {
+                        let close_msg = match &self.modal {
+                            Some(Modal::TrackProps { .. })            => Message::CloseTrackProps,
+                            Some(Modal::WaypointProps { .. })         => Message::CloseWaypointProps,
+                            Some(Modal::TrackList(_))                 => Message::CloseTrackList,
+                            Some(Modal::ConfirmClearAll)              => Message::CancelClearAll,
+                            Some(Modal::ConfirmLoadSession)           => Message::CancelClearAll,
+                            Some(Modal::WaypointMeasure { .. })       => Message::CloseWaypointMeasure,
+                            Some(Modal::WaypointProjection { .. })    => Message::CloseWaypointProjection,
+                            None                                      => return Task::none(),
+                        };
+                        return self.update(close_msg);
+                    }
+                }
                 // Если открыто модальное окно — игнорируем всё, кроме Ctrl+Z/Ctrl+Y/Ctrl+A и стрелок
                 let is_modal_open = self.modal.is_some();
                 
