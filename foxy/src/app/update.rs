@@ -607,14 +607,18 @@ impl App {
                 self.status = format!("Freehand: добавлено {after} точек (упрощено {before} → {after})");
             }
         } else {
+            let new_name = format!("Track{}", self.next_id);
             let mut new_track = domain::Track {
                 id: self.next_id,
-                name: format!("Track{}", self.next_id),
+                name: new_name.clone(),
                 color: [0x2a, 0x7f, 0xff],
                 visible: true,
                 segments: vec![domain::TrackSegment { points: simplified }],
                 source: domain::FileSource::New,
-                props: domain::TrackProps::default(),
+                props: domain::TrackProps {
+                    description: new_name,
+                    ..Default::default()
+                },
                 cached_points: 0,
                 cached_distance_m: 0.0,
             };
@@ -660,14 +664,18 @@ impl App {
                 self.status = format!("Добавлено {} точек к треку", dt.points.len());
             }
         } else {
-            let mut new_track = domain::Track  {
+            let new_name = format!("Track{}", self.next_id);
+            let mut new_track = domain::Track {
                 id: self.next_id,
-                name: format!("Track{}", self.next_id),
+                name: new_name.clone(),
                 color: [0x2a, 0x7f, 0xff],
                 visible: true,
                 segments: vec![domain::TrackSegment { points: new_pts }],
                 source: domain::FileSource::New,
-                props: domain::TrackProps::default(),
+                props: domain::TrackProps {
+                    description: new_name,
+                    ..Default::default()
+                },
                 cached_points: 0,
                 cached_distance_m: 0.0,
             };

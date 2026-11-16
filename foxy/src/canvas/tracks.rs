@@ -327,6 +327,101 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                             frame.fill(&circle, Color::WHITE);
                             frame.stroke(&circle, canvas::Stroke::default().with_color(color).with_width(1.5));
                         }
+
+                        // ---------- Подписи к сегментам (как в Ruler) ----------
+                        let pts = &dt.points;
+                        if pts.len() >= 2 {
+                            for i in 0..pts.len() - 1 {
+                                let (lon1, lat1) = pts[i];
+                                let (lon2, lat2) = pts[i + 1];
+                                let sp1 = screen_pts[i];
+                                let sp2 = screen_pts[i + 1];
+
+                                let dx_px = sp2.x - sp1.x;
+                                let dy_px = sp2.y - sp1.y;
+                                let screen_dist_px = (dx_px * dx_px + dy_px * dy_px).sqrt();
+
+                                if screen_dist_px > 40.0 {
+                                    let dist_m = crate::domain::haversine_m(lat1, lon1, lat2, lon2);
+                                    let true_az = crate::util::geo::true_bearing(lat1, lon1, lat2, lon2);
+                                    let mut mag_az = true_az - app.declination;
+                                    if mag_az < 0.0 { mag_az += 360.0; }
+                                    if mag_az >= 360.0 { mag_az -= 360.0; }
+
+                                    let text = if dist_m >= 1000.0 {
+                                        format!("{:.2} км, {:.0}°", dist_m / 1000.0, mag_az)
+                                    } else {
+                                        format!("{:.0} м, {:.0}°", dist_m, mag_az)
+                                    };
+
+                                    let mid_x = (sp1.x + sp2.x) / 2.0;
+                                    let mid_y = (sp1.y + sp2.y) / 2.0;
+
+                                    let font_size = 14.0;
+                                    let box_h = 21.0;
+                                    let box_w = text.chars().count() as f32 * 7.5 + 12.0;
+
+                                    let bg_rect = Rectangle {
+                                        x: mid_x - box_w / 2.0,
+                                        y: mid_y - box_h - 4.0,
+                                        width: box_w,
+                                        height: box_h,
+                                    };
+                                    frame.fill_rectangle(bg_rect.position(), bg_rect.size(), Color::from_rgba8(0, 0, 0, 0.85));
+                                    let border = CanvasPath::rectangle(bg_rect.position(), bg_rect.size());
+                                    frame.stroke(&border, canvas::Stroke::default().with_color(color).with_width(1.5));
+                                    frame.fill_text(canvas::Text {
+                                        content: text,
+                                        position: Point::new(mid_x, mid_y - box_h / 2.0 - 4.0),
+                                        color: Color::WHITE,
+                                        size: iced::Pixels(font_size),
+                                        align_x: iced::widget::text::Alignment::Center,
+                                        align_y: iced::alignment::Vertical::Center,
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+
+                            // ---------- Общая плашка «Длина» ----------
+                            let mut total_m = 0.0;
+                            for w in pts.windows(2) {
+                                let (lon1, lat1) = w[0];
+                                let (lon2, lat2) = w[1];
+                                total_m += crate::domain::haversine_m(lat1, lon1, lat2, lon2);
+                            }
+
+                            let len_text = if total_m >= 1000.0 {
+                                format!("Длина: {:.2} км", total_m / 1000.0)
+                            } else {
+                                format!("Длина: {:.0} м", total_m)
+                            };
+
+                            let font_size = 18.0;
+                            let box_h = 28.0;
+                            let box_w = len_text.chars().count() as f32 * 9.0 + 16.0;
+
+                            let last = *screen_pts.last().unwrap();
+                            let bg_rect = Rectangle {
+                                x: last.x - box_w / 2.0,
+                                y: last.y + 15.0,
+                                width: box_w,
+                                height: box_h,
+                            };
+
+                            frame.fill_rectangle(bg_rect.position(), bg_rect.size(), Color::from_rgba8(0x2a, 0x7f, 0xff, 0.9));
+                            let border = CanvasPath::rectangle(bg_rect.position(), bg_rect.size());
+                            frame.stroke(&border, canvas::Stroke::default().with_color(Color::WHITE).with_width(2.0));
+
+                            frame.fill_text(canvas::Text {
+                                content: len_text,
+                                position: Point::new(last.x, last.y + 15.0 + box_h / 2.0),
+                                color: Color::WHITE,
+                                size: iced::Pixels(font_size),
+                                align_x: iced::widget::text::Alignment::Center,
+                                align_y: iced::alignment::Vertical::Center,
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }
