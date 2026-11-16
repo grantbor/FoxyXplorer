@@ -2644,7 +2644,9 @@ impl App {
     fn update_track_list(&mut self, m: Message) {
         match m {
             Message::OpenTrackList(id) => {
-                self.modal_drag_offset = Point::ORIGIN;
+                if !matches!(self.modal, Some(Modal::TrackList(_))) {
+                    self.modal_drag_offset = Point::ORIGIN;
+                }
                 if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
                     let mut rows = Vec::new();
                     let mut pid = 1;
@@ -2721,7 +2723,6 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::DeleteSelectedTrackPoints => {
-                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(Modal::TrackList(state)) = &self.modal {
                     let id = state.track_id;
                     let selected = state.selected_points.clone();
@@ -2744,7 +2745,6 @@ impl App {
                     }
                     
                     // Переоткрываем таблицу, чтобы обновить PID и индексы
-                    self.modal = None;
                     self.update_track_list(Message::OpenTrackList(id));
                     self.tracks_cache.clear();
                 }
@@ -2763,7 +2763,6 @@ impl App {
                 }
             }
             Message::SplitTrackAtPoint(sect, pt_idx) => {
-                self.modal_drag_offset = Point::ORIGIN;
                 if let Some(Modal::TrackList(state)) = &self.modal {
                     let id = state.track_id;
                     self.push_undo("Разделить трек");
@@ -2782,13 +2781,11 @@ impl App {
                         }
                         domain::recompute_track_stats(t_m);
                     }
-                    self.modal = None;
                     self.update_track_list(Message::OpenTrackList(id));
                     self.tracks_cache.clear();
                 }
             }
             Message::StitchSegments => {
-                self.modal_drag_offset = Point::ORIGIN;
                 let Some(Modal::TrackList(state)) = &self.modal else { return };
                 let id = state.track_id;
 
@@ -2850,7 +2847,6 @@ impl App {
                 }
 
                 // Переоткрыть TrackList, чтобы обновить индексы строк
-                self.modal = None;
                 self.update_track_list(Message::OpenTrackList(id));
                 self.tracks_cache.clear();
 
