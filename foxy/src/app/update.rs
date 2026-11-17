@@ -2212,42 +2212,87 @@ impl App {
                     *distance_input = s;
                 }
             }
+
             Message::ExecuteProjection => {
-                if let Some(Modal::WaypointProjection { from_id, azimuth_input, distance_input }) = &self.modal {
+                if let Some(Modal::WaypointProjection {
+                    from_id,
+                    azimuth_input,
+                    distance_input,
+                }) = &self.modal {
                     let from_id = *from_id;
                     let az = azimuth_input.parse::<f64>().ok();
                     let dist = distance_input.parse::<f64>().ok();
 
                     if let (Some(az), Some(dist)) = (az, dist) {
+                        if !az.is_finite() || !dist.is_finite() || dist < 0.0 {
+                            self.status = "Некорректные азимут или расстояние".into();
+                            return Task::none();
+                        }
+
                         if let Some(w) = self.waypoints.iter().find(|w| w.id == from_id) {
-                            let true_az = (az + self.declination).to_radians();
+                            // Средний радиус Земли, метры
+                            const EARTH_RADIUS: f64 = 6_371_008.8;
+
+                            // Истинный азимут в радианах
+                            let bearing = (az + self.declination).to_radians();
+
+                            // Исходные координаты
                             let lat1 = w.lat.to_radians();
-                            let lat2 = lat1 + (dist * true_az.cos()) / 111_320.0;
-                            let lon2 = w.lon + (dist * true_az.sin()) / (111_320.0 * lat1.cos().max(1e-9));
+                            let lon1 = w.lon.to_radians();
+
+                            // Угловое расстояние
+                            let angular_distance = dist / EARTH_RADIUS;
+
+                            // Новая широта
+                            let lat2 = (
+                                lat1.sin() * angular_distance.cos()
+                                + lat1.cos() * angular_distance.sin() * bearing.cos()
+                            ).clamp(-1.0, 1.0).asin();
+
+                            // Новая долгота
+                            let lon2 = lon1 + (
+                                bearing.sin() * angular_distance.sin() * lat1.cos()
+                            ).atan2(
+                                angular_distance.cos() - lat1.sin() * lat2.sin()
+                            );
+
+                            // Перевод обратно в градусы
+                            let new_lat = lat2.to_degrees();
+                            let new_lon = (lon2.to_degrees() + 540.0)
+                                .rem_euclid(360.0) - 180.0;
 
                             let new_wp = domain::Waypoint {
                                 id: self.next_id,
                                 name: format!("{}_proj", w.name),
-                                lon: lon2,
-                                lat: lat2.to_degrees(),
-                                ele: None, time: None, symbol: None, description: None,
+                                lon: new_lon,
+                                lat: new_lat,
+                                ele: None,
+                                time: None,
+                                symbol: None,
+                                description: None,
                                 visible: true,
                                 source: domain::FileSource::New,
                                 text_color: w.text_color,
                                 bg_color: w.bg_color,
                             };
+
                             self.next_id += 1;
                             self.push_undo("Проекция точки");
                             self.waypoints.push(Arc::new(new_wp));
                             self.modal = None;
                             self.tracks_cache.clear();
-                            self.status = format!("Создана точка проекции ({} м, {:.0}°)", dist, az);
+
+                            self.status = format!(
+                                "Создана точка проекции ({} м, {:.0}°)",
+                                dist, az
+                            );
                         }
                     } else {
                         self.status = "Введите корректные азимут и расстояние".into();
                     }
                 }
             }
+
             _ => {}
         }
         Task::none()        
