@@ -307,6 +307,7 @@ pub(crate) enum Message {
     ProjectDistanceChanged(String),
     ExecuteProjection,
     ToggleTheme,
+    AutoSaveTick,
     None,
 }
 
@@ -812,6 +813,9 @@ impl App {
                     _ => Message::None,
                 }
             }),
+            
+            // 5. Автосохранение раз в 5 минут
+            iced::time::every(std::time::Duration::from_secs(300)).map(|_| Message::AutoSaveTick),
 
             // 4. Отслеживаем смену системной темы
             iced::system::theme_changes().map(|_| Message::RefreshSystemTheme),

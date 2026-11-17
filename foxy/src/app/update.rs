@@ -102,7 +102,7 @@ impl App {
             // --- Система и прочее ---
             Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(_, _)
-            | Message::None => {
+            | Message::AutoSaveTick | Message::None => {
                 return self.update_system(m);
             }
             
@@ -1868,16 +1868,28 @@ impl App {
             Message::DraftColorChanged(c) => {
                 let mut tid = None;
                 if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
-                    let is_lisa_like = matches!(draft.callsign.as_str(), "Lisa" | "Avtonom" | "Kinolog" | "Pegas");
-                    let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
-                    if is_lisa_like && forbidden.contains(&c) {
-                        draft.line_color = [255, 0, 0];
+                    // Guard активен только когда Description воспроизводится через шаблон —
+                    // то есть все поля (callsign, num, date) заполнены и в правильном формате.
+                    let template_ready = build_template(draft) == draft.description;
+
+                    draft.line_color = if template_ready {
+                        match draft.callsign.as_str() {
+                            "Lisa" | "Avtonom" | "Kinolog" | "Pegas" => {
+                                let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
+                                if forbidden.contains(&c) { [255, 0, 0] } else { c }
+                            }
+                            "Veter"   => [255, 0, 255],   // только magenta
+                            "BPLA"    => [0, 255, 255],   // только cyan
+                            "Bort"    => [255, 255, 255], // только white
+                            "Zadacha" => [0, 0, 0],       // только black
+                            _ => c,                       // неизвестный/пустой callsign — свободно
+                        }
                     } else {
-                        draft.line_color = c;
-                    }
+                        c  // не соответствует шаблону — можно любой цвет
+                    };
                     tid = Some(*track_id);
                 }
-                self.show_color_picker = None;   // ← должно быть
+                self.show_color_picker = None;
                 if let Some(id) = tid { self.update_track_preview(id); }
             }
 
@@ -2634,6 +2646,12 @@ impl App {
                     }
                 }
                 // На Windows — no-op: тема фиксирована.
+            }
+            Message::AutoSaveTick => {
+                save_session(self);
+                // Статус не трогаем — чтобы не мигала надпись каждые 5 минут.
+                // Если хочется обратной связи, раскомментируйте:
+                // self.status = format!("Автосохранение: {}", chrono::Local::now().format("%H:%M"));
             }
             Message::None => {}
             _ => {}

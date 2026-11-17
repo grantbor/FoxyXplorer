@@ -52,6 +52,30 @@ fn parse_gpx_color(s: &str) -> Option<[u8; 3]> {
     }
 }
 
+/// Ищет в `name` (или его кириллическом аналоге) один из известных позывных.
+/// Регистр не важен, подстрока ищется в любом месте строки.
+/// Например: "Zadacha1_20261114" → "Zadacha",
+///           "2026-07-28 ТОЛМАЧ ЛИСА2" → "Lisa".
+fn detect_callsign(name: &str) -> Option<String> {
+    let upper = name.to_uppercase();
+    let table = [
+        ("Lisa",    "ЛИСА"),
+        ("Veter",   "ВЕТЕР"),
+        ("Kinolog", "КИНОЛОГ"),
+        ("BPLA",    "БПЛА"),
+        ("Bort",    "БОРТ"),
+        ("Zadacha", "ЗАДАЧА"),
+        ("Avtonom", "АВТОНОМ"),
+        ("Pegas",   "ПЕГАС"),
+    ];
+    for (canonical, cyrillic) in table {
+        if upper.contains(&canonical.to_uppercase()) || upper.contains(cyrillic) {
+            return Some(canonical.to_string());
+        }
+    }
+    None
+}
+
 /// Ozi BGR -> RGB
 fn ozi_to_rgb(c: u32) -> [u8; 3] {
     [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, ((c >> 16) & 0xFF) as u8]
@@ -82,11 +106,6 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
     
     let mut tracks = Vec::new();
     for (i, t) in gd.tracks.into_iter().enumerate() {
-        let color = if let Some(c) = t.gpx_color.as_deref().and_then(parse_gpx_color) {
-            c
-        } else {
-            next_color(i)
-        };
         
         let mut segments = Vec::new();
         for seg in t.segments {
@@ -133,6 +152,26 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             t.name
         };
         
+        let callsign = detect_callsign(&name).unwrap_or_default();
+        
+        let color_from_callsign: Option<[u8; 3]> = match callsign.as_str() {
+            "Veter"   => Some([255, 0, 255]),
+            "BPLA"    => Some([0, 255, 255]),
+            "Bort"    => Some([255, 255, 255]),
+            "Zadacha" => Some([0, 0, 0]),
+            _         => None,
+        };
+
+        let color = if let Some(c) = color_from_callsign {
+            c
+        } else if let Some(c) = t.gpx_color.as_deref().and_then(parse_gpx_color) {
+            c
+        } else if t.style.color != 0 {
+            ozi_to_rgb(t.style.color)
+        } else {
+            next_color(i)
+        };
+        
         let mut track = Track {
             id: *next_id,
             name: name.clone(), 
@@ -144,6 +183,7 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             cached_distance_m: 0.0,
             props: TrackProps {
                 description: name,
+                callsign, 
                 line_color: color,
                 line_style,
                 fill_type,

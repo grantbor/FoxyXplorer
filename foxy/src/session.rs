@@ -69,22 +69,25 @@ pub fn load_session() -> Option<Session> {
     }
 }
 
+fn atomic_write(path: &Path, bytes: &[u8]) {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
+    }
+}
+
 pub fn write_session(session: &Session) {
     if let Ok(json) = serde_json::to_string_pretty(session) {
-        let path = session_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(path, json);
+        atomic_write(&session_path(), json.as_bytes());
     }
 }
 
 pub fn write_session_to(session: &Session, path: &std::path::Path) {
     if let Ok(json) = serde_json::to_string_pretty(session) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(path, json);
+        atomic_write(path, json.as_bytes());
     }
 }
 
