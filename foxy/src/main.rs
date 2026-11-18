@@ -30,7 +30,7 @@ use util::coords::today;
 use widgets::palette::load_palette;
 use util::icon::load_icon_from_svg;
 
-const ICON_SVG: &[u8] = include_bytes!("../assets/icon.svg");
+pub(crate) const ICON_SVG: &[u8] = include_bytes!("../assets/icon.svg");
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
@@ -308,6 +308,9 @@ pub(crate) enum Message {
     ExecuteProjection,
     ToggleTheme,
     AutoSaveTick,
+    OpenAbout,
+    CloseAbout,
+    OpenUrl(String),
     None,
 }
 
@@ -490,6 +493,7 @@ pub(crate) enum Modal {
         azimuth_input: String,
         distance_input: String,
     },
+    About,
 }
 
 fn modal_drag_padding(offset: Point) -> iced::Padding {
@@ -1076,6 +1080,17 @@ impl App {
                     }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
+            ].into()
+        } else if let Some(Modal::About) = &self.modal {
+            let modal_ui = self.view_about_modal();
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
             ].into()
         } else {
             base_ui.into()

@@ -872,4 +872,111 @@ impl App {
             .width(Length::Fixed(450.0))
             .into()
     }
+    pub(crate) fn view_about_modal<'a>(&'a self) -> Element<'a, Message> {
+        let version = env!("CARGO_PKG_VERSION");
+
+        // Стиль для тонких горизонтальных линий
+        let separator = || {
+            container(text(""))
+                .width(Length::Fill)
+                .height(Length::Fixed(1.0))
+                .style(|theme: &Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style {
+                        background: Some(palette.background.strong.color.into()),
+                        ..Default::default()
+                    }
+                })
+        };
+
+        // Стиль для кнопок-ссылок (синий текст без фона)
+        let link_style = |theme: &Theme, status: button::Status| {
+            let palette = theme.extended_palette();
+            let color = palette.primary.strong.color;
+            let text_color = match status {
+                button::Status::Hovered => palette.primary.base.color,
+                _ => color,
+            };
+            button::Style {
+                background: Some(Color::TRANSPARENT.into()),
+                text_color,
+                border: iced::Border::default(),
+                ..Default::default()
+            }
+        };
+
+        // Собираем правую колонку (Текст)
+        let right_column = column![
+            text(format!("FoxyXplorer v{}", version)).size(24),
+            separator(),
+            text("Картографическое приложение\nдля локальных задач.")
+                .size(16)
+                .align_x(Alignment::Center), // центрируем текст
+            separator(),
+            row![
+                button(text("Github").size(16))
+                    .padding(0)
+                    .style(link_style)
+                    .on_press(Message::OpenUrl("https://github.com/grantbor/FoxyXplorer".to_string())),
+                
+                text("|").size(16).color(Color::from_rgb(0.5, 0.5, 0.5)),
+                
+                button(text("Мануал").size(16))
+                    .padding(0)
+                    .style(link_style)
+                    .on_press(Message::OpenUrl("https://github.com/grantbor/FoxyXplorer/blob/main/docs/user-guide.md".to_string())),
+            ]
+            .spacing(20)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(16)
+        .width(Length::Fill)
+        .align_x(Alignment::Center); // центрируем всё содержимое колонки
+
+        // Верхняя часть: Логотип + Правая колонка
+        let top_content = row![
+            // Логотип
+            container(
+                iced::widget::svg(iced::widget::svg::Handle::from_memory(crate::ICON_SVG))
+                    .width(Length::Fixed(140.0))
+                    .height(Length::Fixed(140.0))
+            ).padding([0, 20]), // отступ справа от логотипа
+
+            right_column
+        ]
+        .align_y(Alignment::Center)
+        .spacing(10);
+
+        // Нижняя часть: Лицензия + Кнопка закрытия
+        let bottom_content = row![
+            text("GPL-3.0").size(16).color(Color::from_rgb(0.6, 0.6, 0.6)),
+            Space::new().width(Length::Fill),
+            self.btn("Закрыть").on_press(Message::CloseAbout),
+        ].align_y(Alignment::Center);
+
+        // Общая композиция
+        let content = column![
+            top_content,
+            bottom_content
+        ]
+        .spacing(24)
+        .padding(24);
+
+        // Фрейм модалки
+        container(content)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(540.0)) // Ширина подобрана под макет
+            .into()
+    }
 }
