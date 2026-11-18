@@ -1380,6 +1380,7 @@ impl App {
         match m {
             Message::Layer(i) => {
                 if i <= self.layers.len() + 2 {
+                    self.tile_fail_count.clear();
                     self.active = i;
                     if let Some(src) = self.online_basemap() {
                         self.osm_cache.set_source(src);
@@ -2690,10 +2691,24 @@ impl App {
             }
             Message::OsmTileLoaded(id, result) => {
                 self.osm_cache.unmark_pending(id);
-                let handle = result
-                    .ok()
-                    .map(|bytes| iced::widget::image::Handle::from_bytes(bytes));
-                self.osm_cache.insert(id, handle);
+                match result {
+                    Ok(bytes) => {
+                        let handle = iced::widget::image::Handle::from_bytes(bytes);
+                        self.osm_cache.insert(id, Some(handle));
+                    }
+                    Err(e) => {
+                        // Не кэшируем ошибку — тайл будет перезапрошен на следующем update.
+                        // Чтобы не долбить лежащий сервер бесконечно, ограничим 3 попытками.
+                        let cnt = self.tile_fail_count.entry(id).or_insert(0);
+                        *cnt += 1;
+                        if *cnt <= 3 {
+                            eprintln!("tile {:?} failed (try {}): {}", id, cnt, e);
+                        } else {
+                            // Сдаёмся, помечаем как «не загружено навсегда» для этой сессии
+                            self.osm_cache.insert(id, None);
+                        }
+                    }
+                }
                 self.osm_canvas_cache.clear();
             }
             Message::RefreshSystemTheme => {

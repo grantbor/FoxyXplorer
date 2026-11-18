@@ -470,6 +470,7 @@ pub(crate) struct App {
     pub(crate) context_menu: Option<ContextMenuState>,
     pub(crate) global_cursor: Point,
     pub(crate) search_focused: bool,
+    pub(crate) tile_fail_count: std::collections::HashMap<(u8, u32, u32), u8>,
 }
 
 pub(crate) enum Modal {
@@ -610,7 +611,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(),
                     current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
                 
                 };
@@ -666,7 +667,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN,
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(),
             current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
         };
 
@@ -851,6 +852,7 @@ impl App {
 
         Subscription::batch(subs)
     }
+    
 
     pub(crate) fn request_osm_tiles(&mut self) -> Task<Message> {
         if !self.osm_active() { return Task::none(); }
@@ -872,7 +874,7 @@ impl App {
         let mut tasks: Vec<Task<Message>> = Vec::new();
         for id in tiles {
             if self.osm_cache.get(id).is_some() || self.osm_cache.pending.borrow().contains(&id) { continue; }
-            if tasks.len() >= 2 { break; }
+            if tasks.len() >= 4 { break; }
             self.osm_cache.pending.borrow_mut().insert(id);
 
             let client = self.osm_client.clone();
