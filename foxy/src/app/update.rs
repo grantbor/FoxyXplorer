@@ -104,7 +104,7 @@ impl App {
 
             // --- Система и прочее ---
             Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
-            | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(_, _)
+            | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(..)
             | Message::AutoSaveTick | Message::None => {
                 return self.update_system(m);
             }
@@ -1311,6 +1311,10 @@ impl App {
                 self.grid_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
+                self.osm_cache.set_source(crate::BasemapSource::Osm);
+                self.tile_handles.borrow_mut().clear();
+                self.tile_fail_count.clear();
+                self.osm_z = 0;
                 self.tile_handles.borrow_mut().clear();
                 
                 // --- Файлы сессии на диске ---
@@ -2696,7 +2700,14 @@ impl App {
             Message::ModifiersChanged(mods) => {
                 self.modifiers = mods;
             }
-            Message::OsmTileLoaded(id, result) => {
+            Message::OsmTileLoaded(source, id, result) => {
+                // Ответ пришёл от источника, с которого пользователь уже ушёл.
+                if Some(source) != self.online_basemap() {
+                    // Снимаем pending, чтобы не блокировало будущие запросы этого тайла.
+                    self.osm_cache.unmark_pending(id);
+                    return Task::none();
+                }
+
                 self.osm_cache.unmark_pending(id);
                 match result {
                     Ok(bytes) => {
@@ -2704,14 +2715,11 @@ impl App {
                         self.osm_cache.insert(id, Some(handle));
                     }
                     Err(e) => {
-                        // Не кэшируем ошибку — тайл будет перезапрошен на следующем update.
-                        // Чтобы не долбить лежащий сервер бесконечно, ограничим 3 попытками.
                         let cnt = self.tile_fail_count.entry(id).or_insert(0);
                         *cnt += 1;
                         if *cnt <= 3 {
                             eprintln!("tile {:?} failed (try {}): {}", id, cnt, e);
                         } else {
-                            // Сдаёмся, помечаем как «не загружено навсегда» для этой сессии
                             self.osm_cache.insert(id, None);
                         }
                     }

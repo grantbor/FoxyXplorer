@@ -238,7 +238,7 @@ pub(crate) enum Message {
     Layer(usize), ToggleGrid, ToggleLabels, CycleFormat,
     Moved(Point), Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
-    OsmTileLoaded(osm::TileId, Result<Vec<u8>, String>),
+    OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
     PickTrack, TracksPicked(Option<Vec<PathBuf>>),
     ToggleTrackVisible(u64, bool), SelectTrack(u64), ToggleAllTracksVisible, DeleteSelectedTracks,
     SaveTracksPlt, SaveTracksPltPicked(Option<PathBuf>),
@@ -630,6 +630,7 @@ impl App {
                 // При восстановлении сессии любой онлайн-источник сводится к OSM.
                 // Локальные карты (active < layers.len()) сохраняются как были.
                 app.active = session.view.active.min(app.layers.len());
+                app.osm_cache.set_source(crate::BasemapSource::Osm);
                 app.show_grid = session.view.show_grid; app.show_labels = session.view.show_labels;
                 app.format = match session.view.format_str.as_str() {
                     "DegMin" => CoordFormat::DegMin, "DegMinSec" => CoordFormat::DegMinSec, _ => CoordFormat::Decimal,
@@ -864,37 +865,48 @@ impl App {
     pub(crate) fn request_osm_tiles(&mut self) -> Task<Message> {
         if !self.osm_active() { return Task::none(); }
 
+        let source = match self.online_basemap() {
+            Some(s) => s,
+            None => return Task::none(),
+        };
+
         let sz = self.last_bounds.get();
-        let max_z = match self.online_basemap() {
-            Some(BasemapSource::Sentinel2) => Some(14u8),
-            Some(BasemapSource::Esri) => Some(19),
-            _ => None,
+        let max_z = match source {
+            BasemapSource::Sentinel2 => Some(14u8),
+            BasemapSource::Esri => Some(19u8),
+            BasemapSource::Osm => None,
         };
         let (z, tiles) = osm::visible_tiles(
             self.cx, self.cy, self.scale,
             sz.width as f64, sz.height as f64,
             max_z,
         );
-        
         self.osm_z = z;
 
         let mut tasks: Vec<Task<Message>> = Vec::new();
         for id in tiles {
-            if self.osm_cache.get(id).is_some() || self.osm_cache.pending.borrow().contains(&id) { continue; }
+            if self.osm_cache.get(id).is_some() || self.osm_cache.pending.borrow().contains(&id) {
+                continue;
+            }
             if tasks.len() >= 4 { break; }
             self.osm_cache.pending.borrow_mut().insert(id);
 
             let client = self.osm_client.clone();
             let disk = self.osm_cache.disk_path(id);
             let url = self.tile_url(id);
+
             tasks.push(Task::perform(
                 async move {
-                    if let Ok(bytes) = std::fs::read(&disk) { return (id, Ok(bytes)); }
+                    if let Ok(bytes) = std::fs::read(&disk) {
+                        return (id, Ok(bytes));
+                    }
                     match client.get(&url).send().await {
                         Ok(r) if r.status().is_success() => match r.bytes().await {
                             Ok(b) => {
                                 let v = b.to_vec();
-                                if let Some(parent) = disk.parent() { let _ = std::fs::create_dir_all(parent); }
+                                if let Some(parent) = disk.parent() {
+                                    let _ = std::fs::create_dir_all(parent);
+                                }
                                 let _ = std::fs::write(&disk, &v);
                                 (id, Ok(v))
                             }
@@ -904,7 +916,7 @@ impl App {
                         Err(e) => (id, Err(e.to_string())),
                     }
                 },
-                |(id, result)| Message::OsmTileLoaded(id, result),
+                move |(id, result)| Message::OsmTileLoaded(source, id, result),
             ));
         }
         Task::batch(tasks)
