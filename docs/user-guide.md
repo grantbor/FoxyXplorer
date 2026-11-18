@@ -102,6 +102,8 @@ C:\Users\<user>\AppData\Local\foxy\esri\z\x\y.jpg`
 
 - Сохранить трек / треки. Раскрывает панель опций сохранения: PLT (выбран один трек), GPX, MS, KML (выбран один или несколько треков + точки в списке ниже).
 
+- Удалить. Удаляет выбранные треки.
+
 ### Правая панель - список точек (waypoints)
 
 ![Panel_Waypoints_01.jpg](screenshots/Panel_Waypoints_01.jpg)
@@ -125,6 +127,7 @@ C:\Users\<user>\AppData\Local\foxy\esri\z\x\y.jpg`
 ![TwoPoints_01.png](screenshots/TwoPoints_01.png)
 
 - Сохранить точку / точки. Раскрывает панель опций сохранения: WPT - сохранить выбранные точки в новый файл wpt, WPT+ - добавить выбранные точки в существующий файл wpt (обе опции доступны, если выбраны только точки, без треков), GPX, MS, KML.
+- Удалить. Удаляет выбранные точки.
 
 ### Клавиша TAB...
 
@@ -205,4 +208,10 @@ C:\Users\<user>\AppData\Local\foxy\esri\z\x\y.jpg`
 
 **Windows:**  C:\Users\<Имя_пользователя>\AppData\Roaming\foxy\session.json
 
-**MacOS:** `/Users/<Имя_пользователя>/Library/Application Support/foxy/session.json`
+**MacOS:**  /Users/<Имя_пользователя>/Library/Application Support/foxy/session.json
+
+
+
+### Undo | Redo
+
+Большинство операций  поддерживают Undo| Redo  в 50 шагов, однако история не сохраняется в рамках сессии.
