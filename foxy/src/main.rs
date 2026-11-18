@@ -401,6 +401,7 @@ pub(crate) struct App {
     pub(crate) show_labels: bool,
     pub(crate) compact_view: bool,
     pub(crate) declination: f64,
+    pub(crate) last_declination_calc: Option<std::time::Instant>,
     pub(crate) format: CoordFormat,
     pub(crate) cx: f64,
     pub(crate) cy: f64,
@@ -611,7 +612,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(),
+                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
                     current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
                 
                 };
@@ -640,6 +641,7 @@ impl App {
                     app.resolved_theme = r;
                 }
                 app.status = format!("Сессия восстановлена ({} треков, {} точек)", app.tracks.len(), app.waypoints.len());
+                app.maybe_update_declination(true);
                 let task = app.request_osm_tiles();
                 return (app, task);
             }
@@ -667,7 +669,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(),
+            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
             current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
         };
 
@@ -685,7 +687,8 @@ impl App {
                 session::save_last_kit(&p);
             }
         }
-
+        app.maybe_update_declination(true); 
+        
         let task = if app.osm_active() && app.layers.is_empty() {
             let (lon, lat) = (37.6173, 55.7558);
             let (cx, cy) = merc_of(lon, lat);
@@ -757,6 +760,7 @@ impl App {
                 } else {
                     format!("слоёв: {n_layers}, точек GPX: {n_gpx}; {}", notes.join("; "))
                 };
+                self.fit_to_layer(0);
                 self.fit_to_layer(0);
                 if let Some(g) = &self.grid {
                     let (lat, lon) = g.center();

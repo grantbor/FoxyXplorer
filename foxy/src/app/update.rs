@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use iced::mouse::ScrollDelta;
 use iced::{Point, Task};
 use coord::CoordFormat;
@@ -209,6 +209,7 @@ impl App {
             "Сессия загружена ({} треков, {} точек)",
             self.tracks.len(), self.waypoints.len()
         );
+        self.maybe_update_declination(true);
     }
     
     fn select_point_range(&mut self, from: (u64, usize, usize), to: (u64, usize, usize)) {
@@ -769,6 +770,7 @@ impl App {
                         self.tracks_cache.clear();
                     }
                     self.cursor = Some(p);
+                    self.maybe_update_declination(false); 
                 } else if self.active_tool == crate::Tool::SelectPoints {
                     self.cursor = Some(p);
                     self.handle_select_points_move(p);
@@ -815,6 +817,7 @@ impl App {
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
+                    self.maybe_update_declination(true);
                     self.refresh_status();
                 } else if self.active_tool == crate::Tool::SelectPoints {
                     self.handle_select_points_release();
@@ -844,6 +847,7 @@ impl App {
                 self.grid_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
+                self.maybe_update_declination(false); 
                 self.refresh_status();
             }
             Message::Fit => {
@@ -862,7 +866,8 @@ impl App {
                     self.canvas_cache.clear();
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
-                    self.tracks_cache.clear();   // ← добавлено: камера сдвинулась, треки надо перерисовать
+                    self.tracks_cache.clear(); 
+                    self.maybe_update_declination(true); 
                     self.refresh_status();
                 }
             }
@@ -2128,8 +2133,8 @@ impl App {
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
+                    self.maybe_update_declination(true);
 
-                    // ОБЯЗАТЕЛЬНО return, иначе таймер не запустится!
                     return Task::perform(
                         async {
                             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -3065,6 +3070,26 @@ impl App {
                 self.tracks_cache.clear();
             }
         }
+    }
+
+    /// Пересчитывает магнитное склонение по центру карты не чаще раза в 10 сек.
+    /// `force = true` — вычислить немедленно (после fit, конца панорамирования,
+    /// загрузки комплекта).
+    pub(crate) fn maybe_update_declination(&mut self, force: bool) {
+        const THROTTLE: Duration = Duration::from_secs(10);
+        let now = Instant::now();
+        let should_calc = force
+            || self.last_declination_calc
+                .map_or(true, |t| now.duration_since(t) >= THROTTLE);
+        if !should_calc {
+            return;
+        }
+        let (y, ord) = crate::util::coords::today();
+        let (lon, lat) = lonlat_of(self.cx, self.cy);
+        if let Ok(d) = declination::declination_deg(lat, lon, y, ord) {
+            self.declination = d;
+        }
+        self.last_declination_calc = Some(now);
     }
 
     pub(crate) fn update_waypoint_preview(&mut self, id: u64) {
