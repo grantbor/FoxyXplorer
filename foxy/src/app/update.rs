@@ -3,7 +3,9 @@ use iced::mouse::ScrollDelta;
 use iced::{Point, Task};
 use coord::CoordFormat;
 
-use crate::{App, Message, Modal, DrawingTrack, Selection, ContextMenuState, ContextMenuItem};
+use crate::{App, Message, Modal, DrawingTrack, Selection, ContextMenuState, ContextMenuItem,
+    DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT, DEFAULT_SCALE,
+};
 use crate::domain;
 use crate::io;
 use crate::session;
@@ -1294,11 +1296,11 @@ impl App {
                 self.active_tool = crate::Tool::Pan;
                 
                 // --- Вид: дефолтный центр (Новосибирск) ---
-                let (lon, lat) = (82.945971, 55.016359);
+                let (lon, lat) = (DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT);
                 let (cx, cy) = crate::util::geo::merc_of(lon, lat);
                 self.cx = cx;
                 self.cy = cy;
-                self.scale = 20.0;
+                self.scale = DEFAULT_SCALE;
                 
                 // --- Пересчёт магнитного склонения для нового центра ---
                 let (y, ord) = crate::util::coords::today();

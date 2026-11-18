@@ -34,6 +34,9 @@ pub(crate) const ICON_SVG: &[u8] = include_bytes!("../assets/icon.svg");
 
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
+pub(crate) const DEFAULT_CENTER_LON: f64 = 82.945971;
+pub(crate) const DEFAULT_CENTER_LAT: f64 = 55.016359;
+pub(crate) const DEFAULT_SCALE: f64 = 20.0;
 
 #[derive(Default)]
 pub(crate) struct Selection {
@@ -641,8 +644,8 @@ impl App {
                     app.resolved_theme = r;
                 }
                 app.status = format!("Сессия восстановлена ({} треков, {} точек)", app.tracks.len(), app.waypoints.len());
-                app.maybe_update_declination(true);
                 let task = app.request_osm_tiles();
+                app.maybe_update_declination(true);
                 return (app, task);
             }
         }
@@ -687,17 +690,17 @@ impl App {
                 session::save_last_kit(&p);
             }
         }
-        app.maybe_update_declination(true); 
         
         let task = if app.osm_active() && app.layers.is_empty() {
-            let (lon, lat) = (37.6173, 55.7558);
+            let (lon, lat) = (DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT);
             let (cx, cy) = merc_of(lon, lat);
-            app.cx = cx; app.cy = cy; app.scale = 20.0;
+            app.cx = cx; app.cy = cy; app.scale = DEFAULT_SCALE;
             if app.status.is_empty() { app.status = "Источник: OpenStreetMap".into(); } else { app.status = format!("OSM. {}", app.status); }
             app.request_osm_tiles()
         } else {
             Task::none()
         };
+        app.maybe_update_declination(true); 
 
         (app, task)
     }
