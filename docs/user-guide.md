@@ -50,6 +50,32 @@
 
 Здесь отображаются загруженные карты + онлайн-карты (OSM, Sentinel-2, ESRI).  Переключение между слоями кликом.  В правом верхнем углу - имя текущего комплекта. 
 
+Оффлайн-карты загружаются из их текущего положения, поэтому не стоит перемещать / удалять их между сессиями.
+
+Онлайн-карты кэшируются в:
+**Linux:** 
+
+`~/.cache/foxy/osm/z/x/y.png
+
+~/.cache/foxy/s2/z/x/y.jpg
+~/.cache/foxy/esri/z/x/y.jpg`
+
+**Windows:**
+
+`C:\Users\<user>\AppData\Local\foxy\osm\z\x\y.png
+C:\Users\<user>\AppData\Local\foxy\s2\z\x\y.jpg
+C:\Users\<user>\AppData\Local\foxy\esri\z\x\y.jpg`
+
+**MacOS:**
+
+`/Users/<user>/Library/Caches/foxy/osm/z/x/y.png
+/Users/<user>/Library/Caches/foxy/s2/z/x/y.jpg
+/Users/<user>/Library/Caches/foxy/esri/z/x/y.jpg`
+
+Автоматическая очистка: старше 90 дней или при превышении 2 ГБ.
+
+
+
 ### Правая панель - список треков
 
 ![Panel_Tracks_01.jpg](screenshots/Panel_Tracks_01.jpg)
@@ -180,5 +206,3 @@
 **Windows:**  C:\Users\<Имя_пользователя>\AppData\Roaming\foxy\session.json
 
 **MacOS:** `/Users/<Имя_пользователя>/Library/Application Support/foxy/session.json`
-
-
