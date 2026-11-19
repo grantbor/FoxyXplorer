@@ -627,8 +627,13 @@ impl App {
                 cached_distance_m: 0.0,
             };
             domain::recompute_track_stats(&mut new_track);
+            let new_id = new_track.id;
             self.next_id += 1;
             self.tracks.push(Arc::new(new_track));
+
+            self.selection.tracks.clear();
+            self.selection.tracks.insert(new_id);
+
             self.status = format!("Freehand: создан трек (упрощено {before} → {after})");
         }
         
@@ -684,8 +689,14 @@ impl App {
                 cached_distance_m: 0.0,
             };
             domain::recompute_track_stats(&mut new_track);
+            let new_id = new_track.id;
             self.next_id += 1;
             self.tracks.push(Arc::new(new_track));
+
+            // Автовыделение нового трека (для «без Shift» сценария).
+            self.selection.tracks.clear();
+            self.selection.tracks.insert(new_id);
+
             self.status = format!("Создан новый трек ({} точек)", dt.points.len());
         }
         
@@ -718,18 +729,27 @@ impl App {
                     let (lon, lat) = lonlat_of(mx, my);
 
                     if self.drawing_track.is_none() {
-                        // Если выделен ровно один трек — добавляем в него, иначе создаем новый
-                        let target = if self.selection.tracks.len() == 1 {
+                        let shift = self.modifiers.shift();
+                        let append = shift && self.selection.tracks.len() == 1;
+
+                        let target = if append {
                             self.selection.tracks.iter().next().copied()
                         } else {
                             None
                         };
+
+                        if !append {
+                            self.selection.tracks.clear();
+                            self.selection.waypoints.clear();
+                            self.selection.points.clear();
+                        }
+
                         self.drawing_track = Some(DrawingTrack { points: Vec::new(), target_track_id: target });
                     }
-                    
+
                     if let Some(dt) = &mut self.drawing_track {
                         dt.points.push((lon, lat));
-                        self.tracks_cache.clear(); 
+                        self.tracks_cache.clear();
                     }
                 } else if self.active_tool == crate::Tool::Freehand {
                     let sz = self.last_bounds.get();
@@ -737,17 +757,14 @@ impl App {
                     let my = self.cy - (p.y as f64 - sz.height as f64 / 2.0) * self.scale;
                     let (lon, lat) = lonlat_of(mx, my);
 
-                    // Если вдруг остались "висящие" точки от предыдущего штриха — финишируем
                     if self.drawing_track.is_some() {
                         self.finish_freehand();
                     }
 
-                    let target = if self.selection.tracks.len() == 1 {
-                        self.selection.tracks.iter().next().copied()
-                    } else {
-                        None
-                    };
-                    self.drawing_track = Some(DrawingTrack { points: vec![(lon, lat)], target_track_id: target });
+                    // Решение о target откладываем до первого Moved (см. ниже).
+                    // Это защищает от случайного клика без Shift, который сбросил бы
+                    // выделение до того, как началось реальное рисование.
+                    self.drawing_track = Some(DrawingTrack { points: vec![(lon, lat)], target_track_id: None });
                     self.freehand_is_drawing = true;
                     self.tracks_cache.clear();
                 } else if self.active_tool == crate::Tool::Ruler {
@@ -798,6 +815,21 @@ impl App {
                             };
                             
                             if should_add {
+                                // Первый Moved после press: решаем target с учётом Shift.
+                                if dt.points.len() == 1 {
+                                    let shift = self.modifiers.shift();
+                                    let append = shift && self.selection.tracks.len() == 1;
+                                    if append {
+                                        dt.target_track_id = self.selection.tracks.iter().next().copied();
+                                    } else {
+                                        dt.target_track_id = None;
+                                        if !shift {
+                                            self.selection.tracks.clear();
+                                            self.selection.waypoints.clear();
+                                            self.selection.points.clear();
+                                        }
+                                    }
+                                }
                                 dt.points.push((lon, lat));
                                 self.tracks_cache.clear();
                             }
