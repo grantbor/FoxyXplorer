@@ -146,10 +146,20 @@ jobs:
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
+
+      - name: Install dependencies (as root)
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel rust cargo
+          pacman -S --noconfirm base-devel rust
+
+      - name: Create unprivileged builder user
+        run: |
+          useradd -m -G wheel builder
+          # Разрешаем builder использовать sudo без пароля (на случай, если понадобится)
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          # Даём builder права на весь репозиторий
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
       - name: Create PKGBUILD
         working-directory: ./foxy
         run: |
@@ -178,6 +188,8 @@ jobs:
               install -Dm644 foxyxplorer.desktop "$pkgdir/usr/share/applications/foxyxplorer.desktop"
           }
           EOF
+          chown builder:builder PKGBUILD
+
       - name: Create desktop file
         working-directory: ./foxy
         run: |
@@ -189,10 +201,14 @@ jobs:
           Type=Application
           Categories=Utility;
           EOF
-      - name: Build package
+          chown builder:builder foxyxplorer.desktop
+
+      - name: Build package (as builder)
         working-directory: ./foxy
         run: |
-          makepkg -d --noconfirm
+          # Запускаем makepkg от непривилегированного пользователя
+          su builder -c "makepkg -d --noconfirm --syncdeps"
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
