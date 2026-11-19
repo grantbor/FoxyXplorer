@@ -1,5 +1,4 @@
 name: Release
-
 on:
   push:
     tags:
@@ -15,9 +14,11 @@ on:
           - linux
           - windows
           - macos
+          - arch
           - linux,windows
           - linux,macos
           - windows,macos
+          - linux,arch
       tag:
         description: 'Тег для сборки (пусто = текущая ветка)'
         type: string
@@ -38,10 +39,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
       - name: Install system libraries (runtime for AppImage bundling)
         run: |
           sudo apt-get update
@@ -52,7 +51,6 @@ jobs:
             libxcb-randr0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxshmfence1 \
             libdbus-1-3 libexpat1 libpciaccess0 libsensors5 \
             zlib1g libzstd1
-
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -61,13 +59,11 @@ jobs:
             ~/.cargo/git
             foxy/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
-
       - name: Download linuxdeploy
         working-directory: ./foxy
         run: |
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
           chmod +x linuxdeploy
-
       - name: Build AppImage
         working-directory: ./foxy
         env:
@@ -75,14 +71,11 @@ jobs:
           NO_STRIP: 1
         run: |
           cargo build --release
-
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-
           cp target/release/foxyXplorer AppDir/usr/bin/
           cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png
-
           cat > AppDir/usr/share/applications/foxyxplorer.desktop <<'EOF'
           [Desktop Entry]
           Name=FoxyXplorer
@@ -91,11 +84,10 @@ jobs:
           Type=Application
           Categories=Utility;
           EOF
-
           # Динамический поиск путей к библиотекам.
           # ВАЖНО: libxcb-dri3, libxcb-glx, libxcb-present сюда НЕ включены —
           # они привязаны к GPU-драйверу и должны браться из системы.
-                    # Бандлим только то, что не связано с GPU/X11-драйвером.
+          # Бандлим только то, что не связано с GPU/X11-драйвером.
           # X11/xcb/wayland — из системы (иначе конфликт с NVIDIA/Mesa).
           LIBS=""
           for lib in \
@@ -109,7 +101,6 @@ jobs:
               LIBS="$LIBS --library $LIB_PATH"
             fi
           done
-
           ./linuxdeploy --appdir AppDir \
             --desktop-file AppDir/usr/share/applications/foxyxplorer.desktop \
             --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png \
@@ -144,6 +135,71 @@ jobs:
           path: foxy/*.AppImage
 
   # ──────────────────────────────────────────────────────────────
+  # Arch Linux: pkg.tar.zst через makepkg
+  # ──────────────────────────────────────────────────────────────
+  build-arch:
+    if: |
+      github.event_name == 'push' ||
+      inputs.platforms == 'all' ||
+      contains(inputs.platforms, 'arch')
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel rust cargo
+      - name: Create PKGBUILD
+        working-directory: ./foxy
+        run: |
+          cat > PKGBUILD <<'EOF'
+          pkgname=foxyxplorer
+          pkgver=${GITHUB_REF_NAME#v}
+          pkgrel=1
+          pkgdesc="FoxyXplorer file manager"
+          arch=('x86_64')
+          url="https://github.com/${GITHUB_REPOSITORY}"
+          license=('MIT')
+          depends=('gtk3' 'libxkbcommon' 'wayland')
+          makedepends=('cargo')
+          source=("$pkgname-$pkgver.tar.gz::https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${pkgver}.tar.gz")
+          sha256sums=('SKIP')
+
+          build() {
+              cd "$srcdir/$pkgname-$pkgver"
+              cargo build --release --locked
+          }
+
+          package() {
+              cd "$srcdir/$pkgname-$pkgver"
+              install -Dm755 target/release/foxyXplorer "$pkgdir/usr/bin/foxyxplorer"
+              install -Dm644 assets/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png"
+              install -Dm644 foxyxplorer.desktop "$pkgdir/usr/share/applications/foxyxplorer.desktop"
+          }
+          EOF
+      - name: Create desktop file
+        working-directory: ./foxy
+        run: |
+          cat > foxyxplorer.desktop <<'EOF'
+          [Desktop Entry]
+          Name=FoxyXplorer
+          Exec=foxyxplorer
+          Icon=foxyxplorer
+          Type=Application
+          Categories=Utility;
+          EOF
+      - name: Build package
+        working-directory: ./foxy
+        run: |
+          makepkg -d --noconfirm
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: foxy/*.pkg.tar.zst
+
+  # ──────────────────────────────────────────────────────────────
   # Windows: portable .exe + .msi через cargo-wix
   # ──────────────────────────────────────────────────────────────
   build-windows:
@@ -154,10 +210,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -166,11 +220,9 @@ jobs:
             ~/.cargo/git
             foxy/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
-
       - name: Build release
         working-directory: ./foxy
         run: cargo build --release
-
       - name: Upload portable EXE
         uses: actions/upload-artifact@v4
         with:
@@ -188,12 +240,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
-
       - name: Install Rust (universal target)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-
       - name: Cache cargo
         uses: actions/cache@v5
         with:
@@ -202,14 +252,11 @@ jobs:
             ~/.cargo/git
             foxy/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('foxy/Cargo.lock') }}
-
       - name: Install cargo-packager
         run: cargo install cargo-packager --version 0.11.8 --locked
-
       - name: Build DMG (universal)
         working-directory: ./foxy
         run: cargo packager --release --formats dmg --target universal-apple-darwin
-
       - name: Upload DMG
         uses: actions/upload-artifact@v5
         with:
@@ -220,23 +267,21 @@ jobs:
   # GitHub Release: прикрепить все артефакты к тегу
   # ──────────────────────────────────────────────────────────────
   release:
-    needs: [build-linux, build-windows, build-macos]
-    if: always() && (needs.build-linux.result == 'success' || needs.build-windows.result == 'success' || needs.build-macos.result == 'success')
+    needs: [build-linux, build-arch, build-windows, build-macos]
+    if: always() && (needs.build-linux.result == 'success' || needs.build-arch.result == 'success' || needs.build-windows.result == 'success' || needs.build-macos.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Flatten
         run: |
           mkdir -p release
           find artifacts -type f \
-            \( -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
+            \( -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.pkg.tar.zst' \) \
             -exec cp {} release/ \;
           ls -la release/
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
