@@ -155,9 +155,7 @@ jobs:
       - name: Create unprivileged builder user
         run: |
           useradd -m -G wheel builder
-          # Разрешаем builder использовать sudo без пароля (на случай, если понадобится)
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          # Даём builder права на весь репозиторий
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Create PKGBUILD
@@ -167,25 +165,26 @@ jobs:
           pkgname=foxyxplorer
           pkgver=${GITHUB_REF_NAME#v}
           pkgrel=1
-          pkgdesc="FoxyXplorer file manager"
+          pkgdesc="FoxyXplorer cartographic app"
           arch=('x86_64')
           url="https://github.com/${GITHUB_REPOSITORY}"
           license=('MIT')
           depends=('gtk3' 'libxkbcommon' 'wayland')
           makedepends=('cargo')
-          source=("$pkgname-$pkgver.tar.gz::https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${pkgver}.tar.gz")
-          sha256sums=('SKIP')
+          source=()
 
           build() {
-              cd "$srcdir/$pkgname-$pkgver"
+              cd "$GITHUB_WORKSPACE/foxy"
               cargo build --release --locked
           }
 
           package() {
-              cd "$srcdir/$pkgname-$pkgver"
-              install -Dm755 target/release/foxyXplorer "$pkgdir/usr/bin/foxyxplorer"
-              install -Dm644 assets/icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png"
-              install -Dm644 foxyxplorer.desktop "$pkgdir/usr/share/applications/foxyxplorer.desktop"
+              install -Dm755 "$GITHUB_WORKSPACE/foxy/target/release/foxyXplorer" \
+                  "$pkgdir/usr/bin/foxyxplorer"
+              install -Dm644 "$GITHUB_WORKSPACE/foxy/assets/icon.png" \
+                  "$pkgdir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png"
+              install -Dm644 "$GITHUB_WORKSPACE/foxy/foxyxplorer.desktop" \
+                  "$pkgdir/usr/share/applications/foxyxplorer.desktop"
           }
           EOF
           chown builder:builder PKGBUILD
@@ -205,9 +204,11 @@ jobs:
 
       - name: Build package (as builder)
         working-directory: ./foxy
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
         run: |
-          # Запускаем makepkg от непривилегированного пользователя
-          su builder -c "makepkg -d --noconfirm --syncdeps"
+          # Передаём GITHUB_WORKSPACE внутрь su явно
+          su builder -c "GITHUB_WORKSPACE=$GITHUB_WORKSPACE makepkg -d --noconfirm --noextract"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
