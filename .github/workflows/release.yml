@@ -134,9 +134,6 @@ jobs:
           name: linux-appimage
           path: foxy/*.AppImage
 
-  # ──────────────────────────────────────────────────────────────
-  # Arch Linux: pkg.tar.zst через makepkg
-  # ──────────────────────────────────────────────────────────────
   build-arch:
     if: |
       github.event_name == 'push' ||
@@ -160,11 +157,11 @@ jobs:
 
       - name: Initialize rustup for builder
         run: |
-          # Инициализируем rustup от имени builder
-          su builder -c "rustup-init -y --default-toolchain stable --profile minimal"
-          # Создаём символическую ссылку для удобства
-          su builder -c "ln -sf ~/.cargo/bin/cargo /usr/local/bin/cargo"
-          su builder -c "ln -sf ~/.cargo/bin/rustc /usr/local/bin/rustc"
+          su builder -c "rustup set profile minimal"
+          su builder -c "rustup default stable"
+          ln -sf /home/builder/.cargo/bin/cargo /usr/local/bin/cargo
+          ln -sf /home/builder/.cargo/bin/rustc /usr/local/bin/rustc
+          ln -sf /home/builder/.cargo/bin/rustup /usr/local/bin/rustup
 
       - name: Create PKGBUILD
         working-directory: ./foxy
@@ -183,8 +180,7 @@ jobs:
 
           build() {
               cd "$GITHUB_WORKSPACE/foxy"
-              # Убеждаемся, что cargo из rustup в PATH
-              export PATH="$HOME/.cargo/bin:$PATH"
+              export PATH="/home/builder/.cargo/bin:$PATH"
               cargo build --release --locked
           }
 
@@ -217,8 +213,7 @@ jobs:
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
         run: |
-          # Передаём GITHUB_WORKSPACE и PATH с cargo внутрь su
-          su builder -c "GITHUB_WORKSPACE=$GITHUB_WORKSPACE PATH=\$HOME/.cargo/bin:\$PATH makepkg -d --noconfirm --noextract"
+          su builder -c "GITHUB_WORKSPACE=$GITHUB_WORKSPACE PATH=/home/builder/.cargo/bin:\$PATH makepkg -d --noconfirm --noextract"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
