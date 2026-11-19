@@ -134,6 +134,9 @@ jobs:
           name: linux-appimage
           path: foxy/*.AppImage
 
+  # ──────────────────────────────────────────────────────────────
+  # Arch Linux: pkg.tar.zst через makepkg
+  # ──────────────────────────────────────────────────────────────
   build-arch:
     if: |
       github.event_name == 'push' ||
@@ -147,7 +150,8 @@ jobs:
       - name: Install dependencies (as root)
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel rustup
+          # Устанавливаем полный набор инструментов для сборки ring
+          pacman -S --noconfirm base-devel rustup clang llvm perl
 
       - name: Create unprivileged builder user
         run: |
@@ -175,12 +179,14 @@ jobs:
           url="https://github.com/${GITHUB_REPOSITORY}"
           license=('MIT')
           depends=('gtk3' 'libxkbcommon' 'wayland')
-          makedepends=('cargo')
+          makedepends=('cargo' 'clang' 'llvm' 'perl')
           source=()
 
           build() {
               cd "$GITHUB_WORKSPACE/foxy"
               export PATH="/home/builder/.cargo/bin:$PATH"
+              # Указываем использовать clang для компиляции C/ассемблерных файлов ring
+              export CC=clang
               cargo build --release --locked
           }
 
