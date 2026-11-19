@@ -8,24 +8,6 @@ impl App {
     pub(crate) fn view_top_toolbar(&self) -> Element<'_, Message> {
         row![
             with_tooltip(
-                button(
-                    container(
-                        iced::widget::svg(iced::widget::svg::Handle::from_memory(crate::ICON_SVG))
-                            .width(Length::Fixed(22.0))
-                            .height(Length::Fixed(22.0))
-                    )
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill)
-                )
-                .width(Length::Fixed(32.0))
-                .height(Length::Fixed(32.0))
-                .padding(0)
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
-                .on_press(Message::OpenAbout),
-                "О программе",
-            ),
-            container(Space::new().width(Length::Fixed(12.0))),   // отступ
-            with_tooltip(
                 self.btn("Карты").on_press(Message::PickKit),
                 "Загрузить комплект карт или карту"
             ),
@@ -87,6 +69,26 @@ impl App {
                 self.icon_button(lucide_iced::bytes::ERASER, Message::ConfirmClearAll),
                 "Очистить сессию"
             ),
+            
+            container(Space::new().width(Length::Fixed(12.0))),   // отступ
+            with_tooltip(
+                button(
+                    container(
+                        iced::widget::svg(iced::widget::svg::Handle::from_memory(crate::ICON_SVG))
+                            .width(Length::Fixed(22.0))
+                            .height(Length::Fixed(22.0))
+                    )
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill)
+                )
+                .width(Length::Fixed(32.0))
+                .height(Length::Fixed(32.0))
+                .padding(0)
+                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .on_press(Message::OpenAbout),
+                "О программе",
+            ),
+            
         ]
         .spacing(6)
         .align_y(Alignment::Center)
