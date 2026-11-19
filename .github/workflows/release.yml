@@ -150,13 +150,21 @@ jobs:
       - name: Install dependencies (as root)
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel rust
+          pacman -S --noconfirm base-devel rustup
 
       - name: Create unprivileged builder user
         run: |
           useradd -m -G wheel builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Initialize rustup for builder
+        run: |
+          # Инициализируем rustup от имени builder
+          su builder -c "rustup-init -y --default-toolchain stable --profile minimal"
+          # Создаём символическую ссылку для удобства
+          su builder -c "ln -sf ~/.cargo/bin/cargo /usr/local/bin/cargo"
+          su builder -c "ln -sf ~/.cargo/bin/rustc /usr/local/bin/rustc"
 
       - name: Create PKGBUILD
         working-directory: ./foxy
@@ -175,6 +183,8 @@ jobs:
 
           build() {
               cd "$GITHUB_WORKSPACE/foxy"
+              # Убеждаемся, что cargo из rustup в PATH
+              export PATH="$HOME/.cargo/bin:$PATH"
               cargo build --release --locked
           }
 
@@ -207,8 +217,8 @@ jobs:
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
         run: |
-          # Передаём GITHUB_WORKSPACE внутрь su явно
-          su builder -c "GITHUB_WORKSPACE=$GITHUB_WORKSPACE makepkg -d --noconfirm --noextract"
+          # Передаём GITHUB_WORKSPACE и PATH с cargo внутрь su
+          su builder -c "GITHUB_WORKSPACE=$GITHUB_WORKSPACE PATH=\$HOME/.cargo/bin:\$PATH makepkg -d --noconfirm --noextract"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
