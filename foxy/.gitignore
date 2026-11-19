@@ -29,3 +29,8 @@ deps-loaded.txt
 .vscode/
 *.swp
 Thumbs.db
+
+#temporary
+extract.py
+replace.py
+translations.json

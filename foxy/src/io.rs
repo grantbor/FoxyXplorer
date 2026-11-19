@@ -52,10 +52,6 @@ fn parse_gpx_color(s: &str) -> Option<[u8; 3]> {
     }
 }
 
-/// Ищет в `name` (или его кириллическом аналоге) один из известных позывных.
-/// Регистр не важен, подстрока ищется в любом месте строки.
-/// Например: "Zadacha1_20261114" → "Zadacha",
-///           "2026-07-28 ТОЛМАЧ ЛИСА2" → "Lisa".
 fn detect_callsign(name: &str) -> Option<String> {
     let upper = name.to_uppercase();
     let table = [
