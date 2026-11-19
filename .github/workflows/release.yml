@@ -181,6 +181,7 @@ jobs:
           depends=('gtk3' 'libxkbcommon' 'wayland')
           makedepends=('cargo' 'clang' 'llvm' 'perl')
           source=()
+          options=(!strip !debug) 
 
           build() {
               cd "$GITHUB_WORKSPACE/foxy"
