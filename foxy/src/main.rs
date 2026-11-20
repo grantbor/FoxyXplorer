@@ -314,6 +314,8 @@ pub(crate) enum Message {
     OpenAbout,
     CloseAbout,
     OpenUrl(String),
+    OpenSettings,
+    CloseSettings,
     None,
 }
 
@@ -499,6 +501,7 @@ pub(crate) enum Modal {
         distance_input: String,
     },
     About,
+    Settings,
 }
 
 fn modal_drag_padding(offset: Point) -> iced::Padding {
@@ -1112,6 +1115,18 @@ impl App {
                         ..Default::default()
                     }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+            ].into()
+        } else if let Some(Modal::Settings) = &self.modal {
+            let modal_ui = self.view_settings_modal();
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                .style(|_| container::Style {
+                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                       ..Default::default()
+                }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+                .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
         } else {
             base_ui.into()

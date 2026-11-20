@@ -72,6 +72,10 @@ impl App {
             
             container(Space::new().width(Length::Fixed(12.0))),   // отступ
             with_tooltip(
+                self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenSettings),
+                         "Настройки",
+            ),
+            with_tooltip(
                 button(
                     container(
                         iced::widget::svg(iced::widget::svg::Handle::from_memory(crate::ICON_SVG))

@@ -48,7 +48,7 @@ impl App {
             | Message::SaveAndLoadSession | Message::SaveAndLoadSessionSaved(_) 
             | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll | Message::GlobalCursorMoved(_) 
             | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
-            | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme | Message::OpenAbout | Message::CloseAbout 
+            | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme | Message::OpenAbout | Message::CloseAbout | Message::OpenSettings | Message::CloseSettings
             | Message::OpenUrl(_) => {
                 return self.update_ui(m); 
             }
@@ -962,6 +962,7 @@ impl App {
                             Some(Modal::WaypointMeasure { .. })       => Message::CloseWaypointMeasure,
                             Some(Modal::WaypointProjection { .. })    => Message::CloseWaypointProjection,
                             Some(Modal::About)                        => Message::CloseAbout,
+                            Some(Modal::Settings)                     => Message::CloseSettings,
                             None                                      => return Task::none(),
                         };
                         return self.update(close_msg);
@@ -1410,6 +1411,14 @@ impl App {
             Message::OpenUrl(url) => {
                 let _ = open::that(&url);
                 self.status = format!("Открыто в браузере: {}", url);
+            }
+            Message::OpenSettings => {
+                self.modal_drag_offset = Point::ORIGIN;
+                self.modal = Some(Modal::Settings);
+            }
+            Message::CloseSettings => {
+                self.modal_drag_offset = Point::ORIGIN;
+                self.modal = None;
             }
             _ => {}
         }

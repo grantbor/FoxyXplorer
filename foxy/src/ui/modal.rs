@@ -979,4 +979,77 @@ impl App {
             .width(Length::Fixed(540.0)) // Ширина подобрана под макет
             .into()
     }
+    pub(crate) fn view_settings_modal<'a>(&'a self) -> Element<'a, Message> {
+        let separator = || {
+            container(text(""))
+            .width(Length::Fill)
+            .height(Length::Fixed(1.0))
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.strong.color.into()),
+                   ..Default::default()
+                }
+            })
+        };
+
+        let content = column![
+            // Заголовок с кнопкой закрытия
+            row![
+                mouse_area(
+                    container(text("Настройки").size(20))
+                    .width(Length::Fill)
+                    .padding(4)
+                    .style(|theme: &Theme| {
+                        let palette = theme.extended_palette();
+                        container::Style {
+                            background: Some(palette.background.weak.color.into()),
+                           ..Default::default()
+                        }
+                    })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseSettings)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
+
+            separator(),
+
+            // Заготовка — сюда потом добавятся реальные настройки
+            container(
+                text("Здесь будут настройки приложения")
+                .size(14)
+                .color(Color::from_rgb(0.5, 0.5, 0.5))
+            )
+            .width(Length::Fill)
+            .padding([20, 0]),
+
+            Space::new().height(Length::Fill),
+
+            // Кнопка закрытия внизу
+            row![
+                Space::new().width(Length::Fill),
+                self.btn("Закрыть").on_press(Message::CloseSettings),
+            ].padding([10, 0])
+        ]
+        .spacing(12)
+        .padding(20);
+
+        container(content)
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+            container::Style {
+                background: Some(palette.background.base.color.into()),
+               border: iced::Border {
+                   color: palette.background.strong.color,
+                   width: 1.0,
+                   radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+               },
+               ..Default::default()
+            }
+        })
+        .width(Length::Fixed(500.0))
+        .height(Length::Fixed(400.0))
+        .into()
+    }
 }
