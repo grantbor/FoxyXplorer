@@ -1241,7 +1241,7 @@ fn main() -> iced::Result {
         if let Some((w, h)) = s.view.window_size { window_settings.size = Size::new(w, h); }
         if let Some((x, y)) = s.view.window_pos { window_settings.position = iced::window::Position::Specific(Point::new(x, y)); }
     }
-        
+    i18n::set_lang("ru");   // default    
     iced::application(
         move || App::new(
             initial_theme.clone(),
