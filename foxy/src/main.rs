@@ -8,6 +8,7 @@ mod session;
 mod ui;
 mod util;
 mod widgets;
+mod i18n;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
