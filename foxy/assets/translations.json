@@ -245,7 +245,7 @@
   },
   "msg_0062": {
     "ru": "Проекция точки",
-    "en": "Projet point"
+    "en": "Projet waypoint"
   },
   "msg_0063": {
     "ru": "Введите корректные азимут и расстояние",
@@ -349,11 +349,11 @@
   },
   "msg_0088": {
     "ru": "Упростить (фильтр Дугласа-Пекера)",
-    "en": "Simplify (Douglas-Peuker filter"
+    "en": "Simplify (Douglas-Peuker filter)"
   },
   "msg_0089": {
     "ru": "Объединить выделенные треки в один",
-    "en": "Joint selected tracks"
+    "en": "Join selected tracks"
   },
   "msg_0090": {
     "ru": "Разделить трек по сегментам",
@@ -874,5 +874,65 @@
   "msg_0219": {
     "ru": "в очереди",
     "en": "queued"
+  },
+  "msg_0220": {
+    "ru": "км",
+    "en": "km"
+  },
+  "msg_0221": {
+    "ru": "м",
+    "en": "m"
+  },
+  "msg_0222": {
+    "ru": "не найдено ни одной пригодной карты",
+    "en": "there is no supported maps"
+  },
+  "msg_0223": {
+    "ru": "Проверены каталоги:",
+    "en": "Directories searched"
+  },
+  "msg_0224": {
+    "ru": "Сессия восстановлена",
+    "en": "Session restored"
+  },
+  "msg_0225": {
+    "ru": "треков:",
+    "en": "tracks"
+  },
+  "msg_0226": {
+    "ru": "точек:",
+    "en": "waypoints:"
+  },
+  "msg_0227": {
+    "ru": "Сессия сохранена",
+    "en": "Session saved"
+  },
+  "msg_0228": {
+    "ru": "Не удалось загрузить:",
+    "en": "Unable to load:"
+  },
+  "msg_0229": {
+    "ru": "Скопировано:",
+    "en": "Copied to clipboard:"
+  },
+  "msg_0230": {
+    "ru": "Открыто в браузере:",
+    "en": "Opened in browser:"
+  },
+  "msg_0231": {
+    "ru": "Треки упрощены (допуск",
+    "en": "Tracks simplified:"
+  },    
+  "msg_0232": {
+    "ru": "Объединено треков:",
+    "en": "Tracks joined:"
+  },    
+  "msg_0233": {
+    "ru": "Разделено на",
+    "en": "Divided by"
+  },    
+  "msg_0234": {
+    "ru": "сегментов",
+    "en": "segments"
   }
 }

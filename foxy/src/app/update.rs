@@ -1220,7 +1220,7 @@ impl App {
             Message::SaveSessionAsPicked(Some(path)) => {
                 let sess = crate::build_session(self);
                 session::write_session_to(&sess, &path);
-                self.status = format!("Сессия сохранена: {}", path.display());
+                self.status = format!("{} {}", t!("msg_0227"), path.display());
             }
             Message::SaveSessionAsPicked(None) => {}
 
@@ -1277,7 +1277,7 @@ impl App {
                 if let Some(sess) = session::load_session_from(&path) {
                     self.apply_session(sess);
                 } else {
-                    self.status = format!("Не удалось загрузить: {}", path.display());
+                    self.status = format!("{} {}", t!("msg_0228"), path.display());
                 }
             }
             Message::LoadSessionPicked(None) => {}
@@ -1383,7 +1383,7 @@ impl App {
             }
             Message::CopyCoordinates(lat, lon) => {
                 let text = format!("{:.6} {:.6}", lat, lon);
-                self.status = format!("Скопировано: {}", text);
+                self.status = format!("{} {}", t!("msg_0229"), text);
                 return iced::clipboard::write(text);
             }
             Message::ToggleTheme => {
@@ -1411,7 +1411,7 @@ impl App {
             }
             Message::OpenUrl(url) => {
                 let _ = open::that(&url);
-                self.status = format!("Открыто в браузере: {}", url);
+                self.status = format!("{} {}", t!("msg_0230"), url);
             }
             Message::OpenSettings => {
                 self.modal_drag_offset = Point::ORIGIN;
@@ -1575,7 +1575,7 @@ impl App {
                 
                 // 3. Обновляем UI
                 self.tracks_cache.clear();
-                self.status = format!("Треки упрощены (допуск {} м)", self.simplify_tolerance);
+                self.status = format!("{} {} {})", t!("msg_0231"), self.simplify_tolerance, t!("msg_0221"));
             }
             Message::MergeTracks => {
                 // Нужно минимум 2 выделенных трека
@@ -1626,7 +1626,7 @@ impl App {
                 self.selection.tracks.insert(target_id);
 
                 self.tracks_cache.clear();
-                self.status = format!("Объединено треков: {}", other_ids.len() + 1);
+                self.status = format!("{} {}", t!("msg_0232"), other_ids.len() + 1);
             }
             
             Message::SplitTrackBySegments => {
@@ -1681,7 +1681,7 @@ impl App {
 
                 self.selection.tracks.clear();
                 self.tracks_cache.clear();
-                self.status = format!("Разделено на {} сегментов", n_segments);
+                self.status = format!("{} {} {}", t!("msg_0233"), n_segments, t!("msg_0234"));
             }
             Message::DeleteSelectedPoints => {
                 // Защита: не удаляем, если открыто модальное окно (например, редактируется текст)
@@ -1778,7 +1778,7 @@ impl App {
                     self.grid_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
-                    self.status = format!("Fit: масштаб {:.2} м/пикс", self.scale);
+                    self.status = format!("Fit: {} {:.2} {}", t!("msg_0215"),  self.scale, t!("msg_0216"));
                 } else {
                     self.status = t!("msg_0051").into();
                 }

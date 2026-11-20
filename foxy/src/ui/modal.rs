@@ -638,9 +638,9 @@ impl App {
         dist_m: f64, mag_az: f64,
     ) -> Element<'a, Message> {
         let dist_text = if dist_m >= 1000.0 {
-            format!("{:.2} км", dist_m / 1000.0)
+            format!("{:.2} {}", dist_m / 1000.0, t!("msg_0220"))
         } else {
-            format!("{:.0} м", dist_m)
+            format!("{:.0} {}", dist_m, t!("msg_0221"))
         };
 
         let content = column![

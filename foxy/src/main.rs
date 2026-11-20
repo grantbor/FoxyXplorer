@@ -191,8 +191,8 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
 
     if layers.is_empty() {
         return Err(format!(
-            "не найдено ни одной пригодной карты (.map + .ozf2).\nПроверены каталоги: {}.\n{}",
-            map_dirs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "),
+            "{} (.map + .ozf2).\n{} {}.\n{}",
+            t!("msg_0222"), t!("msg_0223"), map_dirs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "),
             notes.join("; ")
         ));
     }
@@ -648,7 +648,7 @@ impl App {
                     app.theme = th;
                     app.resolved_theme = r;
                 }
-                app.status = format!("Сессия восстановлена ({} треков, {} точек)", app.tracks.len(), app.waypoints.len());
+                app.status = format!("{} ({} {} {} {})", t!("msg_0224"), t!("msg_0225"), app.tracks.len(), t!("msg_0226"), app.waypoints.len());
                 let task = app.request_osm_tiles();
                 app.maybe_update_declination(true);
                 return (app, task);
@@ -954,7 +954,7 @@ impl App {
                 .unwrap_or_else(|| "-".into()),
         };
         
-        let info = format!("{} {:.2}° (WMM2025)  | {} {:.2} {}   |  {} {}", t!("msg_0214"), self.declination, t!("msg_0215"), self.scale, t!("msg_0216"), t!("msg_0217"), name
+        let info = format!("{} {:.2}° (WMM2025)  |  {} {:.2} {}  |  {} {}", t!("msg_0214"), self.declination, t!("msg_0215"), self.scale, t!("msg_0216"), t!("msg_0217"), name
         );
 
         // ---- Базовый интерфейс ----
