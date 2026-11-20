@@ -934,5 +934,21 @@
   "msg_0234": {
     "ru": "сегментов",
     "en": "segments"
+  }, 
+  "msg_0235": {
+    "ru": "Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss''",
+    "en": "Formats: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' "
+  },    
+  "msg_0236": {
+    "ru": "Старовая локация:",
+    "en": "Starting location:"
+  },    
+  "msg_0237": {
+    "ru": "Язык приложения:",
+    "en": "App language:"
+  },    
+  "msg_0238": {
+    "ru": "Допуск упрощения:",
+    "en": "Simplify tolerance:"
   }
 }

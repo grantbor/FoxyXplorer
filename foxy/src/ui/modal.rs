@@ -6,6 +6,7 @@ use crate::domain;
 use crate::widgets::palette::get_extended_palette;
 use crate::{App, Message, ContextMenuState, ContextMenuItem, ColorPickerKind};
 use crate::t;
+use crate::SettingsDraft;
 
 // =========================================================
 // Хелпер для форматирования даты/времени в таблице точек
@@ -989,77 +990,133 @@ impl App {
             .width(Length::Fixed(540.0)) // Ширина подобрана под макет
             .into()
     }
-    pub(crate) fn view_settings_modal<'a>(&'a self) -> Element<'a, Message> {
-        let separator = || {
-            container(text(""))
+pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Element<'a, Message> {
+    let separator = || {
+        container(text(""))
             .width(Length::Fill)
             .height(Length::Fixed(1.0))
             .style(|theme: &Theme| {
                 let palette = theme.extended_palette();
                 container::Style {
                     background: Some(palette.background.strong.color.into()),
-                   ..Default::default()
+                    ..Default::default()
                 }
             })
-        };
+    };
 
-        let content = column![
-            // Заголовок с кнопкой закрытия
-            row![
-                mouse_area(
-                    container(text(t!("msg_0202")).size(20))
+    let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
+    let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
+    let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
+    let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
+
+    let current_lang_label = match draft.lang.as_str() {
+        "en" => "English",
+        _ => "Русский",
+    };
+
+    // Подсветка: зелёная рамка если координаты валидны, обычная если нет
+    let is_valid = draft.parsed_lat.is_some() && draft.parsed_lon.is_some();
+    
+    let coord_style = move |theme: &Theme, status: iced::widget::text_input::Status| {
+        // Получаем дефолтный стиль от native_theme_iced
+        let mut style = input_style(theme, status);
+        
+        // Если координаты распарсились корректно, меняем цвет рамки на зелёный
+        if is_valid {
+            style.border = iced::Border {
+                color: Color::from_rgb(0.2, 0.7, 0.3), // зелёный цвет
+                width: 1.0,
+                radius: 4.0.into(),
+            };
+        }
+        style
+    };
+
+    let content = column![
+        // Заголовок
+        row![
+            mouse_area(
+                container(text(t!("msg_0202")).size(20))
                     .width(Length::Fill)
                     .padding(4)
                     .style(|theme: &Theme| {
                         let palette = theme.extended_palette();
                         container::Style {
                             background: Some(palette.background.weak.color.into()),
-                           ..Default::default()
+                            ..Default::default()
                         }
                     })
-                ).on_press(Message::ModalDragStart),
-                container(
-                    self.icon_button(lucide_iced::bytes::X, Message::CloseSettings)
-                ).padding(4)
-            ].align_y(Alignment::Center).width(Length::Fill),
-
-            separator(),
-
-            // Заготовка — сюда потом добавятся реальные настройки
+            ).on_press(Message::ModalDragStart),
             container(
-                text(t!("msg_0203"))
-                .size(14)
+                self.icon_button(lucide_iced::bytes::X, Message::CloseSettings)
+            ).padding(4)
+        ].align_y(Alignment::Center).width(Length::Fill),
+
+        separator(),
+
+        // Стартовая локация — единое поле ввода
+        row![
+            text(t!("msg_0236")).width(160),
+            text_input("55.016359 82.945971", &draft.coord_input)
+                .on_input(Message::SettingsCoordChanged)
+                .width(240)
+                .padding(input_pad)
+                .style(coord_style),
+        ].align_y(Alignment::Center).spacing(6),
+
+        // Подсказка по форматам
+        container(
+            text(t!("msg_0235"))
+                .size(11)
                 .color(Color::from_rgb(0.5, 0.5, 0.5))
-            )
-            .width(Length::Fill)
-            .padding([20, 0]),
+        ).padding([0, 160]),
 
-            Space::new().height(Length::Fill),
+        // Язык
+        row![
+            text(t!("msg_0237")).width(160),
+            pick_list(
+                ["Русский", "English"],
+                Some(current_lang_label),
+                |label: &str| Message::SettingsLangChanged(label.to_string())
+            ).padding(pick_pad).style(pick_style.clone()),
+        ].align_y(Alignment::Center),
 
-            // Кнопка закрытия внизу
-            row![
-                Space::new().width(Length::Fill),
-                self.btn(t!("msg_0133")).on_press(Message::CloseSettings),
-            ].padding([10, 0])
-        ]
-        .spacing(12)
-        .padding(20);
+        // Допуск упрощения
+        row![
+            text(t!("msg_0238")).width(160),
+            iced::widget::slider(0.1..=10.0, draft.simplify_tolerance, Message::SettingsToleranceChanged)
+                .step(0.1)
+                .width(200),
+            text(format!("{:.1} {}", draft.simplify_tolerance, t!("msg_0221"))).width(50),
+        ].align_y(Alignment::Center).spacing(6),
 
-        container(content)
+        Space::new().height(Length::Fill),
+
+        // Кнопки
+        row![
+            Space::new().width(Length::Fill),
+            self.btn_secondary(t!("msg_0152")).on_press(Message::CloseSettings),
+            self.btn(t!("msg_0151")).on_press(Message::ApplySettings),
+        ].spacing(10)
+    ]
+    .spacing(12)
+    .padding(20);
+
+    container(content)
         .style(|theme: &Theme| {
             let palette = theme.extended_palette();
             container::Style {
                 background: Some(palette.background.base.color.into()),
-               border: iced::Border {
-                   color: palette.background.strong.color,
-                   width: 1.0,
-                   radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
-               },
-               ..Default::default()
+                border: iced::Border {
+                    color: palette.background.strong.color,
+                    width: 1.0,
+                    radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                },
+                ..Default::default()
             }
         })
-        .width(Length::Fixed(500.0))
-        .height(Length::Fixed(400.0))
+        .width(Length::Fixed(520.0))
+        .height(Length::Fixed(360.0))
         .into()
-    }
+}
 }

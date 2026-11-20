@@ -43,17 +43,6 @@ impl App {
                 self.btn_secondary(self.format_short_name()).on_press(Message::CycleFormat),
                 format!("{} {})", t!("msg_0206"), self.format_name())
             ),
-            with_tooltip(
-                self.icon_button(
-                    if self.current_theme == AppTheme::Dark {
-                        lucide_iced::bytes::SUN
-                    } else {
-                        lucide_iced::bytes::MOON
-                    },
-                    Message::ToggleTheme,
-                ),
-                t!("msg_0189"),
-            ),
 
             Space::new().width(Length::Fill),
 
@@ -65,13 +54,23 @@ impl App {
                 self.icon_button(lucide_iced::bytes::SAVE, Message::SaveSessionAs),
                 t!("msg_0191")
             ),
-            text("|").size(18),
+            container(Space::new().width(Length::Fixed(8.0))),   // отступ
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::ERASER, Message::ConfirmClearAll),
                 t!("msg_0192")
             ),
-            
-            container(Space::new().width(Length::Fixed(12.0))),   // отступ
+            text(" | ").size(18),     
+            with_tooltip(
+                self.icon_button(
+                    if self.current_theme == AppTheme::Dark {
+                        lucide_iced::bytes::SUN
+                    } else {
+                        lucide_iced::bytes::MOON
+                    },
+                    Message::ToggleTheme,
+                ),
+                t!("msg_0189"),
+            ),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenSettings),
                          t!("msg_0202")

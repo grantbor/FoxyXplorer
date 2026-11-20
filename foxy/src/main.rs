@@ -8,7 +8,8 @@ mod session;
 mod ui;
 mod util;
 mod widgets;
-mod i18n;
+pub mod i18n;
+pub mod config;
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -95,6 +96,14 @@ pub(crate) struct TrackListState {
     pub rows: Vec<TrackRowData>,
     pub selected_points: HashSet<(usize, usize)>, // (sect, pt_idx)
     pub last_clicked: Option<(usize, usize)>,
+}
+
+pub(crate) struct SettingsDraft {
+    pub coord_input: String,      // единое поле ввода координат
+    pub parsed_lat: Option<f64>,  // результат последнего успешного парсинга
+    pub parsed_lon: Option<f64>,
+    pub lang: String,
+    pub simplify_tolerance: f64,
 }
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
@@ -317,6 +326,10 @@ pub(crate) enum Message {
     OpenUrl(String),
     OpenSettings,
     CloseSettings,
+    ApplySettings,
+    SettingsCoordChanged(String),
+    SettingsLangChanged(String),
+    SettingsToleranceChanged(f64),
     None,
 }
 
@@ -502,7 +515,8 @@ pub(crate) enum Modal {
         distance_input: String,
     },
     About,
-    Settings,
+    //Settings,
+    Settings { draft: SettingsDraft },
 }
 
 fn modal_drag_padding(offset: Point) -> iced::Padding {
@@ -582,6 +596,10 @@ impl App {
         initial_theme_kind: AppTheme,
     ) -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
+        // --- Читаем пользовательский конфиг ---
+        let cfg = crate::config::load();
+        // Применяем язык сразу, до создания App
+        crate::i18n::set_lang(Box::leak(cfg.lang.clone().into_boxed_str()));
         let force_osm = args.iter().any(|a| a == "--osm");
         let dir_arg = args.iter().skip(1).find(|a| !a.starts_with("--")).cloned();
 
@@ -614,7 +632,7 @@ impl App {
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
                     show_track_save_menu: false, show_wp_save_menu: false,
-                    theme, resolved_theme, simplify_tolerance: 2.2, undo_stack: Vec::new(), redo_stack: Vec::new(),
+                    theme, resolved_theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
                     modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
@@ -672,7 +690,7 @@ impl App {
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
             show_track_save_menu: false, show_wp_save_menu: false,
-            theme, resolved_theme, simplify_tolerance: 2.2, undo_stack: Vec::new(), redo_stack: Vec::new(),
+            theme, resolved_theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
             modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
@@ -697,7 +715,7 @@ impl App {
         }
         
         let task = if app.osm_active() && app.layers.is_empty() {
-            let (lon, lat) = (DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT);
+            let (lon, lat) = (cfg.default_lon, cfg.default_lat);
             let (cx, cy) = merc_of(lon, lat);
             app.cx = cx; app.cy = cy; app.scale = DEFAULT_SCALE;
             if app.status.is_empty() { app.status = t!("msg_0012").into(); } else { app.status = format!("OSM. {}", app.status); }
@@ -1117,17 +1135,17 @@ impl App {
                     }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
             ].into()
-        } else if let Some(Modal::Settings) = &self.modal {
-            let modal_ui = self.view_settings_modal();
+        } else if let Some(Modal::Settings { draft }) = &self.modal {
+            let modal_ui = self.view_settings_modal(draft);
             stack![
                 base_ui,
                 container(text("")).width(Length::Fill).height(Length::Fill)
-                .style(|_| container::Style {
-                    background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                       ..Default::default()
-                }),
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
-                .padding(modal_drag_padding(self.modal_drag_offset))
+                    .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
         } else {
             base_ui.into()

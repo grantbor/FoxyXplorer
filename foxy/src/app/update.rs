@@ -4,7 +4,7 @@ use iced::{Point, Task};
 use coord::CoordFormat;
 
 use crate::{App, Message, Modal, DrawingTrack, Selection, ContextMenuState, ContextMenuItem,
-    DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT, DEFAULT_SCALE,
+    DEFAULT_SCALE,
 };
 use crate::domain;
 use crate::io;
@@ -22,6 +22,7 @@ use crate::{TrackRowData, TrackListState};
 use crate::util::geo::merc_of; 
 use crate::util::geo::dist_to_segment;
 use crate::t;
+use crate::SettingsDraft;
 
 fn is_space(key: &iced::keyboard::Key) -> bool {
     matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
@@ -49,7 +50,11 @@ impl App {
             | Message::SaveAndLoadSession | Message::SaveAndLoadSessionSaved(_) 
             | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll | Message::GlobalCursorMoved(_) 
             | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
-            | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme | Message::OpenAbout | Message::CloseAbout | Message::OpenSettings | Message::CloseSettings
+            | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme 
+            | Message::OpenAbout | Message::CloseAbout 
+            | Message::OpenSettings | Message::CloseSettings | Message::ApplySettings
+            | Message::SettingsCoordChanged(_)
+            | Message::SettingsLangChanged(_) | Message::SettingsToleranceChanged(_)
             | Message::OpenUrl(_) => {
                 return self.update_ui(m); 
             }
@@ -963,7 +968,7 @@ impl App {
                             Some(Modal::WaypointMeasure { .. })       => Message::CloseWaypointMeasure,
                             Some(Modal::WaypointProjection { .. })    => Message::CloseWaypointProjection,
                             Some(Modal::About)                        => Message::CloseAbout,
-                            Some(Modal::Settings)                     => Message::CloseSettings,
+                            Some(Modal::Settings { .. })              => Message::CloseSettings, 
                             None                                      => return Task::none(),
                         };
                         return self.update(close_msg);
@@ -1329,8 +1334,8 @@ impl App {
                 self.space_pan_active = false;
                 self.active_tool = crate::Tool::Pan;
                 
-                // --- Вид: дефолтный центр (Новосибирск) ---
-                let (lon, lat) = (DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT);
+                let cfg = crate::config::load(); 
+                let (lon, lat) = (cfg.default_lon, cfg.default_lat);
                 let (cx, cy) = crate::util::geo::merc_of(lon, lat);
                 self.cx = cx;
                 self.cy = cy;
@@ -1415,11 +1420,77 @@ impl App {
             }
             Message::OpenSettings => {
                 self.modal_drag_offset = Point::ORIGIN;
-                self.modal = Some(Modal::Settings);
+                let cfg = crate::config::load();
+                let coord_input = format!("{:.6} {:.6}", cfg.default_lat, cfg.default_lon);
+                self.modal = Some(Modal::Settings {
+                    draft: SettingsDraft {
+                        coord_input: coord_input.clone(),
+                        parsed_lat: Some(cfg.default_lat),
+                        parsed_lon: Some(cfg.default_lon),
+                        lang: cfg.lang.clone(),
+                        simplify_tolerance: cfg.simplify_tolerance,
+                    },
+                });
             }
             Message::CloseSettings => {
                 self.modal_drag_offset = Point::ORIGIN;
                 self.modal = None;
+            }
+            Message::ApplySettings => {
+                if let Some(Modal::Settings { draft }) = &self.modal {
+                    match (draft.parsed_lat, draft.parsed_lon) {
+                        (Some(lat), Some(lon)) => {
+                            let new_cfg = crate::config::Config {
+                                default_lon: lon,
+                                default_lat: lat,
+                                lang: draft.lang.clone(),
+                                simplify_tolerance: draft.simplify_tolerance,
+                            };
+                            match crate::config::save(&new_cfg) {
+                                Ok(_) => {
+                                    self.simplify_tolerance = new_cfg.simplify_tolerance;
+                                    crate::i18n::set_lang(Box::leak(new_cfg.lang.clone().into_boxed_str()));
+                                    self.status = "Настройки сохранены".into();
+                                    self.modal = None;
+                                }
+                                Err(e) => {
+                                    self.status = format!("Ошибка сохранения: {e}");
+                                }
+                            }
+                        }
+                        _ => {
+                            self.status = "Некорректные координаты".into();
+                        }
+                    }
+                }
+            }
+            Message::SettingsCoordChanged(s) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    draft.coord_input = s.clone();
+                    // Пытаемся распарсить — если успешно, обновляем parsed_lat/parsed_lon
+                    if let Some((lat, lon)) = parse_coords(&s, self.grid.as_ref(), self.declination) {
+                        if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
+                            draft.parsed_lat = Some(lat);
+                            draft.parsed_lon = Some(lon);
+                        }
+                    }
+                }
+            }
+            Message::SettingsLangChanged(label) => {
+                // label приходит как "Русский" / "English" — конвертируем в код
+                let code = match label.as_str() {
+                    "English" => "en".to_string(),
+                    _ => "ru".to_string(),
+                };
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    draft.lang = code;
+                }
+            }
+            Message::SettingsToleranceChanged(v) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    // Округляем до десятых
+                    draft.simplify_tolerance = (v * 10.0).round() / 10.0;
+                }
             }
             _ => {}
         }
