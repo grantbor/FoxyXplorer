@@ -31,6 +31,6 @@ deps-loaded.txt
 Thumbs.db
 
 #temporary
-extract.py
-replace.py
-translations.json
+#extract.py
+#replace.py
+#translations.json

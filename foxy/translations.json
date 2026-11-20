@@ -1,0 +1,798 @@
+{
+  "msg_0001": {
+    "ru": "ЛИСА",
+    "en": "ЛИСА"
+  },
+  "msg_0002": {
+    "ru": "ВЕТЕР",
+    "en": "ВЕТЕР"
+  },
+  "msg_0003": {
+    "ru": "КИНОЛОГ",
+    "en": "КИНОЛОГ"
+  },
+  "msg_0004": {
+    "ru": "БПЛА",
+    "en": "БПЛА"
+  },
+  "msg_0005": {
+    "ru": "БОРТ",
+    "en": "БОРТ"
+  },
+  "msg_0006": {
+    "ru": "ЗАДАЧА",
+    "en": "ЗАДАЧА"
+  },
+  "msg_0007": {
+    "ru": "АВТОНОМ",
+    "en": "АВТОНОМ"
+  },
+  "msg_0008": {
+    "ru": "ПЕГАС",
+    "en": "ПЕГАС"
+  },
+  "msg_0009": {
+    "ru": "Формат PLT не поддерживает waypoints",
+    "en": "Format PLT does not support waypoints"
+  },
+  "msg_0010": {
+    "ru": "Формат PLT может содержать только один трек",
+    "en": "Format PLT support only one track per file"
+  },
+  "msg_0011": {
+    "ru": "Формат WPT не поддерживает треки",
+    "en": "Format WPT does not support tracks"
+  },
+  "msg_0012": {
+    "ru": "Источник: OpenStreetMap",
+    "en": "Source: Openstreetmap"
+  },
+  "msg_0013": {
+    "ru": "Нажмите Tab, чтобы включить панели",
+    "en": "Press TAB to switch panels on"
+  },
+  "msg_0014": {
+    "ru": "Не удалось создать pixmap",
+    "en": "Cannot create pixmap"
+  },
+  "msg_0015": {
+    "ru": "Добавить точку на карте",
+    "en": "Add waypoint on map"
+  },
+  "msg_0016": {
+    "ru": "Перемещение точек",
+    "en": "Points translation"
+  },
+  "msg_0017": {
+    "ru": "Слишком мало точек для трека",
+    "en": "Too few points for track creation"
+  },
+  "msg_0018": {
+    "ru": "Freehand трек",
+    "en": "Freehand"
+  },
+  "msg_0019": {
+    "ru": "Нарисовать трек",
+    "en": "Draw track"
+  },
+  "msg_0020": {
+    "ru": "Рисование отменено",
+    "en": "Creation canceled"
+  },
+  "msg_0021": {
+    "ru": "Линейка очищена",
+    "en": "Ruler is cleared"
+  },
+  "msg_0022": {
+    "ru": "й",
+    "en": "й"
+  },
+  "msg_0023": {
+    "ru": "ы",
+    "en": "ы"
+  },
+  "msg_0024": {
+    "ru": "в",
+    "en": "в"
+  },
+  "msg_0025": {
+    "ru": "е",
+    "en": "е"
+  },
+  "msg_0026": {
+    "ru": "а",
+    "en": "а"
+  },
+  "msg_0027": {
+    "ru": "ц",
+    "en": "ц"
+  },
+  "msg_0028": {
+    "ru": "к",
+    "en": "к"
+  },
+  "msg_0029": {
+    "ru": "я",
+    "en": "я"
+  },
+  "msg_0030": {
+    "ru": "Я",
+    "en": "Я"
+  },
+  "msg_0031": {
+    "ru": "н",
+    "en": "н"
+  },
+  "msg_0032": {
+    "ru": "Н",
+    "en": "Н"
+  },
+  "msg_0033": {
+    "ru": "ф",
+    "en": "ф"
+  },
+  "msg_0034": {
+    "ru": "Ф",
+    "en": "Ф"
+  },
+  "msg_0035": {
+    "ru": "п",
+    "en": "п"
+  },
+  "msg_0036": {
+    "ru": "П",
+    "en": "П"
+  },
+  "msg_0037": {
+    "ru": "В",
+    "en": "В"
+  },
+  "msg_0038": {
+    "ru": "Выделение снято",
+    "en": "Selection cleared"
+  },
+  "msg_0039": {
+    "ru": "Ы",
+    "en": "Ы"
+  },
+  "msg_0040": {
+    "ru": "щ",
+    "en": "щ"
+  },
+  "msg_0041": {
+    "ru": "Щ",
+    "en": "Щ"
+  },
+  "msg_0042": {
+    "ru": "Сессия очищена. Приложение в исходном состоянии.",
+    "en": "Session is cleared"
+  },
+  "msg_0043": {
+    "ru": "Solo-режим: только один трек",
+    "en": "Solo mode: one track"
+  },
+  "msg_0044": {
+    "ru": "Удалить треки",
+    "en": "Delete tracks"
+  },
+  "msg_0045": {
+    "ru": "Изменить свойства трека",
+    "en": "Change track properties"
+  },
+  "msg_0046": {
+    "ru": "Упростить треки",
+    "en": "Simplify tracks"
+  },
+  "msg_0047": {
+    "ru": "Объединить треки",
+    "en": "Join tracks"
+  },
+  "msg_0048": {
+    "ru": "Разделить трек посегментно",
+    "en": "Separate segments into tracks"
+  },
+  "msg_0049": {
+    "ru": "Удалить выделенные точки",
+    "en": "Delete selected points"
+  },
+  "msg_0050": {
+    "ru": "Удалено выделенных точек",
+    "en": "Points deleted"
+  },
+  "msg_0051": {
+    "ru": "Fit: нет треков для отображения",
+    "en": "Fit: no tracks to show"
+  },
+  "msg_0052": {
+    "ru": "Удалить трек",
+    "en": "Delete track"
+  },
+  "msg_0053": {
+    "ru": "Разделить трек",
+    "en": "Split track"
+  },
+  "msg_0054": {
+    "ru": "Трек разделен на две части",
+    "en": "Track separated"
+  },
+  "msg_0055": {
+    "ru": "Solo-режим: только одна точка",
+    "en": "Solo mode: one waypoint"
+  },
+  "msg_0056": {
+    "ru": "Удалить точки",
+    "en": "Delete waypoints"
+  },
+  "msg_0057": {
+    "ru": "Изменить свойства точки",
+    "en": "Change waypoint properties"
+  },
+  "msg_0058": {
+    "ru": "Добавить точку",
+    "en": "Add wayoint"
+  },
+  "msg_0059": {
+    "ru": "Новая точка",
+    "en": "New Waypoint"
+  },
+  "msg_0060": {
+    "ru": "Удалить точку",
+    "en": "Delete waypoint"
+  },
+  "msg_0061": {
+    "ru": "Некорректные азимут или расстояние",
+    "en": "Incorrect azimuth and distance"
+  },
+  "msg_0062": {
+    "ru": "Проекция точки",
+    "en": "Projet point"
+  },
+  "msg_0063": {
+    "ru": "Введите корректные азимут и расстояние",
+    "en": "Input correct azimuth and distance"
+  },
+  "msg_0064": {
+    "ru": "Трек не найден",
+    "en": "Track not found"
+  },
+  "msg_0065": {
+    "ru": "Сохранение трека в файл",
+    "en": "Saving track to file"
+  },
+  "msg_0066": {
+    "ru": "Удалить точки трека",
+    "en": "Delete track points"
+  },
+  "msg_0067": {
+    "ru": "Выделите две точки: последнюю сегмента N и первую сегмента N+1",
+    "en": "Select two points: last point of segment N and first point of segemnt N+1"
+  },
+  "msg_0068": {
+    "ru": "Точки должны быть из соседних сегментов",
+    "en": "The points must be from adjacent segments."
+  },
+  "msg_0069": {
+    "ru": "Сегменты не найдены",
+    "en": "Segments not found"
+  },
+  "msg_0070": {
+    "ru": "Первая точка должна быть последней в сегменте",
+    "en": "First point must be last point in segment"
+  },
+  "msg_0071": {
+    "ru": "Вторая точка должна быть первой в сегменте",
+    "en": "Second point must be first point in segment"
+  },
+  "msg_0072": {
+    "ru": "Сшить сегменты",
+    "en": "Stitch segments"
+  },
+  "msg_0073": {
+    "ru": "Копировать координаты",
+    "en": "Copy coorinates into cliboard"
+  },
+  "msg_0074": {
+    "ru": "Свойства",
+    "en": "Properies"
+  },
+  "msg_0075": {
+    "ru": "Удалить",
+    "en": "Delete"
+  },
+  "msg_0076": {
+    "ru": "Таблица точек",
+    "en": "Track point list"
+  },
+  "msg_0077": {
+    "ru": "Вместить",
+    "en": "Fit"
+  },
+  "msg_0078": {
+    "ru": "Разделить здесь",
+    "en": "Split here"
+  },
+  "msg_0079": {
+    "ru": "Создать точку",
+    "en": "Create waypoint"
+  },
+  "msg_0080": {
+    "ru": "Скрыть все треки",
+    "en": "Hide all tracks"
+  },
+  "msg_0081": {
+    "ru": "Показать все треки",
+    "en": "Show all tracks"
+  },
+  "msg_0082": {
+    "ru": "Поиск треков...",
+    "en": "Search tracks"
+  },
+  "msg_0083": {
+    "ru": "Имя",
+    "en": "Name"
+  },
+  "msg_0084": {
+    "ru": "Точек",
+    "en": "Points"
+  },
+  "msg_0085": {
+    "ru": "Расст.",
+    "en": "Dist"
+  },
+  "msg_0086": {
+    "ru": "Вместить в экран",
+    "en": "Fit to screen"
+  },
+  "msg_0087": {
+    "ru": "Свойства трека",
+    "en": "Track properties"
+  },
+  "msg_0088": {
+    "ru": "Упростить (фильтр Дугласа-Пекера)",
+    "en": "Simplify (Douglas-Peuker filter"
+  },
+  "msg_0089": {
+    "ru": "Объединить выделенные треки в один",
+    "en": "Joint selected tracks"
+  },
+  "msg_0090": {
+    "ru": "Разделить трек по сегментам",
+    "en": "Split track by segments"
+  },
+  "msg_0091": {
+    "ru": "Вместить треки в экран",
+    "en": "Fit tracks to screen"
+  },
+  "msg_0092": {
+    "ru": "Сохранить треки...",
+    "en": "Save tracks..."
+  },
+  "msg_0093": {
+    "ru": "Удалить выделенные треки",
+    "en": "Delete selected tracks"
+  },
+  "msg_0094": {
+    "ru": "Сохранить в PLT",
+    "en": "Save to PLT"
+  },
+  "msg_0095": {
+    "ru": "Сохранить в GPX",
+    "en": "Save to GPX"
+  },
+  "msg_0096": {
+    "ru": "Сохранить в MS",
+    "en": "Save to MS"
+  },
+  "msg_0097": {
+    "ru": "Сохранить в KML",
+    "en": "Save to KML"
+  },
+  "msg_0098": {
+    "ru": "Закрыть меню",
+    "en": "Close menu"
+  },
+  "msg_0099": {
+    "ru": "Скрыть все точки",
+    "en": "Hide all waypoints"
+  },
+  "msg_0100": {
+    "ru": "Показать все точки",
+    "en": "Show all waypoints"
+  },
+  "msg_0101": {
+    "ru": "Поиск точек...",
+    "en": "Search waypoints"
+  },
+  "msg_0102": {
+    "ru": "Координаты",
+    "en": "Coordinates"
+  },
+  "msg_0103": {
+    "ru": "Центрировать",
+    "en": "Center on screen"
+  },
+  "msg_0104": {
+    "ru": "Добавить точку в центре экрана",
+    "en": "Add new waypoint"
+  },
+  "msg_0105": {
+    "ru": "Свойства точки",
+    "en": "Waypoint properties"
+  },
+  "msg_0106": {
+    "ru": "Центрировать на точке",
+    "en": "Center on waypoint"
+  },
+  "msg_0107": {
+    "ru": "Измерить расстояние  между двумя точками и азимут с первой на вторую",
+    "en": "Measure distance beetween two waypoints and azimuth from first to last"
+  },
+  "msg_0108": {
+    "ru": "Сохранить точки...",
+    "en": "Save waypoints..."
+  },
+  "msg_0109": {
+    "ru": "Сохранить точки в новый WPT",
+    "en": "Save waypoints to new file WPT"
+  },
+  "msg_0110": {
+    "ru": "Добавить точки в существующий WPT",
+    "en": "Append waypoints to existing fail WPT"
+  },
+  "msg_0111": {
+    "ru": "янв",
+    "en": "jan"
+  },
+  "msg_0112": {
+    "ru": "фев",
+    "en": "feb"
+  },
+  "msg_0113": {
+    "ru": "мар",
+    "en": "mar"
+  },
+  "msg_0114": {
+    "ru": "апр",
+    "en": "apr"
+  },
+  "msg_0115": {
+    "ru": "май",
+    "en": "may"
+  },
+  "msg_0116": {
+    "ru": "июн",
+    "en": "jun"
+  },
+  "msg_0117": {
+    "ru": "июл",
+    "en": "jul"
+  },
+  "msg_0118": {
+    "ru": "авг",
+    "en": "aug"
+  },
+  "msg_0119": {
+    "ru": "сен",
+    "en": "sep"
+  },
+  "msg_0120": {
+    "ru": "окт",
+    "en": "oct"
+  },
+  "msg_0121": {
+    "ru": "ноя",
+    "en": "nov"
+  },
+  "msg_0122": {
+    "ru": "дек",
+    "en": "dec"
+  },
+  "msg_0123": {
+    "ru": "Сег",
+    "en": "Seg"
+  },
+  "msg_0124": {
+    "ru": "Выс.(м)",
+    "en": "Alt(m)"
+  },
+  "msg_0125": {
+    "ru": "Дата",
+    "en": "Date"
+  },
+  "msg_0126": {
+    "ru": "Время",
+    "en": "Time"
+  },
+  "msg_0127": {
+    "ru": "Расст(м)",
+    "en": "Dist(m)"
+  },
+  "msg_0128": {
+    "ru": "Км/ч",
+    "en": "KPH"
+  },
+  "msg_0129": {
+    "ru": "В центр",
+    "en": "Center"
+  },
+  "msg_0130": {
+    "ru": "Разделить",
+    "en": "Split"
+  },
+  "msg_0131": {
+    "ru": "Сшить",
+    "en": "Stitch"
+  },
+  "msg_0132": {
+    "ru": "Вне сетки",
+    "en": "Outside grid"
+  },
+  "msg_0133": {
+    "ru": "Закрыть",
+    "en": "Close"
+  },
+  "msg_0134": {
+    "ru": "Создан в сессии",
+    "en": "Created in session"
+  },
+  "msg_0135": {
+    "ru": "Суффикс",
+    "en": "Suffix"
+  },
+  "msg_0136": {
+    "ru": "Цвет заливки:",
+    "en": "Fill color"
+  },
+  "msg_0137": {
+    "ru": "Тип заливки:",
+    "en": "Fill type"
+  },
+  "msg_0138": {
+    "ru": "Имя:",
+    "en": "Name:"
+  },
+  "msg_0139": {
+    "ru": "Введите имя...",
+    "en": "Enter name..."
+  },
+  "msg_0140": {
+    "ru": "Исходник:",
+    "en": "Source:"
+  },
+  "msg_0141": {
+    "ru": "Дата:",
+    "en": "Date:"
+  },
+  "msg_0142": {
+    "ru": "Вчера",
+    "en": "Yesterday"
+  },
+  "msg_0143": {
+    "ru": "Сегодня",
+    "en": "Today"
+  },
+  "msg_0144": {
+    "ru": "Позывной:",
+    "en": "Callsign:"
+  },
+  "msg_0145": {
+    "ru": "Цвет линии:",
+    "en": "Line color:"
+  },
+  "msg_0146": {
+    "ru": "Толщина:",
+    "en": "Width:"
+  },
+  "msg_0147": {
+    "ru": "Стиль линии:",
+    "en": "Line style:"
+  },
+  "msg_0148": {
+    "ru": "Тип:",
+    "en": "Type:"
+  },
+  "msg_0149": {
+    "ru": "Шаблон:",
+    "en": "Result:"
+  },
+  "msg_0150": {
+    "ru": "Сохранить",
+    "en": "Save"
+  },
+  "msg_0151": {
+    "ru": "Применить",
+    "en": "Apply"
+  },
+  "msg_0152": {
+    "ru": "Отмена",
+    "en": "Cancel"
+  },
+  "msg_0153": {
+    "ru": "Описание:",
+    "en": "Description:"
+  },
+  "msg_0154": {
+    "ru": "Описание",
+    "en": "Description"
+  },
+  "msg_0155": {
+    "ru": "Координаты:",
+    "en": "Coordinates:"
+  },
+  "msg_0156": {
+    "ru": "Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)",
+    "en": "Formats: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Grid node (A1) | Node + azimuth + meters (A1 120 110)"
+  },
+  "msg_0157": {
+    "ru": "Высота (м):",
+    "en": "Altitude (m):"
+  },
+  "msg_0158": {
+    "ru": "Цвет текста:",
+    "en": "Text color"
+  },
+  "msg_0159": {
+    "ru": "Цвет фона:",
+    "en": "Label color:"
+  },
+  "msg_0160": {
+    "ru": "Вложение",
+    "en": "Attachment"
+  },
+  "msg_0161": {
+    "ru": "Измерение между точками",
+    "en": "Measure beetween points"
+  },
+  "msg_0162": {
+    "ru": "От:",
+    "en": "From:"
+  },
+  "msg_0163": {
+    "ru": "До:",
+    "en": "To:"
+  },
+  "msg_0164": {
+    "ru": "Расстояние:",
+    "en": "Distance:"
+  },
+  "msg_0165": {
+    "ru": "Магн. азимут:",
+    "en": "Mag. azimuth"
+  },
+  "msg_0166": {
+    "ru": "Очистить сессию?",
+    "en": "Clear session?"
+  },
+  "msg_0167": {
+    "ru": "Все загруженные карты, треки и точки будут удалены.\\nЭто действие нельзя отменить.",
+    "en": "All the loaded maps, tracks and waypoints will be deleted.\\nYou can't undu this action."
+  },
+  "msg_0168": {
+    "ru": "Да, очистить",
+    "en": "Yes, clear all"
+  },
+  "msg_0169": {
+    "ru": "Загрузить сессию из файла?",
+    "en": "Load session from file"
+  },
+  "msg_0170": {
+    "ru": "Текущее рабочее состояние будет заменено.\\nЕсли оно важно — сохраните его в файл .foxy.",
+    "en": "Current state will be replaced by loaded data.\\nSave it to file .foxy."
+  },
+  "msg_0171": {
+    "ru": "Сохранить текущее и загрузить",
+    "en": "Save current state and load"
+  },
+  "msg_0172": {
+    "ru": "Загрузить без сохранения",
+    "en": "Load without saving"
+  },
+  "msg_0173": {
+    "ru": "Создать новую точку по азимуту и расстоянию от исходной.",
+    "en": "Create new waypoint by the distance and azimuth from current"
+  },
+  "msg_0174": {
+    "ru": "Азимут (°):",
+    "en": "Azimuth (°):"
+  },
+  "msg_0175": {
+    "ru": "Расстояние (м):",
+    "en": "Distance (m):"
+  },
+  "msg_0176": {
+    "ru": "Создать",
+    "en": "Create"
+  },
+  "msg_0177": {
+    "ru": "Картографическое приложение\\nдля локальных задач.",
+    "en": "Cartograohic application\\nfor local tasks"
+  },
+  "msg_0178": {
+    "ru": "Мануал",
+    "en": "Manual"
+  },
+  "msg_0179": {
+    "ru": "О программе",
+    "en": "About"
+  },
+  "msg_0180": {
+    "ru": "Карты",
+    "en": "Maps"
+  },
+  "msg_0181": {
+    "ru": "Загрузить комплект карт или карту",
+    "en": "Load map or map kit"
+  },
+  "msg_0182": {
+    "ru": "Геоданные",
+    "en": "Geodata"
+  },
+  "msg_0183": {
+    "ru": "Загрузить треки / точки (GPX, PLT, WPT, MS, KML)",
+    "en": "Load tracks / waypoints (GPX, PLT, WPT, MS, KML)"
+  },
+  "msg_0184": {
+    "ru": "Выключить сетку привязки",
+    "en": "Hide grid"
+  },
+  "msg_0185": {
+    "ru": "Включить сетку привязки",
+    "en": "Show grid"
+  },
+  "msg_0186": {
+    "ru": "Выключить имена узлов",
+    "en": "Hide node names"
+  },
+  "msg_0187": {
+    "ru": "Включить имена узлов",
+    "en": "Show node names"
+  },
+  "msg_0188": {
+    "ru": "Вместить карту в экран",
+    "en": "Fit map to screen"
+  },
+  "msg_0189": {
+    "ru": "Переключить тему",
+    "en": "Switch theme"
+  },
+  "msg_0190": {
+    "ru": "Загрузить сессию",
+    "en": "Load session"
+  },
+  "msg_0191": {
+    "ru": "Сохранить сессию",
+    "en": "Save session"
+  },
+  "msg_0192": {
+    "ru": "Очистить сессию",
+    "en": "Clear session"
+  },
+  "msg_0193": {
+    "ru": "Панормаирование (Q / Пробел (нажать и удерживать, временное переключение))",
+    "en": "Pan (Q / Space (press and hold, temporary switch))"
+  },
+  "msg_0194": {
+    "ru": "Выбор треков или путевых точек (S)",
+    "en": "Select tracks and waypoints (S)"
+  },
+  "msg_0195": {
+    "ru": "Выбор точек трека(D)",
+    "en": "Select track points (D)"
+  },
+  "msg_0196": {
+    "ru": "Рисование трек поточечно (T)",
+    "en": "Draw track by points (T)"
+  },
+  "msg_0197": {
+    "ru": "Свободное рисование трека (F)",
+    "en": "Freehand (F)"
+  },
+  "msg_0198": {
+    "ru": "Добавление путевой точки (W)",
+    "en": "Add waypoint (W)"
+  },
+  "msg_0199": {
+    "ru": "Линейка (R)",
+    "en": "Rules (R)"
+  }
+}
