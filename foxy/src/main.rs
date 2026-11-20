@@ -700,7 +700,7 @@ impl App {
             let (lon, lat) = (DEFAULT_CENTER_LON, DEFAULT_CENTER_LAT);
             let (cx, cy) = merc_of(lon, lat);
             app.cx = cx; app.cy = cy; app.scale = DEFAULT_SCALE;
-            if app.status.is_empty() { app.status = "Источник: OpenStreetMap".into(); } else { app.status = format!("OSM. {}", app.status); }
+            if app.status.is_empty() { app.status = t!("msg_0012").into(); } else { app.status = format!("OSM. {}", app.status); }
             app.request_osm_tiles()
         } else {
             Task::none()
@@ -737,11 +737,11 @@ impl App {
     pub(crate) fn refresh_status(&mut self) {
         let Some(p) = self.cursor else { return };
         let (lon, lat) = self.screen_to_lonlat(p);
-        let mut s = format!("Курсор: {}", format_pair(lat, lon, self.format));
+        let mut s = format!("{} {}", t!("msg_0208"), format_pair(lat, lon, self.format));
         
         if let Some(g) = &self.grid {
             if let Some(n) = g.nearest(lat, lon, self.declination) {
-                s += &format!("   |   ближайший узел {}: {:.0} м, магнитный азимут {:.0}°", n.node.name, n.distance_m, n.magnetic_azimuth);
+                s += &format!("   |   {} {}: {:.0} м, {}  {:.0}°", t!("msg_0209"), n.node.name, n.distance_m, t!("msg_0210"), n.magnetic_azimuth);
             }
         }
         
@@ -764,9 +764,10 @@ impl App {
                 }
                 self.active = 0;
                 self.status = if notes.is_empty() {
-                    format!("слоёв: {n_layers}, точек GPX: {n_gpx}")
+                    //format!({} "слоёв: {n_layers}, точек GPX: {n_gpx}")
+                    format!("{} {}, {} {}", t!("msg_0211"), {n_layers}, t!("msg_0212"), {n_gpx})
                 } else {
-                    format!("слоёв: {n_layers}, точек GPX: {n_gpx}; {}", notes.join("; "))
+                    format!("{} {}, {} {}, {}", t!("msg_0211"), {n_layers}, t!("msg_0212"), {n_gpx}, notes.join("; "))
                 };
                 self.fit_to_layer(0);
                 self.fit_to_layer(0);
@@ -782,7 +783,8 @@ impl App {
                 true
             }
             Err(e) => {
-                self.status = format!("Ошибка загрузки: {e}");
+                //self.status = format!("Ошибка загрузки: {e}");
+                self.status = format!("{} {}", t!("msg_0211"), {e});
                 false
             }
         }
@@ -944,7 +946,7 @@ impl App {
                     BasemapSource::Sentinel2 => "Sentinel-2",
                     BasemapSource::Esri => "ESRI",
                 };
-                format!("{} z{} (кэш {}, в очереди {})", label, self.osm_z, cached, pending)
+                format!("{} z{} ({} {}, {} {})", label, self.osm_z, t!("msg_0218"), cached, t!("msg_0219"), pending)
             }
             None => self.layers
                 .get(self.active)
@@ -952,9 +954,7 @@ impl App {
                 .unwrap_or_else(|| "-".into()),
         };
         
-        let info = format!(
-            "Склонение: {:.2}° (WMM2025)  |  масштаб: {:.2} м/пикс  |  слой: {}",
-            self.declination, self.scale, name
+        let info = format!("{} {:.2}° (WMM2025)  | {} {:.2} {}   |  {} {}", t!("msg_0214"), self.declination, t!("msg_0215"), self.scale, t!("msg_0216"), t!("msg_0217"), name
         );
 
         // ---- Базовый интерфейс ----
@@ -991,7 +991,7 @@ impl App {
             // чтобы пользователь не забыл, как выйти.
             let right_info: Element<Message> = if self.compact_view {
                 row![
-                    text("Нажмите Tab, чтобы включить панели"),
+                    text(t!("msg_0013")),
                     Space::new().width(Length::Fixed(16.0)),
                     text(format!("FoxyXplorer v{}", env!("CARGO_PKG_VERSION"))).size(11),
                 ].align_y(Alignment::Center).into()

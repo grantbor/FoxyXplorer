@@ -1,4 +1,5 @@
 use iced::window::Icon;
+use crate::t;
 
 pub fn load_icon_from_svg(svg_bytes: &[u8], size: u32) -> Result<Icon, String> {
     let tree = resvg::usvg::Tree::from_data(
@@ -17,7 +18,7 @@ pub fn load_icon_from_svg(svg_bytes: &[u8], size: u32) -> Result<Icon, String> {
     let transform = resvg::tiny_skia::Transform::from_scale(scale, scale);
 
     let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)
-        .ok_or("Не удалось создать pixmap")?;
+        .ok_or(t!("msg_0014"))?;
 
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 

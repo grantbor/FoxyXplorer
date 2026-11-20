@@ -8,6 +8,7 @@ use crate::osm;
 use crate::util::geo::{affine};
 use crate::{App, Message, BasemapSource};
 use crate::util::geo::dist_to_segment;
+use crate::t;
 
 pub struct MapProgram<'a> {
     pub app: &'a App,
@@ -83,20 +84,20 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         let items = vec![
                             crate::ContextMenuItem::Label(w.name.clone()),
                             crate::ContextMenuItem::Action(
-                                "Копировать координаты".to_string(),
+                                t!("msg_0073").to_string(),
                                 Message::CopyCoordinates(w.lat, w.lon),
                             ),
                             crate::ContextMenuItem::Action(
-                                "Свойства".to_string(),
+                                t!("msg_0074").to_string(),
                                 Message::OpenWaypointProps(id),
                             ),
                             crate::ContextMenuItem::Action(
-                                "Проекция точки".to_string(),
+                                t!("msg_0062").to_string(),
                                 Message::OpenWaypointProjection(id),
                             ),
                             crate::ContextMenuItem::Separator,
                             crate::ContextMenuItem::Action(
-                                "Удалить".to_string(),
+                                t!("msg_0075").to_string(),
                                 Message::DeleteWaypointById(id),
                             ),
                         ];
@@ -134,28 +135,28 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         let items = vec![
                             crate::ContextMenuItem::Label(t.name.clone()),
                             crate::ContextMenuItem::Action(
-                                "Копировать координаты".to_string(),
+                                t!("msg_0073").to_string(),
                                 Message::CopyCoordinates(lat, lon),
                             ),
                             crate::ContextMenuItem::Action(
-                                "Свойства".to_string(),
+                                t!("msg_0074").to_string(),
                                 Message::OpenTrackProps(id),
                             ),
                             crate::ContextMenuItem::Action(
-                                "Таблица точек".to_string(),
+                                t!("msg_0076").to_string(),
                                 Message::OpenTrackList(id),
                             ),
                             crate::ContextMenuItem::Action(
-                                "Вместить".to_string(),
+                                t!("msg_0077").to_string(),
                                 Message::FitTrackById(id),
                             ),
                             crate::ContextMenuItem::Action(
-                                "Разделить здесь".to_string(),
+                                t!("msg_0078").to_string(),
                                 Message::SplitTrackAt(id, best_seg, best_pt),
                             ),
                             crate::ContextMenuItem::Separator,
                             crate::ContextMenuItem::Action(
-                                "Удалить".to_string(),
+                                t!("msg_0075").to_string(),
                                 Message::DeleteTrackById(id),
                             ),
                         ];
@@ -170,11 +171,11 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                 // ============================================================
                 let items = vec![
                     crate::ContextMenuItem::Action(
-                        "Копировать координаты".to_string(),
+                        t!("msg_0073").to_string(),
                         Message::CopyCoordinates(lat, lon),
                     ),
                     crate::ContextMenuItem::Action(
-                        "Создать точку".to_string(),
+                        t!("msg_0079").to_string(),
                         Message::AddWaypointAt(lon, lat),
                     ),
                 ];

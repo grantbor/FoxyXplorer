@@ -704,7 +704,7 @@
     "en": "Create"
   },
   "msg_0177": {
-    "ru": "Картографическое приложение\\nдля локальных задач.",
+    "ru": "Картографическое приложение\\nдля локальных задач",
     "en": "Cartograohic application\\nfor local tasks"
   },
   "msg_0178": {
@@ -794,5 +794,85 @@
   "msg_0199": {
     "ru": "Линейка (R)",
     "en": "Rules (R)"
+   },
+  "msg_0200": {
+    "ru": "Широта",
+    "en": "Latitude"
+  },
+  "msg_0201": {
+    "ru": "Долгота",
+    "en": "Longitude"
+  },
+  "msg_0202": {
+    "ru": "Настройки",
+    "en": "Settings"
+  },
+  "msg_0203": {
+    "ru": "Здесь будут настройки приложения",
+    "en": "There will be app settings"
+  },
+  "msg_0204": {
+    "ru": "Треки",
+    "en": "Tracks"
+  },
+  "msg_0205": {
+    "ru": "Точки",
+    "en": "Waypoints"
+  },
+  "msg_0206": {
+    "ru": "Формат координат (сейчас",
+    "en": "Cooridnate format (now"
+  },
+  "msg_0207": {
+    "ru": "Список точек",
+    "en": "Track point list"
+  },
+  "msg_0208": {
+    "ru": "Курсор:",
+    "en": "Cursor position:"
+  },
+  "msg_0209": {
+    "ru": "ближайший узел:",
+    "en": "nearest grid node:"
+  },
+  "msg_0210": {
+    "ru": "магнитный азимут:",
+    "en": "mag. azimuth:"
+  },
+  "msg_0211": {
+    "ru": "слоев:",
+    "en": "layers:"
+  },
+  "msg_0212": {
+    "ru": "точек GPX:",
+    "en": "GPX points:"
+  },
+  "msg_0213": {
+    "ru": "Ошибка загрузки:",
+    "en": "Load error::"
+  },
+  "msg_0214": {
+    "ru": "Склонение:",
+    "en": "Declination::"
+  },
+  "msg_0215": {
+    "ru": "масштаб:",
+    "en": "scale::"
+  },
+  "msg_0216": {
+    "ru": "м/пикс",
+    "en": "m/px"
+  },
+  "msg_0217": {
+    "ru": "слой:",
+    "en": "layer:"
+  },
+  "msg_0218": {
+    "ru": "кэш",
+    "en": "cache"
+  },
+  "msg_0219": {
+    "ru": "в очереди",
+    "en": "queued"
   }
 }

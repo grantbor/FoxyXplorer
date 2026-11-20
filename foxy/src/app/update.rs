@@ -21,6 +21,7 @@ use std::collections::HashSet;
 use crate::{TrackRowData, TrackListState}; 
 use crate::util::geo::merc_of; 
 use crate::util::geo::dist_to_segment;
+use crate::t;
 
 fn is_space(key: &iced::keyboard::Key) -> bool {
     matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
@@ -293,7 +294,7 @@ impl App {
         };
         
         self.next_id += 1;
-        self.push_undo("Добавить точку на карте");
+        self.push_undo(t!("msg_0015"));
         self.waypoints.push(Arc::new(new_wp.clone()));
         
         self.waypoint_backup = Some(new_wp.clone());
@@ -419,7 +420,7 @@ impl App {
                         }
                         self.selection.points.insert(pt_key);
                     }
-                    self.push_undo("Перемещение точек");
+                    self.push_undo(t!("msg_0016"));
                     self.moving_points = true;
                 }
             }
@@ -578,7 +579,7 @@ impl App {
         
         let Some(dt) = self.drawing_track.take() else { return };
         if dt.points.len() < 2 {
-            self.status = "Слишком мало точек для трека".into();
+            self.status = t!("msg_0017").into();
             self.tracks_cache.clear();
             return;
         }
@@ -591,7 +592,7 @@ impl App {
         let simplified = domain::simplify::simplify_points(&raw_pts, self.simplify_tolerance);
         let after = simplified.len();
         
-        self.push_undo("Freehand трек");
+        self.push_undo(t!("msg_0018"));
         
         if let Some(target_id) = dt.target_track_id {
             if let Some(t) = self.tracks.iter_mut().find(|t| t.id == target_id) {
@@ -643,11 +644,11 @@ impl App {
     fn finish_drawing(&mut self) {
         let Some(dt) = self.drawing_track.take() else { return };
         if dt.points.len() < 2 {
-            self.status = "Слишком мало точек для трека".into();
+            self.status = t!("msg_0017").into();
             return;
         }
         
-        self.push_undo("Нарисовать трек");
+        self.push_undo(t!("msg_0019"));
         
         let new_pts: Vec<domain::TrackPoint> = dt.points.iter()
             .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None })
@@ -981,7 +982,7 @@ impl App {
                             self.freehand_is_drawing = false;
                             self.drawing_track = None;
                             self.tracks_cache.clear();
-                            self.status = "Рисование отменено".into();
+                            self.status = t!("msg_0020").into();
                             return Task::none();
                         }
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
@@ -1010,19 +1011,19 @@ impl App {
                         if self.active_tool == crate::Tool::Ruler {
                             self.ruler_points.clear();
                             self.tracks_cache.clear();
-                            self.status = "Линейка очищена".into();
+                            self.status = t!("msg_0021").into();
                             return Task::none();
                         }
                     }
                     if !modifiers.command() && !modifiers.control() && !modifiers.alt() {
                         let tool = match &key {
-                            iced::keyboard::Key::Character(c) if c == "q" || c == "й" => Some(crate::Tool::Pan),
-                            iced::keyboard::Key::Character(c) if c == "s" || c == "ы" => Some(crate::Tool::SelectObjects),
-                            iced::keyboard::Key::Character(c) if c == "d" || c == "в" => Some(crate::Tool::SelectPoints),
-                            iced::keyboard::Key::Character(c) if c == "t" || c == "е" => Some(crate::Tool::DrawTrack),
-                            iced::keyboard::Key::Character(c) if c == "f" || c == "а" => Some(crate::Tool::Freehand),
-                            iced::keyboard::Key::Character(c) if c == "w" || c == "ц" => Some(crate::Tool::AddWaypoint),
-                            iced::keyboard::Key::Character(c) if c == "r" || c == "к" => Some(crate::Tool::Ruler),
+                            iced::keyboard::Key::Character(c) if c == "q" || c == t!("msg_0022") => Some(crate::Tool::Pan),
+                            iced::keyboard::Key::Character(c) if c == "s" || c == t!("msg_0023") => Some(crate::Tool::SelectObjects),
+                            iced::keyboard::Key::Character(c) if c == "d" || c == t!("msg_0024") => Some(crate::Tool::SelectPoints),
+                            iced::keyboard::Key::Character(c) if c == "t" || c == t!("msg_0025") => Some(crate::Tool::DrawTrack),
+                            iced::keyboard::Key::Character(c) if c == "f" || c == t!("msg_0026") => Some(crate::Tool::Freehand),
+                            iced::keyboard::Key::Character(c) if c == "w" || c == t!("msg_0027") => Some(crate::Tool::AddWaypoint),
+                            iced::keyboard::Key::Character(c) if c == "r" || c == t!("msg_0028") => Some(crate::Tool::Ruler),
                             _ => None,
                         };
                         if let Some(t) = tool {
@@ -1069,7 +1070,7 @@ impl App {
                     match &key {
                         // Z | Я (или заглавные при Shift)
                         iced::keyboard::Key::Character(c) 
-                            if c == "z" || c == "Z" || c == "я" || c == "Я" => 
+                            if c == "z" || c == "Z" || c == t!("msg_0029") || c == t!("msg_0030") => 
                         {
                             if modifiers.shift() { 
                                 self.perform_redo(); 
@@ -1079,13 +1080,13 @@ impl App {
                         }
                         // Y | Н (или заглавные)
                         iced::keyboard::Key::Character(c) 
-                            if c == "y" || c == "Y" || c == "н" || c == "Н" => 
+                            if c == "y" || c == "Y" || c == t!("msg_0031") || c == t!("msg_0032") => 
                         {
                             self.perform_redo();
                         }
                         // A | Ф (или заглавные)
                         iced::keyboard::Key::Character(c) 
-                            if c == "a" || c == "A" || c == "ф" || c == "Ф" => 
+                            if c == "a" || c == "A" || c == t!("msg_0033") || c == t!("msg_0034") => 
                         {
                             if let Some(Modal::TrackList(state)) = &mut self.modal {
                                 state.selected_points.clear();
@@ -1097,12 +1098,12 @@ impl App {
                         }
                         // G | П — открыть Геоданные (как кнопка «Геоданные» в тулбаре)
                         iced::keyboard::Key::Character(c) 
-                            if c == "g" || c == "G" || c == "п" || c == "П" => 
+                            if c == "g" || c == "G" || c == t!("msg_0035") || c == t!("msg_0036") => 
                         {
                             return self.update_system(Message::PickTrack);
                         }
                         iced::keyboard::Key::Character(c) 
-                            if c == "d" || c == "D" || c == "в" || c == "В" => 
+                            if c == "d" || c == "D" || c == t!("msg_0024") || c == t!("msg_0037") => 
                         {
                             self.selection.tracks.clear();
                             self.selection.waypoints.clear();
@@ -1121,17 +1122,17 @@ impl App {
                             }
 
                             self.tracks_cache.clear();
-                            self.status = "Выделение снято".into();
+                            self.status = t!("msg_0038").into();
                         }
                         // S | Ы — сохранить сессию
                         iced::keyboard::Key::Character(c) 
-                            if c == "s" || c == "S" || c == "ы" || c == "Ы" => 
+                            if c == "s" || c == "S" || c == t!("msg_0023") || c == t!("msg_0039") => 
                         {
                             return self.update_ui(Message::SaveSessionAs);
                         }
                         // O | Щ — открыть сессию
                         iced::keyboard::Key::Character(c) 
-                            if c == "o" || c == "O" || c == "щ" || c == "Щ" => 
+                            if c == "o" || c == "O" || c == t!("msg_0040") || c == t!("msg_0041") => 
                         {
                             return self.update_ui(Message::LoadSessionPrompt);
                         }
@@ -1353,7 +1354,7 @@ impl App {
                 // --- Файлы сессии на диске ---
                 session::clear_session_files();
                 
-                self.status = "Сессия очищена. Приложение в исходном состоянии.".into();
+                self.status = t!("msg_0042").into();
                 
                 // --- Запрашиваем тайлы OSM для нового центра ---
                 return self.request_osm_tiles();
@@ -1493,7 +1494,7 @@ impl App {
             Message::ToggleTrackVisible(id, v) => {
                 if self.modifiers.alt() {
                     // Solo-режим: показываем только кликнутый, остальные скрываем
-                    self.push_undo("Solo-режим: только один трек");
+                    self.push_undo(t!("msg_0043"));
                     for t in &mut self.tracks {
                         let should_be_visible = t.id == id;
                         if t.visible != should_be_visible {
@@ -1518,7 +1519,7 @@ impl App {
                 self.tracks_cache.clear();
             }
              Message::DeleteSelectedTracks => {
-                self.push_undo("Удалить треки"); 
+                self.push_undo(t!("msg_0044")); 
                 let ids = self.selection.tracks.clone();
                 self.tracks.retain(|t| !ids.contains(&t.id));
                 self.selection.tracks.clear();
@@ -1533,7 +1534,7 @@ impl App {
                     let draft = backup.props.clone();
                     
                     // 2. Ссылка `t` больше не используется, теперь можно менять self
-                    self.push_undo("Изменить свойства трека");
+                    self.push_undo(t!("msg_0045"));
                     self.track_backup = Some(backup);
                     self.modal = Some(Modal::TrackProps { track_id: id, draft });
                 }
@@ -1563,7 +1564,7 @@ impl App {
                 if ids.is_empty() { return; }
 
                 // 1. ОБЯЗАТЕЛЬНО сохраняем состояние ДО изменений
-                self.push_undo("Упростить треки");
+                self.push_undo(t!("msg_0046"));
                 
                 // 2. Применяем фильтр
                 for id in ids {
@@ -1587,7 +1588,7 @@ impl App {
                     .map(|t| t.id)
                 else { return };
 
-                self.push_undo("Объединить треки");
+                self.push_undo(t!("msg_0047"));
 
                 // Собираем сегменты и id остальных выделенных в порядке списка
                 let mut extra_segments: Vec<domain::TrackSegment> = Vec::new();
@@ -1638,7 +1639,7 @@ impl App {
                 let n_segments = track.segments.len();
                 if n_segments <= 1 { return; }
 
-                self.push_undo("Разделить трек посегментно");
+                self.push_undo(t!("msg_0048"));
 
                 let original_name = track.name.clone();
                 let color = track.color;
@@ -1690,7 +1691,7 @@ impl App {
                 // Защита: нечего удалять
                 if self.selection.points.is_empty() { return; }
                 
-                self.push_undo("Удалить выделенные точки");
+                self.push_undo(t!("msg_0049"));
                 
                 // Группируем выделенные точки по (track_id, seg_idx)
                 let mut by_track: std::collections::HashMap<u64, Vec<(usize, Vec<usize>)>> = std::collections::HashMap::new();
@@ -1726,7 +1727,7 @@ impl App {
                 self.selection.points.clear();
                 self.last_point_clicked = None;
                 self.tracks_cache.clear();
-                self.status = "Удалено выделенных точек".into();
+                self.status = t!("msg_0050").into();
             }
             Message::FitTrackToScreen => {
                 let ids: Vec<u64> = if !self.selection.tracks.is_empty() {
@@ -1779,14 +1780,14 @@ impl App {
                     self.tracks_cache.clear();
                     self.status = format!("Fit: масштаб {:.2} м/пикс", self.scale);
                 } else {
-                    self.status = "Fit: нет треков для отображения".into();
+                    self.status = t!("msg_0051").into();
                 }
             }
             Message::FreehandReleased => {
                 self.finish_freehand();
             }
             Message::DeleteTrackById(id) => {
-                self.push_undo("Удалить трек");
+                self.push_undo(t!("msg_0052"));
                 self.tracks.retain(|t| t.id != id);
                 self.selection.tracks.remove(&id);
                 self.tracks_cache.clear();
@@ -1797,7 +1798,7 @@ impl App {
                 self.update_tracks(Message::FitTrackToScreen);
             }
             Message::SplitTrackAt(id, seg_idx, pt_idx) => {
-                self.push_undo("Разделить трек");
+                self.push_undo(t!("msg_0053"));
 
                 let Some(track_arc) = self.tracks.iter().find(|t| t.id == id).cloned() else { return };
                 let track = track_arc.as_ref();
@@ -1846,7 +1847,7 @@ impl App {
                 self.tracks.push(Arc::new(new_track));
 
                 self.tracks_cache.clear();
-                self.status = "Трек разделен на две части".into();
+                self.status = t!("msg_0054").into();
             }
             _ => {}
         }
@@ -2061,7 +2062,7 @@ impl App {
             Message::ToggleWaypointVisible(id, v) => {
                 if self.modifiers.alt() {
                     // Solo-режим: показываем только кликнутую, остальные скрываем
-                    self.push_undo("Solo-режим: только одна точка");
+                    self.push_undo(t!("msg_0055"));
                     for w in &mut self.waypoints {
                         let should_be_visible = w.id == id;
                         if w.visible != should_be_visible {
@@ -2086,7 +2087,7 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::DeleteSelectedWaypoints => {
-                self.push_undo("Удалить точки"); 
+                self.push_undo(t!("msg_0056")); 
                 let ids = self.selection.waypoints.clone();
                 self.waypoints.retain(|w| !ids.contains(&w.id));
                 self.selection.waypoints.clear();
@@ -2101,7 +2102,7 @@ impl App {
                     let coord_input = format!("{:.6} {:.6}", backup.lat, backup.lon);
                     
                     // 2. Теперь можно менять self
-                    self.push_undo("Изменить свойства точки");
+                    self.push_undo(t!("msg_0057"));
                     self.waypoint_backup = Some(backup.clone());
                     self.modal = Some(Modal::WaypointProps { 
                         waypoint_id: id, 
@@ -2113,11 +2114,11 @@ impl App {
             }
             Message::AddNewWaypoint => {
                 self.modal_drag_offset = Point::ORIGIN;
-                self.push_undo("Добавить точку");
+                self.push_undo(t!("msg_0058"));
                 let (lon, lat) = lonlat_of(self.cx, self.cy);
                 let new_wp = domain::Waypoint {
                     id: self.next_id,
-                    name: "Новая точка".into(),
+                    name: t!("msg_0059").into(),
                     lon,
                     lat,
                     ele: None, time: None, symbol: None, description: None,
@@ -2229,7 +2230,7 @@ impl App {
                 self.modal = None;
             }
             Message::DeleteWaypointById(id) => {
-                self.push_undo("Удалить точку");
+                self.push_undo(t!("msg_0060"));
                 self.waypoints.retain(|w| w.id != id);
                 self.selection.waypoints.remove(&id);
                 self.tracks_cache.clear();
@@ -2246,7 +2247,7 @@ impl App {
                     bg_color: [0, 255, 255],
                 };
                 self.next_id += 1;
-                self.push_undo("Добавить точку");
+                self.push_undo(t!("msg_0058"));
                 self.waypoints.push(Arc::new(new_wp.clone()));
                 self.waypoint_backup = Some(new_wp.clone());
                 self.modal = Some(Modal::WaypointProps {
@@ -2292,7 +2293,7 @@ impl App {
 
                     if let (Some(az), Some(dist)) = (az, dist) {
                         if !az.is_finite() || !dist.is_finite() || dist < 0.0 {
-                            self.status = "Некорректные азимут или расстояние".into();
+                            self.status = t!("msg_0061").into();
                             return Task::none();
                         }
 
@@ -2344,7 +2345,7 @@ impl App {
                             };
 
                             self.next_id += 1;
-                            self.push_undo("Проекция точки");
+                            self.push_undo(t!("msg_0062"));
                             self.waypoints.push(Arc::new(new_wp));
                             self.modal = None;
                             self.tracks_cache.clear();
@@ -2355,7 +2356,7 @@ impl App {
                             );
                         }
                     } else {
-                        self.status = "Введите корректные азимут и расстояние".into();
+                        self.status = t!("msg_0063").into();
                     }
                 }
             }
@@ -2637,7 +2638,7 @@ impl App {
                 let save_result = if let Some(t) = self.tracks.iter().find(|t| t.id == track_id) {
                     io::save_plt(t, &path)
                 } else {
-                    Err("Трек не найден".to_string())
+                    Err(t!("msg_0064").to_string())
                 };
 
                 match save_result {
@@ -2645,7 +2646,7 @@ impl App {
                         self.status = format!("Ошибка сохранения: {e}");
                     }
                     Ok(_) => {
-                        self.push_undo("Сохранение трека в файл");
+                        self.push_undo(t!("msg_0065"));
                         self.status = format!("Сохранено в {}", path.display());
                         // remember_save_dir НЕ вызывать
                         if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == track_id) {
@@ -2875,7 +2876,7 @@ impl App {
                     let id = state.track_id;
                     let selected = state.selected_points.clone();
                     
-                    self.push_undo("Удалить точки трека");
+                    self.push_undo(t!("msg_0066"));
                     if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
                         let t_m = Arc::make_mut(t_mut);
                         for (sect_idx, seg) in t_m.segments.iter_mut().enumerate() {
@@ -2913,7 +2914,7 @@ impl App {
             Message::SplitTrackAtPoint(sect, pt_idx) => {
                 if let Some(Modal::TrackList(state)) = &self.modal {
                     let id = state.track_id;
-                    self.push_undo("Разделить трек");
+                    self.push_undo(t!("msg_0053"));
                     
                     if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
                         let t_m = Arc::make_mut(t_mut);
@@ -2939,7 +2940,7 @@ impl App {
 
                 let mut points: Vec<(usize, usize)> = state.selected_points.iter().copied().collect();
                 if points.len() != 2 {
-                    self.status = "Выделите две точки: последнюю сегмента N и первую сегмента N+1".into();
+                    self.status = t!("msg_0067").into();
                     return;
                 }
                 points.sort();
@@ -2947,7 +2948,7 @@ impl App {
                 let (sect_b, pt_b) = points[1];
 
                 if sect_b != sect_a + 1 {
-                    self.status = "Точки должны быть из соседних сегментов".into();
+                    self.status = t!("msg_0068").into();
                     return;
                 }
 
@@ -2958,11 +2959,11 @@ impl App {
                 let (dist, err) = {
                     let Some(t) = self.tracks.iter().find(|t| t.id == id) else { return };
                     if seg_a_idx >= t.segments.len() || seg_b_idx >= t.segments.len() {
-                        (0.0, Some("Сегменты не найдены"))
+                        (0.0, Some(t!("msg_0069")))
                     } else if pt_a + 1 != t.segments[seg_a_idx].points.len() {
-                        (0.0, Some("Первая точка должна быть последней в сегменте"))
+                        (0.0, Some(t!("msg_0070")))
                     } else if pt_b != 0 {
-                        (0.0, Some("Вторая точка должна быть первой в сегменте"))
+                        (0.0, Some(t!("msg_0071")))
                     } else {
                         let last_a = &t.segments[seg_a_idx].points[pt_a];
                         let first_b = &t.segments[seg_b_idx].points[pt_b];
@@ -2975,7 +2976,7 @@ impl App {
                     return;
                 }
 
-                self.push_undo("Сшить сегменты");
+                self.push_undo(t!("msg_0072"));
 
                 // Допуск «это одна и та же точка» — 1.5 метра. Увеличить — если
                 // на стыках бывают более заметные GPS-расхождения, которые
@@ -3054,7 +3055,7 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::DeleteTrackById(id) => {
-                self.push_undo("Удалить трек");
+                self.push_undo(t!("msg_0052"));
                 self.tracks.retain(|t| t.id != id);
                 self.selection.tracks.remove(&id);
                 self.tracks_cache.clear();

@@ -4,6 +4,7 @@ use crate::domain::{
     Track, TrackPoint, TrackSegment, Waypoint, FileSource, TrackProps,
     PolyType, FillType, LineStyle, recompute_track_stats,
 };
+use crate::t;
 
 
 pub struct LoadedContent {
@@ -55,17 +56,17 @@ fn parse_gpx_color(s: &str) -> Option<[u8; 3]> {
 fn detect_callsign(name: &str) -> Option<String> {
     let upper = name.to_uppercase();
     let table = [
-        ("Lisa",    "ЛИСА"),
-        ("Veter",   "ВЕТЕР"),
-        ("Kinolog", "КИНОЛОГ"),
-        ("BPLA",    "БПЛА"),
-        ("Bort",    "БОРТ"),
-        ("Zadacha", "ЗАДАЧА"),
-        ("Avtonom", "АВТОНОМ"),
-        ("Pegas",   "ПЕГАС"),
+        ("Lisa",    t!("msg_0001")),
+        ("Veter",   t!("msg_0002")),
+        ("Kinolog", t!("msg_0003")),
+        ("BPLA",    t!("msg_0004")),
+        ("Bort",    t!("msg_0005")),
+        ("Zadacha", t!("msg_0006")),
+        ("Avtonom", t!("msg_0007")),
+        ("Pegas",   t!("msg_0008")),
     ];
     for (canonical, cyrillic) in table {
-        if upper.contains(&canonical.to_uppercase()) || upper.contains(cyrillic) {
+        if upper.contains(&canonical.to_uppercase()) || upper.contains(&cyrillic) {
             return Some(canonical.to_string());
         }
     }
@@ -427,12 +428,12 @@ pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
     match ext.as_str() {
         "gpx" => save_gpx(tracks, waypoints, path),
         "plt" => {
-            if !waypoints.is_empty() { return Err("Формат PLT не поддерживает waypoints".into()); }
-            if tracks.len() != 1 { return Err("Формат PLT может содержать только один трек".into()); }
+            if !waypoints.is_empty() { return Err(t!("msg_0009").into()); }
+            if tracks.len() != 1 { return Err(t!("msg_0010").into()); }
             save_plt(tracks[0], path)
         },
         "wpt" => {
-            if !tracks.is_empty() { return Err("Формат WPT не поддерживает треки".into()); }
+            if !tracks.is_empty() { return Err(t!("msg_0011").into()); }
             save_wpt(waypoints, path)
         },
         "ms" => save_ms(tracks, waypoints, path),

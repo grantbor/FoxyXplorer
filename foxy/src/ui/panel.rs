@@ -4,6 +4,7 @@ use iced::widget::{
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::{App, Message, ContextMenuItem};
 use crate::ui::controls::with_tooltip;
+use crate::t;
 
 
 impl App {
@@ -74,7 +75,7 @@ impl App {
         let kit_name = self.layers.first().map(|l| l.kit_name.as_str()).unwrap_or("");
         
         let header = row![
-            text(format!("Карты ({})", self.layers.len() + 3)).size(14),
+            text(format!("{} ({})", t!("msg_0180"), self.layers.len() + 3)).size(14),
             Space::new().width(Length::Fill),
             if !kit_name.is_empty() {
                 text(kit_name).size(11).color(Color::from_rgb(0.6, 0.6, 0.6))
@@ -120,16 +121,16 @@ impl App {
     }
 
     fn view_tracks_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Треки ({})", self.tracks.len())).size(14);
+        let header = text(format!("{} ({})", t!("msg_0204"), self.tracks.len())).size(14);
 
         let all_visible = self.tracks.iter().all(|t| t.visible);
         let top_bar = row![
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllTracksVisible),
-                if all_visible { "Скрыть все треки" } else { "Показать все треки" }
+                if all_visible { t!("msg_0080") } else { t!("msg_0081") }
             ),
             self.search_input(
-                "Поиск треков...",
+                t!("msg_0082"),
                 &self.search_tracks,
                 Message::SearchTracksChanged,
                 Message::SearchTracksChanged(String::new()),
@@ -140,9 +141,9 @@ impl App {
         let cols = row![
             Space::new().width(24.0),
             Space::new().width(16.0),
-            container(text("Имя").size(11)).width(Length::Fill),
-            container(text("Точек").size(11)).width(Length::Fixed(50.0)).align_x(Alignment::End),
-            container(text("Расст.").size(11)).width(Length::Fixed(70.0)).align_x(Alignment::End),
+            container(text(t!("msg_0083")).size(11)).width(Length::Fill),
+            container(text(t!("msg_0084")).size(11)).width(Length::Fixed(50.0)).align_x(Alignment::End),
+            container(text(t!("msg_0085")).size(11)).width(Length::Fixed(70.0)).align_x(Alignment::End),
         ].spacing(4);
 
         let query = self.search_tracks.to_lowercase();
@@ -189,11 +190,11 @@ impl App {
                         self.global_cursor,
                         vec![
                             ContextMenuItem::Label(t.name.clone()),
-                            ContextMenuItem::Action("Свойства".to_string(), Message::OpenTrackProps(track_id)),
-                            ContextMenuItem::Action("Таблица точек".to_string(), Message::OpenTrackList(track_id)),
-                            ContextMenuItem::Action("Вместить в экран".to_string(), Message::FitTrackById(track_id)),
+                            ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenTrackProps(track_id)),
+                            ContextMenuItem::Action(t!("msg_0076").to_string(), Message::OpenTrackList(track_id)),
+                            ContextMenuItem::Action(t!("msg_0086").to_string(), Message::FitTrackById(track_id)),
                             ContextMenuItem::Separator,
-                            ContextMenuItem::Action("Удалить".to_string(), Message::DeleteTrackById(track_id)),
+                            ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteTrackById(track_id)),
                         ],
                     ))
                 ).width(Length::Fill).clip(true),
@@ -221,7 +222,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::SETTINGS)
                 },
-                "Свойства трека"
+                t!("msg_0087")
             ),
             with_tooltip(
                 if has_tracks {
@@ -229,7 +230,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::FUNNEL)
                 },
-                "Упростить (фильтр Дугласа-Пекера)"
+                t!("msg_0088")
             ),
             with_tooltip(
                 if one_track {
@@ -237,7 +238,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::LIST)
                 },
-                "Таблица точек"
+                t!("msg_0076")
             ),
             with_tooltip(
                 if mergeable {
@@ -245,7 +246,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::GIT_MERGE)
                 },
-                "Объединить выделенные треки в один"
+                t!("msg_0089")
             ),
             with_tooltip(
                 if multi_seg_selected {
@@ -253,7 +254,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::GIT_GRAPH)
                 },
-                "Разделить трек по сегментам"
+                t!("msg_0090")
             ),
             with_tooltip(
                 if has_tracks {
@@ -261,7 +262,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::SCAN_EYE)
                 },
-                "Вместить треки в экран"
+                t!("msg_0091")
             ),
             with_tooltip(
                 if has_tracks {
@@ -269,7 +270,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::SAVE)
                 },
-                "Сохранить треки..."
+                t!("msg_0092")
             ),
             Space::new().width(Length::Fill),
             with_tooltip(
@@ -278,7 +279,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::TRASH)
                 },
-                "Удалить выделенные треки"
+                t!("msg_0093")
             ),
         ].spacing(4).align_y(Alignment::Center);
 
@@ -289,7 +290,7 @@ impl App {
                 } else {
                     self.btn_secondary("PLT")
                 },
-                "Сохранить в PLT"
+                t!("msg_0094")
             ),
             with_tooltip(
                 if has_tracks || has_wps {
@@ -297,7 +298,7 @@ impl App {
                 } else {
                     self.btn_secondary("GPX")
                 },
-                "Сохранить в GPX"
+                t!("msg_0095")
             ),
             with_tooltip(
                 if has_tracks || has_wps {
@@ -305,7 +306,7 @@ impl App {
                 } else {
                     self.btn_secondary("MS")
                 },
-                "Сохранить в MS"
+                t!("msg_0096")
             ),
              with_tooltip(
                  if has_tracks || has_wps {
@@ -313,12 +314,12 @@ impl App {
                  } else {
                      self.btn_secondary("KML")
                  },
-                 "Сохранить в KML (Google Earth)"
+                 t!("msg_0097")
              ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu),
-                "Закрыть меню"
+                t!("msg_0098")
             ),
         ].spacing(4).align_y(Alignment::Center);
 
@@ -338,16 +339,16 @@ impl App {
     }
 
     fn view_waypoints_section(&self) -> Element<'_, Message> {
-        let header = text(format!("Точки ({})", self.waypoints.len())).size(14);
+        let header = text(format!("{} ({})", t!("msg_0205"),  self.waypoints.len())).size(14);
 
         let all_visible = self.waypoints.iter().all(|w| w.visible);
         let top_bar = row![
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::EYE, Message::ToggleAllWaypointsVisible),
-                if all_visible { "Скрыть все точки" } else { "Показать все точки" }
+                if all_visible { t!("msg_0099") } else { t!("msg_0100") }
             ),
             self.search_input(
-                "Поиск точек...",
+                t!("msg_0101"),
                 &self.search_waypoints,
                 Message::SearchWaypointsChanged,
                 Message::SearchWaypointsChanged(String::new()),
@@ -357,8 +358,8 @@ impl App {
         let cols = row![
             Space::new().width(24.0),
             Space::new().width(14.0),
-            container(text("Имя").size(11)).width(Length::Fill),
-            container(text("Координаты").size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
+            container(text(t!("msg_0083")).size(11)).width(Length::Fill),
+            container(text(t!("msg_0102")).size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
         ].spacing(4);
 
         let query = self.search_waypoints.to_lowercase();
@@ -394,12 +395,12 @@ impl App {
                         self.global_cursor,
                         vec![
                             ContextMenuItem::Label(w.name.clone()),
-                            ContextMenuItem::Action("Копировать координаты".to_string(), Message::CopyCoordinates(w.lat, w.lon)),
-                            ContextMenuItem::Action("Свойства".to_string(), Message::OpenWaypointProps(wp_id)),
-                            ContextMenuItem::Action("Центрировать".to_string(), Message::CenterOnWaypoint(wp_id)),
-                            ContextMenuItem::Action("Проекция точки".to_string(), Message::OpenWaypointProjection(wp_id)),
+                            ContextMenuItem::Action(t!("msg_0073").to_string(), Message::CopyCoordinates(w.lat, w.lon)),
+                            ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenWaypointProps(wp_id)),
+                            ContextMenuItem::Action(t!("msg_0103").to_string(), Message::CenterOnWaypoint(wp_id)),
+                            ContextMenuItem::Action(t!("msg_0062").to_string(), Message::OpenWaypointProjection(wp_id)),
                             ContextMenuItem::Separator,
-                            ContextMenuItem::Action("Удалить".to_string(), Message::DeleteWaypointById(wp_id)),
+                            ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteWaypointById(wp_id)),
                         ],
                     ))
                 ).width(Length::Fill).clip(true),
@@ -418,7 +419,7 @@ impl App {
         let row_normal = row![
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::PLUS, Message::AddNewWaypoint),
-                "Добавить точку в центре экрана"
+                t!("msg_0104")
             ),
             with_tooltip(
                 if one_wp {
@@ -426,7 +427,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::SETTINGS)
                 },
-                "Свойства точки" 
+                t!("msg_0105") 
             ),
             with_tooltip(
                 if one_wp {
@@ -434,7 +435,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::DIAMOND_PLUS)
                 },
-                "Центрировать на точке"
+                t!("msg_0106")
             ),
             with_tooltip(
                 if one_wp {
@@ -442,7 +443,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::CIRCLE_ARROW_UP_RIGHT_EXIT)
                 },
-                "Проекция точки"
+                t!("msg_0062")
             ),
             with_tooltip(
                 if two_wps {
@@ -450,7 +451,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::RULER)
                 },
-                "Измерить расстояние  между двумя точками и азимут с первой на вторую"
+                t!("msg_0107")
             ),
             with_tooltip(
                 if has_wps {
@@ -458,7 +459,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::SAVE)
                 },
-                "Сохранить точки..."
+                t!("msg_0108")
             ),
             Space::new().width(Length::Fill),
             with_tooltip(
@@ -467,7 +468,7 @@ impl App {
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::TRASH)
                 },
-                "Удалить выделенные точки"
+                t!("msg_0049")
             ),
         ].spacing(4).align_y(Alignment::Center);
 
@@ -478,7 +479,7 @@ impl App {
                 } else {
                     self.btn_secondary("WPT")
                 },
-                "Сохранить точки в новый WPT"
+                t!("msg_0109")
             ),
             with_tooltip(
                 if has_wps && !has_tracks {
@@ -486,7 +487,7 @@ impl App {
                 } else {
                     self.btn_secondary("WPT+")
                 },
-                "Добавить точки в существующий WPT"
+                t!("msg_0110")
             ),
             with_tooltip(
                 if has_wps || has_tracks {
@@ -494,7 +495,7 @@ impl App {
                 } else {
                     self.btn_secondary("GPX")
                 },
-                "Сохранить в GPX"
+                t!("msg_0095")
             ),
             with_tooltip(
                 if has_wps || has_tracks {
@@ -502,7 +503,7 @@ impl App {
                 } else {
                     self.btn_secondary("MS")
                 },
-                "Сохранить в MS"
+                t!("msg_0096")
             ),
              with_tooltip(
                  if has_tracks || has_wps {
@@ -510,12 +511,12 @@ impl App {
                  } else {
                      self.btn_secondary("KML")
                  },
-                 "Сохранить в KML (Google Earth)"
+                 t!("msg_0097")
              ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu),
-                "Закрыть меню"
+                t!("msg_0098")
             ),
         ].spacing(4).align_y(Alignment::Center);
 

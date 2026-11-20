@@ -5,6 +5,7 @@ use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
 use crate::widgets::palette::get_extended_palette;
 use crate::{App, Message, ContextMenuState, ContextMenuItem, ColorPickerKind};
+use crate::t;
 
 // =========================================================
 // Хелпер для форматирования даты/времени в таблице точек
@@ -12,8 +13,17 @@ use crate::{App, Message, ContextMenuState, ContextMenuItem, ColorPickerKind};
 fn format_date_time(unix: Option<f64>) -> (String, String) {
     if let Some(t) = unix {
         let (y, m, d, h, min, sec, _) = geoio::time::parts_local(t);
-        let months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-        let month_str = months.get((m - 1) as usize).unwrap_or(&"???");
+        
+        // Добавлено ключевое слово `let` и явная типизация
+        let months: [&str; 12] = [
+            "янв", "фев", "мар", "апр", "май", "июн", 
+            "июл", "авг", "сен", "окт", "ноя", "дек"
+        ];
+        
+        // .copied() превращает Option<&&str> в Option<&str>, 
+        // а unwrap_or("???") корректно подставляет срез строки
+        let month_str = months.get((m - 1) as usize).copied().unwrap_or("???");
+        
         let date = format!("{:02}-{}-{:02}", d, month_str, y % 100);
         let time = format!("{:02}:{:02}:{:02}", h, min, sec);
         (date, time)
@@ -35,14 +45,14 @@ impl App {
         let header = container(
             row![
                 text("#").width(Length::FillPortion(40)),
-                text("Сег").width(Length::FillPortion(40)),
-                text("Latitude").width(Length::FillPortion(90)),
-                text("Longitude").width(Length::FillPortion(90)),
-                text("Alt(м)").width(Length::FillPortion(50)),
-                text("Дата").width(Length::FillPortion(80)),
-                text("Время").width(Length::FillPortion(60)),
-                text("Расст(м)").width(Length::FillPortion(60)),
-                text("Км/ч").width(Length::FillPortion(50)),
+                text(t!("msg_0123")).width(Length::FillPortion(40)),
+                text(t!("msg_0200")).width(Length::FillPortion(90)),
+                text(t!("msg_0201")).width(Length::FillPortion(90)),
+                text(t!("msg_0123")).width(Length::FillPortion(50)),
+                text(t!("msg_0125")).width(Length::FillPortion(80)),
+                text(t!("msg_0126")).width(Length::FillPortion(60)),
+                text(t!("msg_0127")).width(Length::FillPortion(60)),
+                text(t!("msg_0128")).width(Length::FillPortion(50)),
                 // Space::new().width(Length::Fill) УБРАТЬ
             ].spacing(4).padding(4)
         )
@@ -100,7 +110,7 @@ impl App {
             // Заголовок с кнопкой закрытия
             row![
                 mouse_area(
-                    container(text(format!("Список точек - {}", track_name)).size(18))
+                    container(text(format!("{} - {}", t!("msg_0207"), track_name)).size(18))
                         .width(Length::Fill)
                         .padding(4)
                         .style(|theme: &Theme| {
@@ -120,23 +130,23 @@ impl App {
             container(scrollable(list).height(Length::Fixed(400.0))).padding(2).width(Length::Fill),
 
             row![
-                self.btn_secondary("В центр").on_press_maybe(
+                self.btn_secondary(t!("msg_0129")).on_press_maybe(
                     state.last_clicked.map(|(s, p)| Message::CenterOnTrackPoint(s, p))
                 ),
-                self.btn_secondary("Разделить").on_press_maybe(
+                self.btn_secondary(t!("msg_0130")).on_press_maybe(
                     state.last_clicked.map(|(s, p)| Message::SplitTrackAtPoint(s, p))
                 ),
-                self.btn_secondary("Сшить").on_press_maybe(
+                self.btn_secondary(t!("msg_0131")).on_press_maybe(
                     if state.selected_points.len() == 2 {
                         Some(Message::StitchSegments)
                     } else {
                         None
                     }
                 ),                
-                self.btn_secondary("Вне сетки").on_press(Message::SelectPointsOutsideGrid),
-                self.btn_secondary("Удалить").on_press(Message::DeleteSelectedTrackPoints),
+                self.btn_secondary(t!("msg_0132")).on_press(Message::SelectPointsOutsideGrid),
+                self.btn_secondary(t!("msg_0075")).on_press(Message::DeleteSelectedTrackPoints),
                 Space::new().width(Length::Fill),
-                self.btn_secondary("Закрыть").on_press(Message::CloseTrackList),
+                self.btn_secondary(t!("msg_0133")).on_press(Message::CloseTrackList),
             ].spacing(8).padding([10, 0])
         ]
         .spacing(10)
@@ -200,7 +210,7 @@ impl App {
         let file_name: &'a str = file_source
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-            .unwrap_or("Создан в сессии");
+            .unwrap_or(t!("msg_0134"));
 
         let file_path: Option<&'a std::path::Path> = file_source;
 
@@ -213,7 +223,7 @@ impl App {
                     .padding(native_theme_iced::input_padding(&self.resolved_theme))
                     .style(native_theme_iced::styles::text_input(&self.resolved_theme))
                     .on_input(Message::DraftNum2Changed).width(50),
-                container(text("Суффикс")).padding([0, 4]),
+                container(text(t!("msg_0135"))).padding([0, 4]),
                 text_input("", &draft.suffix)
                     .padding(native_theme_iced::input_padding(&self.resolved_theme))
                     .style(native_theme_iced::styles::text_input(&self.resolved_theme))
@@ -285,10 +295,10 @@ impl App {
 
         let fill_fields: Element<'a, Message> = if draft.poly_type == domain::PolyType::Polygon {
             column![
-                row![text("Цвет заливки:").width(120), fill_color_row].align_y(Alignment::Center),
+                row![text(t!("msg_0136")).width(120), fill_color_row].align_y(Alignment::Center),
                 fill_picker_ui,   // ← добавить
                 row![
-                    text("Тип заливки:").width(120),
+                    text(t!("msg_0137")).width(120),
                     pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged)
                         .padding(native_theme_iced::button_padding(&self.resolved_theme))
                         .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
@@ -307,7 +317,7 @@ impl App {
             // Заголовок с кнопкой закрытия
             row![
                 mouse_area(
-                    container(text("Свойства трека").size(20))
+                    container(text(t!("msg_0087")).size(20))
                         .width(Length::Fill)
                         .padding(4)
                         .style(|theme: &Theme| {
@@ -324,8 +334,8 @@ impl App {
             ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
-                text("Имя:").width(120),
-                text_input("Введите имя...", &draft.description)
+                text(t!("msg_0138")).width(120),
+                text_input(t!("msg_0139"), &draft.description)
                     .on_input(Message::DraftDescChanged).width(280)
                     .padding(input_pad).style(input_style.clone())
             ].align_y(Alignment::Center),
@@ -381,22 +391,22 @@ impl App {
             };
 
                 row![
-                    text("Исходник:").width(120),
+                    text(t!("msg_0140")).width(120),
                     file_field,
                 ].align_y(Alignment::Center)
             },
 
             row![
-                text("Дата:").width(120),
-                self.btn_secondary("Вчера").on_press(Message::DraftDateYesterday),
-                self.btn_secondary("Сегодня").on_press(Message::DraftDateToday),
+                text(t!("msg_0141")).width(120),
+                self.btn_secondary(t!("msg_0142")).on_press(Message::DraftDateYesterday),
+                self.btn_secondary(t!("msg_0143")).on_press(Message::DraftDateToday),
                 text_input("YYYY-MM-DD", &draft.date_str)
                     .on_input(Message::DraftDateChanged).width(120)
                     .padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center).spacing(4),
 
             row![
-                text("Позывной:").width(120),
+                text(t!("msg_0144")).width(120),
                 pick_list(callsigns, Some(draft.callsign.clone()), Message::DraftCallsignChanged)
                     .padding(pick_pad).style(pick_style.clone()),
                 container(text("#")).padding([0, 4]),
@@ -406,21 +416,21 @@ impl App {
                 extra_fields
             ].align_y(Alignment::Center).spacing(4),
 
-            row![text("Цвет линии:").width(120), color_row].align_y(Alignment::Center),
+            row![text(t!("msg_0145")).width(120), color_row].align_y(Alignment::Center),
             line_picker_ui,
 
             row![
-                text("Толщина:").width(120),
+                text(t!("msg_0146")).width(120),
                 text_input("", &draft.line_width.to_string())
                     .on_input(Message::DraftWidthChanged).width(50)
                     .padding(input_pad).style(input_style.clone()),
-                container(text("Стиль линии:")).padding([0, 10]),
+                container(text(t!("msg_0147"))).padding([0, 10]),
                 pick_list(line_styles, Some(draft.line_style.clone()), Message::DraftStyleChanged)
                     .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
 
             row![
-                text("Тип:").width(120),
+                text(t!("msg_0148")).width(120),
                 pick_list(poly_types, Some(draft.poly_type.clone()), Message::DraftTypeChanged)
                     .padding(pick_pad).style(pick_style.clone()),
             ].align_y(Alignment::Center),
@@ -428,14 +438,14 @@ impl App {
             fill_fields,
 
             row![
-                text("Шаблон:").width(120),
+                text(t!("msg_0149")).width(120),
                 text(template).color(Color::from_rgb8(draft.line_color[0], draft.line_color[1], draft.line_color[2])).size(16)
             ].align_y(Alignment::Center),
 
             row![
-                self.btn_secondary("Сохранить").on_press(Message::SaveTrackProps),
-                self.btn_secondary("Применить").on_press(Message::ApplyTrackProps),
-                self.btn_secondary("Отмена").on_press(Message::CloseTrackProps),
+                self.btn_secondary(t!("msg_0150")).on_press(Message::SaveTrackProps),
+                self.btn_secondary(t!("msg_0151")).on_press(Message::ApplyTrackProps),
+                self.btn_secondary(t!("msg_0152")).on_press(Message::CloseTrackProps),
             ].spacing(10)
         ]
         .spacing(12)
@@ -540,7 +550,7 @@ impl App {
             // Заголовок с кнопкой закрытия
             row![
                 mouse_area(
-                    container(text("Свойства точки").size(20))
+                    container(text(t!("msg_0105")).size(20))
                         .width(Length::Fill)
                         .padding(4)
                         .style(|theme: &Theme| {
@@ -557,46 +567,46 @@ impl App {
             ].align_y(Alignment::Center).width(Length::Fill),
             
             row![
-                text("Имя:").width(100), 
-                text_input("Имя", &draft.name)
+                text(t!("msg_0138")).width(100), 
+                text_input(t!("msg_0083"), &draft.name)
                     .on_input(Message::DraftWpNameChanged).width(250)
                     .padding(input_pad).style(input_style.clone())
             ],
             row![
-                text("Описание:").width(100), 
-                text_input("Описание", draft.description.as_deref().unwrap_or(""))
+                text(t!("msg_0153")).width(100), 
+                text_input(t!("msg_0154"), draft.description.as_deref().unwrap_or(""))
                     .on_input(Message::DraftWpDescChanged).width(250)
                     .padding(input_pad).style(input_style.clone())
             ],
             
             row![
-                text("Координаты:").width(100),
+                text(t!("msg_0155")).width(100),
                 text_input("55.7558 37.6173", coord_input)
                     .on_input(Message::DraftWpCoordsChanged).width(250)
                     .padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center),
             
             container(
-                text("Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)")
+                text(t!("msg_0156"))
                     .size(11)
                     .color(Color::from_rgb(0.5, 0.5, 0.5))
             ).padding([0, 100]),
 
             row![
-                text("Высота (м):").width(100),
+                text(t!("msg_0157")).width(100),
                 text_input("", &draft.ele.map(|e| e.to_string()).unwrap_or_default())
                     .on_input(Message::DraftWpEleChanged).width(100)
                     .padding(input_pad).style(input_style.clone()),
             ],
-            row![text("Цвет текста:").width(100), text_color_row].align_y(Alignment::Center),
+            row![text(t!("msg_0158")).width(100), text_color_row].align_y(Alignment::Center),
             text_picker_ui,
-            row![text("Цвет фона:").width(100), bg_color_row].align_y(Alignment::Center),
+            row![text(t!("msg_0159")).width(100), bg_color_row].align_y(Alignment::Center),
             bg_picker_ui,
             
             row![
-                self.btn_secondary("Вложение").on_press(Message::None),
-                self.btn_secondary("Применить").on_press(Message::ApplyWaypointProps),
-                self.btn_secondary("Отмена").on_press(Message::CloseWaypointProps),
+                self.btn_secondary(t!("msg_0160")).on_press(Message::None),
+                self.btn_secondary(t!("msg_0151")).on_press(Message::ApplyWaypointProps),
+                self.btn_secondary(t!("msg_0152")).on_press(Message::CloseWaypointProps),
             ].spacing(10)
         ].spacing(12).padding(20);
 
@@ -634,30 +644,30 @@ impl App {
         };
 
         let content = column![
-            text("Измерение между точками").size(20),
+            text(t!("msg_0161")).size(20),
             
             row![
-                text("От:").width(40),
+                text(t!("msg_0162")).width(40),
                 text(format!("{} ({:.6}, {:.6})", from_name, from_lat, from_lon))
             ],
             row![
-                text("До:").width(40),
+                text(t!("msg_0163")).width(40),
                 text(format!("{} ({:.6}, {:.6})", to_name, to_lat, to_lon))
             ],
             Space::new().height(10),
             row![
-                text("Расстояние:").width(120).size(16),
+                text(t!("msg_0164")).width(120).size(16),
                 text(dist_text).size(20).color(Color::from_rgb8(0x2a, 0x7f, 0xff))
             ],
             row![
-                text("Магн. азимут:").width(120).size(16),
+                text(t!("msg_0165")).width(120).size(16),
                 text(format!("{:.0}°", mag_az)).size(20).color(Color::from_rgb8(255, 140, 0))
             ],
             Space::new().height(10),
             
             row![
                 Space::new().width(Length::Fill),
-                self.btn("Закрыть").on_press(Message::CloseWaypointMeasure),
+                self.btn(t!("msg_0133")).on_press(Message::CloseWaypointMeasure),
             ]
         ].spacing(12).padding(20);
 
@@ -696,12 +706,12 @@ impl App {
     // =========================================================
     pub(crate) fn view_confirm_clear_all_modal<'a>(&'a self) -> Element<'a, Message> {
         let content = column![
-            text("Очистить сессию?").size(20),
-            text("Все загруженные карты, треки и точки будут удалены.\nЭто действие нельзя отменить.").size(14),
+            text(t!("msg_0166")).size(20),
+            text(t!("msg_0167")).size(14),
             Space::new().height(10),
             row![
-                self.btn("Да, очистить").on_press(Message::ExecuteClearAll),
-                self.btn_secondary("Отмена").on_press(Message::CancelClearAll),
+                self.btn(t!("msg_0168")).on_press(Message::ExecuteClearAll),
+                self.btn_secondary(t!("msg_0152")).on_press(Message::CancelClearAll),
             ].spacing(10)
         ]
         .spacing(12)
@@ -729,18 +739,18 @@ impl App {
     // =========================================================
     pub(crate) fn view_confirm_load_session_modal<'a>(&'a self) -> Element<'a, Message> {
         let content = column![
-            text("Загрузить сессию из файла?").size(20),
-            text("Текущее рабочее состояние будет заменено.\nЕсли оно важно — сохраните его в файл .foxy.")
+            text(t!("msg_0169")).size(20),
+            text(t!("msg_0170"))
                 .size(14),
             Space::new().height(10),
             
-            self.btn("Сохранить текущее и загрузить")
+            self.btn(t!("msg_0171"))
                 .on_press(Message::SaveAndLoadSession)
                 .width(Length::Fill),
-            self.btn_secondary("Загрузить без сохранения")
+            self.btn_secondary(t!("msg_0172"))
                 .on_press(Message::LoadSessionNoPrompt)
                 .width(Length::Fill),
-            self.btn_secondary("Отмена")
+            self.btn_secondary(t!("msg_0152"))
                 .on_press(Message::CancelClearAll)
                 .width(Length::Fill),
         ]
@@ -834,25 +844,25 @@ impl App {
         let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
 
         let content = column![
-            text("Проекция точки").size(20),
-            text("Создать новую точку по азимуту и расстоянию от исходной.").size(13),
+            text(t!("msg_0062")).size(20),
+            text(t!("msg_0173")).size(13),
             Space::new().height(8),
             row![
-                text("Азимут (°):").width(120),
+                text(t!("msg_0174")).width(120),
                 text_input("0", azimuth_input)
                     .on_input(Message::ProjectAzimuthChanged)
                     .width(120).padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center),
             row![
-                text("Расстояние (м):").width(120),
+                text(t!("msg_0175")).width(120),
                 text_input("100", distance_input)
                     .on_input(Message::ProjectDistanceChanged)
                     .width(120).padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center),
             Space::new().height(8),
             row![
-                self.btn("Создать").on_press(Message::ExecuteProjection),
-                self.btn_secondary("Отмена").on_press(Message::CloseWaypointProjection),
+                self.btn(t!("msg_0176")).on_press(Message::ExecuteProjection),
+                self.btn_secondary(t!("msg_0152")).on_press(Message::CloseWaypointProjection),
             ].spacing(10)
         ].spacing(12).padding(20);
 
@@ -909,7 +919,7 @@ impl App {
         let right_column = column![
             text(format!("FoxyXplorer v{}", version)).size(24),
             separator(),
-            text("Картографическое приложение\nдля локальных задач.")
+            text(t!("msg_0177"))
                 .size(16)
                 .align_x(Alignment::Center), // центрируем текст
             separator(),
@@ -921,7 +931,7 @@ impl App {
                 
                 text("|").size(16).color(Color::from_rgb(0.5, 0.5, 0.5)),
                 
-                button(text("Мануал").size(16))
+                button(text(t!("msg_0178")).size(16))
                     .padding(0)
                     .style(link_style)
                     .on_press(Message::OpenUrl("https://github.com/grantbor/FoxyXplorer/blob/main/docs/user-guide.md".to_string())),
@@ -951,7 +961,7 @@ impl App {
         let bottom_content = row![
             text("GPL-3.0").size(16).color(Color::from_rgb(0.6, 0.6, 0.6)),
             Space::new().width(Length::Fill),
-            self.btn("Закрыть").on_press(Message::CloseAbout),
+            self.btn(t!("msg_0133")).on_press(Message::CloseAbout),
         ].align_y(Alignment::Center);
 
         // Общая композиция
@@ -997,7 +1007,7 @@ impl App {
             // Заголовок с кнопкой закрытия
             row![
                 mouse_area(
-                    container(text("Настройки").size(20))
+                    container(text(t!("msg_0202")).size(20))
                     .width(Length::Fill)
                     .padding(4)
                     .style(|theme: &Theme| {
@@ -1017,7 +1027,7 @@ impl App {
 
             // Заготовка — сюда потом добавятся реальные настройки
             container(
-                text("Здесь будут настройки приложения")
+                text(t!("msg_0203"))
                 .size(14)
                 .color(Color::from_rgb(0.5, 0.5, 0.5))
             )
@@ -1029,7 +1039,7 @@ impl App {
             // Кнопка закрытия внизу
             row![
                 Space::new().width(Length::Fill),
-                self.btn("Закрыть").on_press(Message::CloseSettings),
+                self.btn(t!("msg_0133")).on_press(Message::CloseSettings),
             ].padding([10, 0])
         ]
         .spacing(12)

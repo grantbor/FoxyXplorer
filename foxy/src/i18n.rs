@@ -23,12 +23,85 @@ static TRANSLATIONS: LazyLock<HashMap<&'static str, HashMap<&'static str, &'stat
         for (key, val) in parsed.as_object().expect("translations.json: ожидался объект") {
             let mut lang_map = HashMap::new();
             for (lang, text) in val.as_object().expect("значение ключа — объект") {
-                lang_map.insert(lang.as_str(), text.as_str().expect("перевод — строка"));
+                let raw = text.as_str().expect("перевод — строка");
+                // Декодируем escape-последовательности: \n → реальный перевод строки,
+                // \t → табуляция, \\ → backslash и т.д.
+                let decoded: &'static str = Box::leak(decode_escapes(raw).into_boxed_str());
+                lang_map.insert(lang.as_str(), decoded);
             }
             map.insert(key.as_str(), lang_map);
         }
         map
     });
+
+/// Декодирует escape-последовательности в строке.
+/// Обрабатывает: \n, \t, \r, \\, \", \', \0, \xNN, \u{NNNN}.
+fn decode_escapes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('\\') => out.push('\\'),
+                Some('"') => out.push('"'),
+                Some('\'') => out.push('\''),
+                Some('0') => out.push('\0'),
+                Some('x') => {
+                    let mut hex = String::new();
+                    for _ in 0..2 {
+                        if let Some(&h) = chars.peek() {
+                            if h.is_ascii_hexdigit() {
+                                hex.push(h);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                        if let Some(ch) = char::from_u32(code) {
+                            out.push(ch);
+                        }
+                    }
+                }
+                Some('u') => {
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let mut hex = String::new();
+                        while let Some(&h) = chars.peek() {
+                            if h == '}' {
+                                chars.next();
+                                break;
+                            }
+                            if h.is_ascii_hexdigit() {
+                                hex.push(h);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                        if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                            if let Some(ch) = char::from_u32(code) {
+                                out.push(ch);
+                            }
+                        }
+                    }
+                }
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
 
 /// Установить текущий язык. Допустимые значения — `"ru"`, `"en"`.
 pub fn set_lang(lang: &'static str) {
@@ -55,6 +128,6 @@ pub fn translate(key: &'static str) -> &'static str {
 #[macro_export]
 macro_rules! t {
     ($key:literal) => {
-        $crate::i18n::translate($key).to_string()
+        $crate::i18n::translate($key)
     };
 }
