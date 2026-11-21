@@ -55,6 +55,7 @@ impl App {
             | Message::OpenSettings | Message::CloseSettings | Message::ApplySettings
             | Message::SettingsCoordChanged(_)
             | Message::SettingsLangChanged(_) | Message::SettingsToleranceChanged(_)
+            | Message::SettingsGridColorChanged(_)
             | Message::OpenUrl(_) => {
                 return self.update_ui(m); 
             }
@@ -1420,6 +1421,7 @@ impl App {
             }
             Message::OpenSettings => {
                 self.modal_drag_offset = Point::ORIGIN;
+                self.show_color_picker = None;
                 let cfg = crate::config::load();
                 let coord_input = format!("{:.6} {:.6}", cfg.default_lat, cfg.default_lon);
                 self.modal = Some(Modal::Settings {
@@ -1429,11 +1431,13 @@ impl App {
                         parsed_lon: Some(cfg.default_lon),
                         lang: cfg.lang.clone(),
                         simplify_tolerance: cfg.simplify_tolerance,
+                        grid_color: cfg.grid_color,
                     },
                 });
             }
             Message::CloseSettings => {
                 self.modal_drag_offset = Point::ORIGIN;
+                self.show_color_picker = None;
                 self.modal = None;
             }
             Message::ApplySettings => {
@@ -1445,10 +1449,14 @@ impl App {
                                 default_lat: lat,
                                 lang: draft.lang.clone(),
                                 simplify_tolerance: draft.simplify_tolerance,
+                                grid_color: draft.grid_color,
                             };
                             match crate::config::save(&new_cfg) {
                                 Ok(_) => {
                                     self.simplify_tolerance = new_cfg.simplify_tolerance;
+                                    self.grid_color = new_cfg.grid_color;
+                                    self.grid_cache.clear();
+                                    self.show_color_picker = None;
                                     crate::i18n::set_lang(Box::leak(new_cfg.lang.clone().into_boxed_str()));
                                     self.status = "Настройки сохранены".into();
                                     self.modal = None;
@@ -1490,6 +1498,12 @@ impl App {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     // Округляем до десятых
                     draft.simplify_tolerance = (v * 10.0).round() / 10.0;
+                }
+            }
+            Message::SettingsGridColorChanged(color) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    draft.grid_color = color;
+                    self.show_color_picker = None;
                 }
             }
             _ => {}

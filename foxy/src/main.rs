@@ -104,6 +104,7 @@ pub(crate) struct SettingsDraft {
     pub parsed_lon: Option<f64>,
     pub lang: String,
     pub simplify_tolerance: f64,
+    pub grid_color: [u8; 3],
 }
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
@@ -330,6 +331,7 @@ pub(crate) enum Message {
     SettingsCoordChanged(String),
     SettingsLangChanged(String),
     SettingsToleranceChanged(f64),
+    SettingsGridColorChanged([u8; 3]),
     None,
 }
 
@@ -363,6 +365,7 @@ pub(crate) enum ColorPickerKind {
     FillColor,
     WpTextColor,
     WpBgColor,
+    GridColor,
 }
 
 pub(crate) struct DrawingTrack {
@@ -417,6 +420,7 @@ pub(crate) struct App {
     pub(crate) grid: Option<grid::Grid>,
     pub(crate) lines: Vec<Vec<(f64, f64)>>,
     pub(crate) show_grid: bool,
+    pub(crate) grid_color: [u8; 3],
     pub(crate) show_labels: bool,
     pub(crate) compact_view: bool,
     pub(crate) declination: f64,
@@ -613,7 +617,7 @@ impl App {
             if let Some(session) = session::load_session() {
                 let mut app = App {
                     layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
-                    show_grid: true, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
+                    show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
                     cx: 0.0, cy: 0.0, scale: 1.0,
                     canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(),
                     tracks_cache: Cache::default(),
@@ -675,7 +679,7 @@ impl App {
 
         let mut app = App {
             layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
-            show_grid: true, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
+            show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
             cx: 0.0, cy: 0.0, scale: 1.0,
             canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
             tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None,

@@ -124,7 +124,7 @@ impl<'a> canvas::Program<Message> for GridProgram<'a> {
                     )
                 };
 
-                let line_color = Color::from_rgba8(255, 70, 70, 1.0);
+                let line_color = Color::from_rgb8(app.grid_color[0], app.grid_color[1], app.grid_color[2]);
                 for line in &app.lines {
                     let path = CanvasPath::new(|p| {
                         let mut first = true;
@@ -147,7 +147,7 @@ impl<'a> canvas::Program<Message> for GridProgram<'a> {
                 }
 
                 if let Some(g) = &app.grid {
-                    let node_color = Color::from_rgba8(255, 40, 40, 1.0);
+                    let node_color = line_color;
                     for n in &g.nodes {
                         let (mx, my) = merc_of(n.lon, n.lat);
                         let pt = to_screen(mx, my);

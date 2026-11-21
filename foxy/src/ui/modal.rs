@@ -1009,6 +1009,48 @@ pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Ele
     let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
     let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
 
+    // Основной ряд цветов и расширенная палитра 8×8, как в Track Properties.
+    let make_grid_color_btn = |color: [u8; 3]| -> Element<'a, Message> {
+        let selected = color == draft.grid_color;
+        button(text("")).width(24).height(24)
+            .style(move |_: &Theme, _| button::Style {
+                background: Some(iced::Background::Color(Color::from_rgb8(
+                    color[0], color[1], color[2],
+                ))),
+                border: iced::Border {
+                    color: if selected { Color::WHITE } else { Color::from_rgb(0.5, 0.5, 0.5) },
+                    width: if selected { 2.0 } else { 1.0 },
+                    radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                },
+                ..Default::default()
+            })
+            .on_press(Message::SettingsGridColorChanged(color))
+            .into()
+    };
+
+    let mut grid_color_buttons: Vec<Element<'a, Message>> = self.palette.iter()
+        .copied()
+        .map(make_grid_color_btn)
+        .collect();
+    grid_color_buttons.push(self.chevron_toggle(ColorPickerKind::GridColor));
+    let grid_color_row = row(grid_color_buttons).spacing(2);
+
+    let grid_color_picker: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::GridColor) {
+        let mut palette_rows: Vec<Element<'a, Message>> = Vec::new();
+        for chunk in get_extended_palette().chunks(8) {
+            let buttons: Vec<Element<'a, Message>> = chunk.iter()
+                .copied()
+                .map(make_grid_color_btn)
+                .collect();
+            palette_rows.push(row(buttons).spacing(2).into());
+        }
+        container(column(palette_rows).spacing(2))
+            .padding(iced::Padding::new(0.0).left(166.0))
+            .into()
+    } else {
+        column![].into()
+    };
+
     let current_lang_label = match draft.lang.as_str() {
         "en" => "English",
         _ => "Русский",
@@ -1090,6 +1132,13 @@ pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Ele
             text(format!("{:.1} {}", draft.simplify_tolerance, t!("msg_0221"))).width(50),
         ].align_y(Alignment::Center).spacing(6),
 
+        // Настраиваемый цвет линий и узлов сетки.
+        row![
+            text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
+            grid_color_row,
+        ].align_y(Alignment::Center).spacing(6),
+        grid_color_picker,
+
         Space::new().height(Length::Fill),
 
         // Кнопки
@@ -1116,7 +1165,11 @@ pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Ele
             }
         })
         .width(Length::Fixed(520.0))
-        .height(Length::Fixed(360.0))
+        .height(Length::Fixed(if self.show_color_picker == Some(ColorPickerKind::GridColor) {
+            620.0
+        } else {
+            390.0
+        }))
         .into()
 }
 }

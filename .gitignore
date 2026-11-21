@@ -18,6 +18,10 @@ maps/
 *.ozfx3
 *.map
 *.gpx
+*.plt
+*.wpt
+*.ms
+*.kml
 !tests/fixtures/**
 
 foxy/*.fish
