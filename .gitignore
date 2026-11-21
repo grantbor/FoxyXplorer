@@ -2,6 +2,7 @@
 /target/
 **/target/
 dist
+pkg
 
 # IDE
 .idea/
@@ -25,3 +26,5 @@ maps/
 !tests/fixtures/**
 
 foxy/*.fish
+PKGBUILD
+*pkg.tar.zst
