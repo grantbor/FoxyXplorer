@@ -990,6 +990,76 @@ impl App {
             .width(Length::Fixed(540.0)) // Ширина подобрана под макет
             .into()
     }
+    pub(crate) fn view_foxydrop_modal<'a>(&'a self) -> Element<'a, Message> {
+        use crate::foxydrop::Phase;
+
+        let status: Element<'a, Message> = match self.drop_phase {
+            Phase::Stopped => text("Server Down").size(18).color(Color::from_rgb8(180, 75, 65)).into(),
+            Phase::Starting => text("Starting...").size(18).into(),
+            Phase::Stopping => text("Stopping...").size(18).into(),
+            Phase::Running => text("Server Running").size(18).color(Color::from_rgb8(45, 175, 96)).into(),
+        };
+        let mut body = column![status].spacing(12).align_x(Alignment::Center);
+        if let Some(error) = &self.drop_error {
+            body = body.push(text(error.as_str()).size(13).color(Color::from_rgb8(200, 70, 60)));
+        }
+
+        if self.drop_phase == Phase::Running {
+            if let Some(addr) = self.drop_address {
+                let url = crate::foxydrop::url(addr);
+                body = body.push(iced::widget::canvas::Canvas::new(crate::foxydrop::qr::QrProgram { url: url.clone() })
+                    .width(Length::Fixed(220.0)).height(Length::Fixed(220.0)));
+                body = body.push(row![
+                    text(url).size(15),
+                    self.btn_secondary("Copy").on_press(Message::FoxyDropCopyUrl),
+                ].align_y(Alignment::Center).spacing(12));
+            }
+        }
+        body = body.push(row![
+            text("IP:").width(40),
+            pick_list(self.drop_ips.clone(), self.drop_selected_ip, Message::FoxyDropIpSelected)
+                .padding(native_theme_iced::button_padding(&self.resolved_theme))
+                .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
+        ].spacing(10).align_y(Alignment::Center));
+
+        let current_dir = self.drop_service.directory().display().to_string();
+        body = body.push(text(if current_dir.is_empty() {
+            "Выберите папку в Settings".to_string()
+        } else { format!("Папка: {current_dir}") }).size(12));
+        if self.drop_phase == Phase::Stopped {
+            body = body.push(self.btn("Start").on_press(Message::FoxyDropStart));
+        } else if self.drop_phase == Phase::Running {
+            body = body.push(self.btn_secondary("Stop").on_press(Message::FoxyDropStop));
+        }
+        let content = column![
+            row![
+                mouse_area(container(text("FoxyDrop").size(20)).width(Length::Fill).padding(4))
+                    .on_press(Message::ModalDragStart),
+                self.icon_button(lucide_iced::bytes::X, Message::CloseFoxyDrop),
+            ].align_y(Alignment::Center),
+            body.width(Length::Fill),
+            row![
+                Space::new().width(Length::Fill),
+                self.btn_secondary(t!("msg_0133")).on_press(Message::CloseFoxyDrop),
+            ]
+        ].spacing(16).padding(20);
+        container(content)
+            .style(|theme: &Theme| {
+                let pal = theme.extended_palette();
+                container::Style {
+                    background: Some(pal.background.base.color.into()),
+                    border: iced::Border {
+                        color: pal.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(460.0))
+            .into()
+    }
+
 pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Element<'a, Message> {
     let separator = || {
         container(text(""))
@@ -1096,6 +1166,8 @@ pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Ele
 
         separator(),
 
+        // Прокручивается только содержимое настроек; кнопки остаются видимыми.
+        scrollable(column![
         // Стартовая локация — единое поле ввода
         row![
             text(t!("msg_0236")).width(160),
@@ -1132,16 +1204,40 @@ pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Ele
             text(format!("{:.1} {}", draft.simplify_tolerance, t!("msg_0221"))).width(50),
         ].align_y(Alignment::Center).spacing(6),
 
+        separator(),
+        row![
+            text(if crate::i18n::current_lang() == "en" { "FoxyDrop folder" } else { "Папка FoxyDrop" }).width(160),
+            text_input("", &draft.drop_folder)
+                .width(Length::Fill)
+                .padding(input_pad)
+                // Поле без on_input (только чтение): не используем бледный disabled-стиль.
+                .style(|theme: &Theme, _status| {
+                    let pal = theme.extended_palette();
+                    iced::widget::text_input::Style {
+                        background: pal.background.weak.color.into(),
+                        border: iced::Border {
+                            color: pal.background.strong.color,
+                            width: 1.0,
+                            radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        },
+                        icon: pal.background.base.text,
+                        placeholder: pal.background.base.text,
+                        value: pal.background.base.text,
+                        selection: pal.primary.weak.color,
+                    }
+                }),
+            self.btn_secondary("...").on_press(Message::SettingsChooseDropFolder),
+        ].align_y(Alignment::Center).spacing(6),
+
         // Настраиваемый цвет линий и узлов сетки.
         row![
             text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
             grid_color_row,
         ].align_y(Alignment::Center).spacing(6),
         grid_color_picker,
+        ].spacing(12).width(Length::Fill)).height(Length::Fill),
 
-        Space::new().height(Length::Fill),
-
-        // Кнопки
+        // Кнопки всегда видны, даже если палитра раскрыта.
         row![
             Space::new().width(Length::Fill),
             self.btn_secondary(t!("msg_0152")).on_press(Message::CloseSettings),
@@ -1165,11 +1261,14 @@ pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Ele
             }
         })
         .width(Length::Fixed(520.0))
-        .height(Length::Fixed(if self.show_color_picker == Some(ColorPickerKind::GridColor) {
-            620.0
-        } else {
-            390.0
-        }))
+        // Высота ограничена реальным размером окна, основная часть прокручивается.
+        .height(Length::Fixed(
+            (if self.show_color_picker == Some(ColorPickerKind::GridColor) {
+                690.0_f32
+            } else {
+                480.0_f32
+            }).min((self.window_size.height - 64.0).max(240.0))
+        ))
         .into()
 }
 }

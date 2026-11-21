@@ -71,6 +71,20 @@ impl App {
                 ),
                 t!("msg_0189"),
             ),
+            // FoxyDrop
+            with_tooltip(
+                self.icon_toggle_button(
+                    lucide_iced::bytes::UPLOAD,
+                    self.drop_phase == crate::foxydrop::Phase::Running,
+                    Message::OpenFoxyDrop,
+                ),
+                match self.drop_phase {
+                    crate::foxydrop::Phase::Running => "FoxyDrop: Server Running",
+                    crate::foxydrop::Phase::Starting => "FoxyDrop: Starting",
+                    crate::foxydrop::Phase::Stopping => "FoxyDrop: Stopping",
+                    crate::foxydrop::Phase::Stopped => "FoxyDrop: Server Down",
+                },
+            ),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::SETTINGS, Message::OpenSettings),
                          t!("msg_0202")

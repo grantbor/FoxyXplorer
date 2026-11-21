@@ -10,7 +10,13 @@ pub struct Config {
     pub simplify_tolerance: f64,
     #[serde(default = "default_grid_color")]
     pub grid_color: [u8; 3],
+    #[serde(default)]
+    pub drop_folder: String,
+    #[serde(default = "default_drop_port")]
+    pub drop_port: u16,
 }
+
+fn default_drop_port() -> u16 { 8070 }
 
 fn default_grid_color() -> [u8; 3] {
     [255, 70, 70]
@@ -24,6 +30,8 @@ impl Default for Config {
             lang: "ru".into(),
             simplify_tolerance: 2.2,
             grid_color: default_grid_color(),
+            drop_folder: String::new(),
+            drop_port: default_drop_port(),
         }
     }
 }

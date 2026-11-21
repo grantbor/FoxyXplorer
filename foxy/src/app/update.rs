@@ -1,4 +1,5 @@
 use std::time::{Duration, Instant};
+use std::path::PathBuf;
 use iced::mouse::ScrollDelta;
 use iced::{Point, Task};
 use coord::CoordFormat;
@@ -56,6 +57,11 @@ impl App {
             | Message::SettingsCoordChanged(_)
             | Message::SettingsLangChanged(_) | Message::SettingsToleranceChanged(_)
             | Message::SettingsGridColorChanged(_)
+            | Message::SettingsChooseDropFolder | Message::SettingsDropFolderPicked(_)
+            | Message::OpenFoxyDrop | Message::CloseFoxyDrop
+            | Message::FoxyDropStart | Message::FoxyDropStop
+            | Message::FoxyDropIpSelected(_) | Message::FoxyDropStarted(_)
+            | Message::FoxyDropStopped | Message::FoxyDropHeartbeat | Message::FoxyDropCopyUrl
             | Message::OpenUrl(_) => {
                 return self.update_ui(m); 
             }
@@ -948,6 +954,37 @@ impl App {
     // =========================================================================
     // 2. UI (Сетка, формат)
     // =========================================================================
+    /// Кнопка на верхней панели запускает сервер и открывает окно статуса.
+    fn start_foxydrop(&mut self) -> Task<Message> {
+        if self.drop_phase != crate::foxydrop::Phase::Stopped { return Task::none(); }
+        self.drop_error = None;
+        self.drop_ips = crate::foxydrop::local_ipv4_addresses();
+        if self.drop_selected_ip.map_or(true, |ip| !self.drop_ips.contains(&ip)) {
+            self.drop_selected_ip = self.drop_ips.first().copied();
+        }
+        let Some(ip) = self.drop_selected_ip else {
+            self.drop_error = Some("Не найден IPv4-адрес локальной сети".into());
+            return Task::none();
+        };
+        self.drop_phase = crate::foxydrop::Phase::Starting;
+        let service = Arc::clone(&self.drop_service);
+        let port = crate::config::load().drop_port;
+        Task::perform(async move { service.start(ip, port).await }, Message::FoxyDropStarted)
+    }
+
+    fn stop_foxydrop(&mut self, restart: bool) -> Task<Message> {
+        if self.drop_phase != crate::foxydrop::Phase::Running { return Task::none(); }
+        self.drop_restart_after_stop = restart;
+        self.drop_phase = crate::foxydrop::Phase::Stopping;
+        match self.drop_service.stop() {
+            Some(join) => Task::perform(
+                async move { crate::foxydrop::DropService::finish_stop(join).await },
+                |_| Message::FoxyDropStopped,
+            ),
+            None => Task::done(Message::FoxyDropStopped),
+        }
+    }
+
     fn update_ui(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::KeyPressed(key, modifiers) => {
@@ -969,7 +1006,8 @@ impl App {
                             Some(Modal::WaypointMeasure { .. })       => Message::CloseWaypointMeasure,
                             Some(Modal::WaypointProjection { .. })    => Message::CloseWaypointProjection,
                             Some(Modal::About)                        => Message::CloseAbout,
-                            Some(Modal::Settings { .. })              => Message::CloseSettings, 
+                            Some(Modal::Settings { .. })              => Message::CloseSettings,
+                            Some(Modal::FoxyDrop)                    => Message::CloseFoxyDrop,
                             None                                      => return Task::none(),
                         };
                         return self.update(close_msg);
@@ -1432,6 +1470,7 @@ impl App {
                         lang: cfg.lang.clone(),
                         simplify_tolerance: cfg.simplify_tolerance,
                         grid_color: cfg.grid_color,
+                        drop_folder: cfg.drop_folder.clone(),
                     },
                 });
             }
@@ -1450,11 +1489,14 @@ impl App {
                                 lang: draft.lang.clone(),
                                 simplify_tolerance: draft.simplify_tolerance,
                                 grid_color: draft.grid_color,
+                                drop_folder: draft.drop_folder.clone(),
+                                drop_port: crate::config::load().drop_port,
                             };
                             match crate::config::save(&new_cfg) {
                                 Ok(_) => {
                                     self.simplify_tolerance = new_cfg.simplify_tolerance;
                                     self.grid_color = new_cfg.grid_color;
+                                    self.drop_service.set_directory(PathBuf::from(&new_cfg.drop_folder));
                                     self.grid_cache.clear();
                                     self.show_color_picker = None;
                                     crate::i18n::set_lang(Box::leak(new_cfg.lang.clone().into_boxed_str()));
@@ -1500,10 +1542,83 @@ impl App {
                     draft.simplify_tolerance = (v * 10.0).round() / 10.0;
                 }
             }
+            Message::SettingsChooseDropFolder => {
+                let mut dlg = rfd::AsyncFileDialog::new();
+                if let Some(Modal::Settings { draft }) = &self.modal {
+                    if std::path::Path::new(&draft.drop_folder).is_dir() {
+                        dlg = dlg.set_directory(&draft.drop_folder);
+                    }
+                }
+                return Task::perform(
+                    async move { dlg.pick_folder().await.map(|h| h.path().to_path_buf()) },
+                    Message::SettingsDropFolderPicked,
+                );
+            }
+            Message::SettingsDropFolderPicked(Some(dir)) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    draft.drop_folder = dir.to_string_lossy().to_string();
+                }
+            }
+            Message::SettingsDropFolderPicked(None) => {}
             Message::SettingsGridColorChanged(color) => {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     draft.grid_color = color;
                     self.show_color_picker = None;
+                }
+            }
+            Message::OpenFoxyDrop => {
+                // Кнопка панели только показывает состояние; запуск — исключительно Start.
+                self.modal_drag_offset = Point::ORIGIN;
+                self.modal = Some(Modal::FoxyDrop);
+            }
+            Message::CloseFoxyDrop => { self.modal = None; }
+            Message::FoxyDropStart => { return self.start_foxydrop(); }
+            Message::FoxyDropStop => { return self.stop_foxydrop(false); }
+            Message::FoxyDropIpSelected(ip) => {
+                if !self.drop_ips.contains(&ip) { return Task::none(); }
+                if self.drop_selected_ip == Some(ip) { return Task::none(); }
+                self.drop_selected_ip = Some(ip);
+                if self.drop_phase == crate::foxydrop::Phase::Running {
+                    return self.stop_foxydrop(true);
+                }
+            }
+            Message::FoxyDropStarted(result) => {
+                match result {
+                    Ok(addr) => {
+                        self.drop_address = Some(addr);
+                        self.drop_phase = crate::foxydrop::Phase::Running;
+                        self.drop_error = None;
+                        self.status = format!("FoxyDrop: {}", crate::foxydrop::url(addr));
+                    }
+                    Err(e) => {
+                        self.drop_phase = crate::foxydrop::Phase::Stopped;
+                        self.drop_address = None;
+                        self.drop_error = Some(e.clone());
+                        self.status = format!("FoxyDrop: {e}");
+                    }
+                }
+            }
+            Message::FoxyDropStopped => {
+                self.drop_phase = crate::foxydrop::Phase::Stopped;
+                self.drop_address = None;
+                self.status = "FoxyDrop остановлен".into();
+                if self.drop_restart_after_stop {
+                    self.drop_restart_after_stop = false;
+                    return self.start_foxydrop();
+                }
+            }
+            Message::FoxyDropCopyUrl => {
+                if let Some(addr) = self.drop_address {
+                    return iced::clipboard::write(crate::foxydrop::url(addr));
+                }
+            }
+            Message::FoxyDropHeartbeat => {
+                if self.drop_phase == crate::foxydrop::Phase::Running
+                    && !self.drop_service.is_running() {
+                    let _ = self.drop_service.stop();
+                    self.drop_phase = crate::foxydrop::Phase::Stopped;
+                    self.drop_address = None;
+                    self.drop_error = Some("Сервер неожиданно остановился".into());
                 }
             }
             _ => {}

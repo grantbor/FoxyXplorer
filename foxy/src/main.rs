@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod app; 
+mod foxydrop;
 mod canvas;
 mod domain;
 mod io;
@@ -105,6 +106,7 @@ pub(crate) struct SettingsDraft {
     pub lang: String,
     pub simplify_tolerance: f64,
     pub grid_color: [u8; 3],
+    pub drop_folder: String,
 }
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
@@ -332,6 +334,17 @@ pub(crate) enum Message {
     SettingsLangChanged(String),
     SettingsToleranceChanged(f64),
     SettingsGridColorChanged([u8; 3]),
+    SettingsChooseDropFolder,
+    SettingsDropFolderPicked(Option<PathBuf>),
+    OpenFoxyDrop,
+    CloseFoxyDrop,
+    FoxyDropStart,
+    FoxyDropStop,
+    FoxyDropIpSelected(std::net::Ipv4Addr),
+    FoxyDropStarted(Result<std::net::SocketAddr, String>),
+    FoxyDropStopped,
+    FoxyDropHeartbeat,
+    FoxyDropCopyUrl,
     None,
 }
 
@@ -421,6 +434,13 @@ pub(crate) struct App {
     pub(crate) lines: Vec<Vec<(f64, f64)>>,
     pub(crate) show_grid: bool,
     pub(crate) grid_color: [u8; 3],
+    pub(crate) drop_service: Arc<foxydrop::DropService>,
+    pub(crate) drop_phase: foxydrop::Phase,
+    pub(crate) drop_address: Option<std::net::SocketAddr>,
+    pub(crate) drop_ips: Vec<std::net::Ipv4Addr>,
+    pub(crate) drop_selected_ip: Option<std::net::Ipv4Addr>,
+    pub(crate) drop_error: Option<String>,
+    pub(crate) drop_restart_after_stop: bool,
     pub(crate) show_labels: bool,
     pub(crate) compact_view: bool,
     pub(crate) declination: f64,
@@ -521,6 +541,7 @@ pub(crate) enum Modal {
     About,
     //Settings,
     Settings { draft: SettingsDraft },
+    FoxyDrop,
 }
 
 fn modal_drag_padding(offset: Point) -> iced::Padding {
@@ -618,6 +639,13 @@ impl App {
                 let mut app = App {
                     layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
                     show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
+                    drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(&cfg.drop_folder))),
+                    drop_phase: foxydrop::Phase::Stopped,
+                    drop_address: None,
+                    drop_ips: foxydrop::local_ipv4_addresses(),
+                    drop_selected_ip: None,
+                    drop_error: None,
+                    drop_restart_after_stop: false,
                     cx: 0.0, cy: 0.0, scale: 1.0,
                     canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(),
                     tracks_cache: Cache::default(),
@@ -680,6 +708,13 @@ impl App {
         let mut app = App {
             layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
             show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
+            drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(&cfg.drop_folder))),
+            drop_phase: foxydrop::Phase::Stopped,
+            drop_address: None,
+            drop_ips: foxydrop::local_ipv4_addresses(),
+            drop_selected_ip: None,
+            drop_error: None,
+            drop_restart_after_stop: false,
             cx: 0.0, cy: 0.0, scale: 1.0,
             canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
             tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None,
@@ -861,6 +896,11 @@ impl App {
             // 4. Отслеживаем смену системной темы
             iced::system::theme_changes().map(|_| Message::RefreshSystemTheme),
         ];
+
+        if self.drop_phase == foxydrop::Phase::Running {
+            subs.push(iced::time::every(std::time::Duration::from_secs(2))
+                .map(|_| Message::FoxyDropHeartbeat));
+        }
 
         // 5. Ловим мышь только пока тянем разделитель или перетаскиваем модальное окно
         if self.resizing_panel || self.modal_dragging {
@@ -1138,6 +1178,18 @@ impl App {
                         ..Default::default()
                     }),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+            ].into()
+        } else if let Some(Modal::FoxyDrop) = &self.modal {
+            let modal_ui = self.view_foxydrop_modal();
+            stack![
+                base_ui,
+                container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style {
+                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                        ..Default::default()
+                    }),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+                    .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
         } else if let Some(Modal::Settings { draft }) = &self.modal {
             let modal_ui = self.view_settings_modal(draft);
