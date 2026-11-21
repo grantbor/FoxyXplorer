@@ -92,6 +92,12 @@ pub(crate) struct TrackRowData {
     pub kph: f64,
 }
 
+// Fixed row geometry allows scroll_to to center a selected table row reliably.
+pub(crate) const TRACK_LIST_ROW_HEIGHT: f32 = 28.0;
+pub(crate) const TRACK_LIST_ROW_SPACING: f32 = 1.0;
+pub(crate) const TRACK_LIST_VIEW_HEIGHT: f32 = 400.0;
+pub(crate) const TRACK_LIST_SCROLL_ID: &str = "track-list-points";
+
 pub(crate) struct TrackListState {
     pub track_id: u64,
     pub rows: Vec<TrackRowData>,

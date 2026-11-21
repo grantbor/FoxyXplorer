@@ -67,7 +67,7 @@ impl App {
         })
         .width(Length::Fill);
 
-        let mut list = column![].spacing(1).width(Length::Fill);
+        let mut list = column![].spacing(crate::TRACK_LIST_ROW_SPACING).width(Length::Fill);
         
         for r in &state.rows {
             let selected = state.selected_points.contains(&(r.sect, r.pt_idx));
@@ -102,7 +102,8 @@ impl App {
                 ).on_press(Message::SelectTrackPoint(r.sect, r.pt_idx))
             )
             .style(row_style)
-            .width(Length::Fill);
+            .width(Length::Fill)
+            .height(Length::Fixed(crate::TRACK_LIST_ROW_HEIGHT));
 
             list = list.push(r_ui);
         }
@@ -128,7 +129,11 @@ impl App {
             ].align_y(Alignment::Center).width(Length::Fill),
             
             container(header).padding(2).width(Length::Fill),
-            container(scrollable(list).height(Length::Fixed(400.0))).padding(2).width(Length::Fill),
+            container(
+                scrollable(list)
+                    .id(crate::TRACK_LIST_SCROLL_ID)
+                    .height(Length::Fixed(crate::TRACK_LIST_VIEW_HEIGHT))
+            ).padding(2).width(Length::Fill),
 
             row![
                 self.btn_secondary(t!("msg_0129")).on_press_maybe(

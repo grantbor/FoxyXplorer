@@ -127,7 +127,7 @@ impl App {
             | Message::DeleteSelectedTrackPoints
             | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
             | Message::SelectPointsOutsideGrid | Message::StitchSegments => {
-                self.update_track_list(m);
+                return self.update_track_list(m);
             }
         }
 
@@ -1100,10 +1100,10 @@ impl App {
                 // 4. Стрелки для таблицы точек (работают всегда, если открыта TrackList)
                 match &key {
                     iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                        self.update_track_list(Message::TrackListUp);
+                        return self.update_track_list(Message::TrackListUp);
                     }
                     iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                        self.update_track_list(Message::TrackListDown);
+                        return self.update_track_list(Message::TrackListDown);
                     }
                     _ => {}
                 }
@@ -1137,6 +1137,7 @@ impl App {
                                 for r in &state.rows {
                                     state.selected_points.insert((r.sect, r.pt_idx));
                                 }
+                                self.sync_tracklist_selection();
                                 self.tracks_cache.clear();
                             }
                         }
@@ -2990,7 +2991,41 @@ impl App {
         Task::none()
     }
     
-    fn update_track_list(&mut self, m: Message) {
+    // The map selection (0-based segment number) is the persistent source of truth.
+    // TrackList stores a 1-based view of the same selected points for its UI.
+    fn sync_tracklist_selection(&mut self) {
+        let Some(Modal::TrackList(state)) = &self.modal else { return };
+        let id = state.track_id;
+        let selected = state.selected_points.clone();
+        let last = state.last_clicked;
+
+        // Do not remove selections belonging to other tracks.
+        self.selection.points.retain(|(track_id, _, _)| *track_id != id);
+        for (sect, pt_idx) in selected {
+            if sect > 0 {
+                self.selection.points.insert((id, sect - 1, pt_idx));
+            }
+        }
+        if !state.selected_points.is_empty() {
+            // Required for the SelectPoints canvas to display selected diamonds.
+            self.selection.tracks.insert(id);
+        }
+        if let Some((sect, pt_idx)) = last.filter(|(sect, _)| *sect > 0) {
+            self.last_point_clicked = Some((id, sect - 1, pt_idx));
+        } else if self.last_point_clicked.is_some_and(|(track_id, _, _)| track_id == id) {
+            self.last_point_clicked = None;
+        }
+    }
+
+    // Structural changes shift segment/point indices, so stale selections must go.
+    fn clear_track_point_selection(&mut self, id: u64) {
+        self.selection.points.retain(|(track_id, _, _)| *track_id != id);
+        if self.last_point_clicked.is_some_and(|(track_id, _, _)| track_id == id) {
+            self.last_point_clicked = None;
+        }
+    }
+
+    fn update_track_list(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::OpenTrackList(id) => {
                 if !matches!(self.modal, Some(Modal::TrackList(_))) {
@@ -3024,13 +3059,37 @@ impl App {
                         }
                     }
 
+                    // Reuse map selections instead of starting with an empty list.
+                    let selected_points: HashSet<(usize, usize)> = self.selection.points
+                        .iter()
+                        .filter(|(track_id, _, _)| *track_id == id)
+                        .map(|(_, seg_idx, pt_idx)| (*seg_idx + 1, *pt_idx))
+                        .collect();
+                    let first_selected = rows.iter().enumerate()
+                        .find(|(_, r)| selected_points.contains(&(r.sect, r.pt_idx)))
+                        .map(|(idx, r)| (idx, (r.sect, r.pt_idx)));
+
                     self.modal = Some(Modal::TrackList(TrackListState {
                         track_id: id,
                         rows,
-                        selected_points: HashSet::new(),
-                        last_clicked: None,
+                        selected_points,
+                        last_clicked: first_selected.map(|(_, point)| point),
                     }));
-                    self.tracks_cache.clear(); 
+                    self.tracks_cache.clear();
+
+                    if let Some((row_idx, _)) = first_selected {
+                        let step = crate::TRACK_LIST_ROW_HEIGHT + crate::TRACK_LIST_ROW_SPACING;
+                        let y = (row_idx as f32 * step
+                            + crate::TRACK_LIST_ROW_HEIGHT / 2.0
+                            - crate::TRACK_LIST_VIEW_HEIGHT / 2.0).max(0.0);
+                        return iced::widget::operation::scroll_to(
+                            crate::TRACK_LIST_SCROLL_ID,
+                            iced::widget::operation::AbsoluteOffset {
+                                x: None,
+                                y: Some(y),
+                            },
+                        );
+                    }
                 }
             }
             Message::CloseTrackList => {
@@ -3069,6 +3128,7 @@ impl App {
                         state.last_clicked = Some(clicked);
                     }
                 }
+                self.sync_tracklist_selection();
                 self.tracks_cache.clear();
             }
             Message::DeleteSelectedTrackPoints => {
@@ -3093,8 +3153,10 @@ impl App {
                         domain::recompute_track_stats(t_m);
                     }
                     
+                    // Deleted rows shift indices; drop only this track's selection.
+                    self.clear_track_point_selection(id);
                     // Переоткрываем таблицу, чтобы обновить PID и индексы
-                    self.update_track_list(Message::OpenTrackList(id));
+                    let _ = self.update_track_list(Message::OpenTrackList(id));
                     self.tracks_cache.clear();
                 }
             }
@@ -3130,18 +3192,21 @@ impl App {
                         }
                         domain::recompute_track_stats(t_m);
                     }
-                    self.update_track_list(Message::OpenTrackList(id));
+                    self.clear_track_point_selection(id);
+                    let _ = self.update_track_list(Message::OpenTrackList(id));
                     self.tracks_cache.clear();
                 }
             }
             Message::StitchSegments => {
-                let Some(Modal::TrackList(state)) = &self.modal else { return };
+                    let Some(Modal::TrackList(state)) = &self.modal else {
+                        return Task::none();
+                    };
                 let id = state.track_id;
 
                 let mut points: Vec<(usize, usize)> = state.selected_points.iter().copied().collect();
                 if points.len() != 2 {
                     self.status = t!("msg_0067").into();
-                    return;
+                    return Task::none();
                 }
                 points.sort();
                 let (sect_a, pt_a) = points[0];
@@ -3149,7 +3214,7 @@ impl App {
 
                 if sect_b != sect_a + 1 {
                     self.status = t!("msg_0068").into();
-                    return;
+                    return Task::none();
                 }
 
                 let seg_a_idx = sect_a - 1;
@@ -3157,7 +3222,7 @@ impl App {
 
                 // Валидация + расстояние — до мутации, чтобы не держать заимствование
                 let (dist, err) = {
-                    let Some(t) = self.tracks.iter().find(|t| t.id == id) else { return };
+                    let Some(t) = self.tracks.iter().find(|t| t.id == id) else { return  Task::none() };
                     if seg_a_idx >= t.segments.len() || seg_b_idx >= t.segments.len() {
                         (0.0, Some(t!("msg_0069")))
                     } else if pt_a + 1 != t.segments[seg_a_idx].points.len() {
@@ -3173,7 +3238,7 @@ impl App {
                 };
                 if let Some(msg) = err {
                     self.status = msg.into();
-                    return;
+                    return Task::none();
                 }
 
                 self.push_undo(t!("msg_0072"));
@@ -3195,8 +3260,10 @@ impl App {
                     domain::recompute_track_stats(t_m);
                 }
 
+                // Segment indices changed: discard invalid selections before rebuilding.
+                self.clear_track_point_selection(id);
                 // Переоткрыть TrackList, чтобы обновить индексы строк
-                self.update_track_list(Message::OpenTrackList(id));
+                let _ = self.update_track_list(Message::OpenTrackList(id));
                 self.tracks_cache.clear();
 
                 self.status = if dedup {
@@ -3219,10 +3286,12 @@ impl App {
                         }
                     }
                 }
+                self.sync_tracklist_selection();
+                self.tracks_cache.clear();
             }
             Message::TrackListUp | Message::TrackListDown => {
                 if let Some(Modal::TrackList(state)) = &mut self.modal {
-                    if state.rows.is_empty() { return; }
+                    if state.rows.is_empty() { return Task::none(); }
 
                     // Находим текущий индекс выделенной точки
                     let current_idx = state.last_clicked.and_then(|(s, p)| {
@@ -3252,6 +3321,7 @@ impl App {
                     state.selected_points.insert(new_clicked);
                     state.last_clicked = Some(new_clicked);
                 }
+                self.sync_tracklist_selection();
                 self.tracks_cache.clear();
             }
             Message::DeleteTrackById(id) => {
@@ -3267,6 +3337,7 @@ impl App {
             }
             _ => {}
         }
+        Task::none()
     }
     
     // =========================================================================
