@@ -990,68 +990,222 @@ impl App {
             .width(Length::Fixed(540.0)) // Ширина подобрана под макет
             .into()
     }
+
     pub(crate) fn view_foxydrop_modal<'a>(&'a self) -> Element<'a, Message> {
         use crate::foxydrop::Phase;
 
-        let status: Element<'a, Message> = match self.drop_phase {
-            Phase::Stopped => text("Server Down").size(18).color(Color::from_rgb8(180, 75, 65)).into(),
-            Phase::Starting => text("Starting...").size(18).into(),
-            Phase::Stopping => text("Stopping...").size(18).into(),
-            Phase::Running => text("Server Running").size(18).color(Color::from_rgb8(45, 175, 96)).into(),
+        let en = crate::i18n::current_lang() == "en";
+
+        // Локализация подписей
+        let tr = |ru: &'static str, en_text: &'static str| -> &'static str {
+            if en { en_text } else { ru }
         };
-        let mut body = column![status].spacing(12).align_x(Alignment::Center);
+
+        let status: Element<'a, Message> = match self.drop_phase {
+            Phase::Stopped => text(tr("Сервер остановлен", "Server Down"))
+                .size(18)
+                .color(Color::from_rgb8(180, 75, 65))
+                .into(),
+
+            Phase::Starting => text(tr("Запуск сервера...", "Starting..."))
+                .size(18)
+                .into(),
+
+            Phase::Stopping => text(tr("Остановка сервера...", "Stopping..."))
+                .size(18)
+                .into(),
+
+            Phase::Running => text(tr("Сервер запущен", "Server Running"))
+                .size(18)
+                .color(Color::from_rgb8(45, 175, 96))
+                .into(),
+        };
+
+        let mut body = column![status]
+            .spacing(12)
+            .align_x(Alignment::Center);
+
+        // Сообщения об ошибках
         if let Some(error) = &self.drop_error {
-            body = body.push(text(error.as_str()).size(13).color(Color::from_rgb8(200, 70, 60)));
+            let error_text = if en {
+                let translations = [
+                    (
+                        "Не найден IPv4-адрес локальной сети",
+                        "No local IPv4 address found",
+                    ),
+                    (
+                        "Сервер неожиданно остановился",
+                        "The server stopped unexpectedly",
+                    ),
+                    (
+                        "FoxyDrop уже запущен",
+                        "FoxyDrop is already running",
+                    ),
+                    (
+                        "Не найдена папка загрузки: ",
+                        "Upload folder not found: ",
+                    ),
+                    (
+                        "Нет доступа для записи в папку: ",
+                        "Upload folder is not writable: ",
+                    ),
+                    (
+                        "Невозможно открыть порт: ",
+                        "Could not open port: ",
+                    ),
+                    (
+                        "Невозможно запустить FoxyDrop: ",
+                        "Could not start FoxyDrop: ",
+                    ),
+                ];
+
+                translations
+                    .iter()
+                    .find_map(|(ru, english)| {
+                        error.strip_prefix(ru)
+                            .map(|rest| format!("{english}{rest}"))
+                    })
+                    .unwrap_or_else(|| error.clone())
+            } else {
+                error.clone()
+            };
+
+            body = body.push(
+                text(error_text)
+                    .size(13)
+                    .color(Color::from_rgb8(200, 70, 60))
+            );
         }
 
+        // QR-код и URL работающего сервера
         if self.drop_phase == Phase::Running {
             if let Some(addr) = self.drop_address {
                 let url = crate::foxydrop::url(addr);
-                body = body.push(iced::widget::canvas::Canvas::new(crate::foxydrop::qr::QrProgram { url: url.clone() })
-                    .width(Length::Fixed(220.0)).height(Length::Fixed(220.0)));
-                body = body.push(row![
-                    text(url).size(15),
-                    self.btn_secondary("Copy").on_press(Message::FoxyDropCopyUrl),
-                ].align_y(Alignment::Center).spacing(12));
+
+                body = body.push(
+                    iced::widget::canvas::Canvas::new(
+                        crate::foxydrop::qr::QrProgram {
+                            url: url.clone(),
+                        }
+                    )
+                    .width(Length::Fixed(220.0))
+                    .height(Length::Fixed(220.0))
+                );
+
+                body = body.push(
+                    row![
+                        text(url).size(15),
+                        self.btn_secondary(
+                            tr("Копировать", "Copy")
+                        )
+                        .on_press(Message::FoxyDropCopyUrl),
+                    ]
+                    .align_y(Alignment::Center)
+                    .spacing(12)
+                );
             }
         }
-        body = body.push(row![
-            text("IP:").width(40),
-            pick_list(self.drop_ips.clone(), self.drop_selected_ip, Message::FoxyDropIpSelected)
-                .padding(native_theme_iced::button_padding(&self.resolved_theme))
-                .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
-        ].spacing(10).align_y(Alignment::Center));
 
-        let current_dir = self.drop_service.directory().display().to_string();
-        body = body.push(text(if current_dir.is_empty() {
-            "Выберите папку в Settings".to_string()
-        } else { format!("Папка: {current_dir}") }).size(12));
+        // Выбор IP-адреса
+        body = body.push(
+            row![
+                text("IP:").width(40),
+                pick_list(
+                    self.drop_ips.clone(),
+                    self.drop_selected_ip,
+                    Message::FoxyDropIpSelected
+                )
+                .padding(
+                    native_theme_iced::button_padding(
+                        &self.resolved_theme
+                    )
+                )
+                .style(
+                    native_theme_iced::styles::pick_list(
+                        &self.resolved_theme
+                    )
+                ),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+        );
+
+        // Папка загрузки
+        let current_dir = self.drop_service
+            .directory()
+            .display()
+            .to_string();
+
+        let folder_text = if current_dir.is_empty() {
+            tr(
+                "Выберите папку в настройках",
+                "Choose a folder in Settings"
+            ).to_string()
+        } else {
+            format!(
+                "{}: {}",
+                tr("Папка", "Folder"),
+                current_dir
+            )
+        };
+
+        body = body.push(text(folder_text).size(12));
+
+        // Запуск и остановка
         if self.drop_phase == Phase::Stopped {
-            body = body.push(self.btn("Start").on_press(Message::FoxyDropStart));
+            body = body.push(
+                self.btn(tr("Запустить", "Start"))
+                    .on_press(Message::FoxyDropStart)
+            );
         } else if self.drop_phase == Phase::Running {
-            body = body.push(self.btn_secondary("Stop").on_press(Message::FoxyDropStop));
+            body = body.push(
+                self.btn_secondary(tr("Остановить", "Stop"))
+                    .on_press(Message::FoxyDropStop)
+            );
         }
+
+        // Основное содержимое окна
         let content = column![
             row![
-                mouse_area(container(text("FoxyDrop").size(20)).width(Length::Fill).padding(4))
-                    .on_press(Message::ModalDragStart),
-                self.icon_button(lucide_iced::bytes::X, Message::CloseFoxyDrop),
-            ].align_y(Alignment::Center),
+                mouse_area(
+                    container(text("FoxyDrop").size(20))
+                        .width(Length::Fill)
+                        .padding(4)
+                )
+                .on_press(Message::ModalDragStart),
+
+                self.icon_button(
+                    lucide_iced::bytes::X,
+                    Message::CloseFoxyDrop
+                ),
+            ]
+            .align_y(Alignment::Center),
+
             body.width(Length::Fill),
+
             row![
                 Space::new().width(Length::Fill),
-                self.btn_secondary(t!("msg_0133")).on_press(Message::CloseFoxyDrop),
+                self.btn_secondary(t!("msg_0133"))
+                    .on_press(Message::CloseFoxyDrop),
             ]
-        ].spacing(16).padding(20);
+        ]
+        .spacing(16)
+        .padding(20);
+
         container(content)
             .style(|theme: &Theme| {
                 let pal = theme.extended_palette();
+
                 container::Style {
-                    background: Some(pal.background.base.color.into()),
+                    background: Some(
+                        pal.background.base.color.into()
+                    ),
                     border: iced::Border {
                         color: pal.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: native_theme_iced::border_radius(
+                            &self.resolved_theme
+                        ).into(),
                     },
                     ..Default::default()
                 }
@@ -1060,215 +1214,216 @@ impl App {
             .into()
     }
 
-pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Element<'a, Message> {
-    let separator = || {
-        container(text(""))
-            .width(Length::Fill)
-            .height(Length::Fixed(1.0))
+
+    pub(crate) fn view_settings_modal<'a>(&'a self, draft: &'a SettingsDraft) -> Element<'a, Message> {
+        let separator = || {
+            container(text(""))
+                .width(Length::Fill)
+                .height(Length::Fixed(1.0))
+                .style(|theme: &Theme| {
+                    let palette = theme.extended_palette();
+                    container::Style {
+                        background: Some(palette.background.strong.color.into()),
+                        ..Default::default()
+                    }
+                })
+        };
+
+        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
+        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
+        let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
+        let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
+
+        // Основной ряд цветов и расширенная палитра 8×8, как в Track Properties.
+        let make_grid_color_btn = |color: [u8; 3]| -> Element<'a, Message> {
+            let selected = color == draft.grid_color;
+            button(text("")).width(24).height(24)
+                .style(move |_: &Theme, _| button::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb8(
+                        color[0], color[1], color[2],
+                    ))),
+                    border: iced::Border {
+                        color: if selected { Color::WHITE } else { Color::from_rgb(0.5, 0.5, 0.5) },
+                        width: if selected { 2.0 } else { 1.0 },
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
+                    ..Default::default()
+                })
+                .on_press(Message::SettingsGridColorChanged(color))
+                .into()
+        };
+
+        let mut grid_color_buttons: Vec<Element<'a, Message>> = self.palette.iter()
+            .copied()
+            .map(make_grid_color_btn)
+            .collect();
+        grid_color_buttons.push(self.chevron_toggle(ColorPickerKind::GridColor));
+        let grid_color_row = row(grid_color_buttons).spacing(2);
+
+        let grid_color_picker: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::GridColor) {
+            let mut palette_rows: Vec<Element<'a, Message>> = Vec::new();
+            for chunk in get_extended_palette().chunks(8) {
+                let buttons: Vec<Element<'a, Message>> = chunk.iter()
+                    .copied()
+                    .map(make_grid_color_btn)
+                    .collect();
+                palette_rows.push(row(buttons).spacing(2).into());
+            }
+            container(column(palette_rows).spacing(2))
+                .padding(iced::Padding::new(0.0).left(166.0))
+                .into()
+        } else {
+            column![].into()
+        };
+
+        let current_lang_label = match draft.lang.as_str() {
+            "en" => "English",
+            _ => "Русский",
+        };
+
+        // Подсветка: зелёная рамка если координаты валидны, обычная если нет
+        let is_valid = draft.parsed_lat.is_some() && draft.parsed_lon.is_some();
+        
+        let coord_style = move |theme: &Theme, status: iced::widget::text_input::Status| {
+            // Получаем дефолтный стиль от native_theme_iced
+            let mut style = input_style(theme, status);
+            
+            // Если координаты распарсились корректно, меняем цвет рамки на зелёный
+            if is_valid {
+                style.border = iced::Border {
+                    color: Color::from_rgb(0.2, 0.7, 0.3), // зелёный цвет
+                    width: 1.0,
+                    radius: 4.0.into(),
+                };
+            }
+            style
+        };
+
+        let content = column![
+            // Заголовок
+            row![
+                mouse_area(
+                    container(text(t!("msg_0202")).size(20))
+                        .width(Length::Fill)
+                        .padding(4)
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                ..Default::default()
+                            }
+                        })
+                ).on_press(Message::ModalDragStart),
+                container(
+                    self.icon_button(lucide_iced::bytes::X, Message::CloseSettings)
+                ).padding(4)
+            ].align_y(Alignment::Center).width(Length::Fill),
+
+            separator(),
+
+            // Прокручивается только содержимое настроек; кнопки остаются видимыми.
+            scrollable(column![
+            // Стартовая локация — единое поле ввода
+            row![
+                text(t!("msg_0236")).width(160),
+                text_input("55.016359 82.945971", &draft.coord_input)
+                    .on_input(Message::SettingsCoordChanged)
+                    .width(240)
+                    .padding(input_pad)
+                    .style(coord_style),
+            ].align_y(Alignment::Center).spacing(6),
+
+            // Подсказка по форматам
+            container(
+                text(t!("msg_0235"))
+                    .size(11)
+                    .color(Color::from_rgb(0.5, 0.5, 0.5))
+            ).padding([0, 160]),
+
+            // Язык
+            row![
+                text(t!("msg_0237")).width(160),
+                pick_list(
+                    ["Русский", "English"],
+                    Some(current_lang_label),
+                    |label: &str| Message::SettingsLangChanged(label.to_string())
+                ).padding(pick_pad).style(pick_style.clone()),
+            ].align_y(Alignment::Center),
+
+            // Допуск упрощения
+            row![
+                text(t!("msg_0238")).width(160),
+                iced::widget::slider(0.1..=10.0, draft.simplify_tolerance, Message::SettingsToleranceChanged)
+                    .step(0.1)
+                    .width(200),
+                text(format!("{:.1} {}", draft.simplify_tolerance, t!("msg_0221"))).width(50),
+            ].align_y(Alignment::Center).spacing(6),
+
+            separator(),
+            row![
+                text(if crate::i18n::current_lang() == "en" { "FoxyDrop folder" } else { "Папка FoxyDrop" }).width(160),
+                text_input("", &draft.drop_folder)
+                    .width(Length::Fill)
+                    .padding(input_pad)
+                    // Поле без on_input (только чтение): не используем бледный disabled-стиль.
+                    .style(|theme: &Theme, _status| {
+                        let pal = theme.extended_palette();
+                        iced::widget::text_input::Style {
+                            background: pal.background.weak.color.into(),
+                            border: iced::Border {
+                                color: pal.background.strong.color,
+                                width: 1.0,
+                                radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                            },
+                            icon: pal.background.base.text,
+                            placeholder: pal.background.base.text,
+                            value: pal.background.base.text,
+                            selection: pal.primary.weak.color,
+                        }
+                    }),
+                self.btn_secondary("...").on_press(Message::SettingsChooseDropFolder),
+            ].align_y(Alignment::Center).spacing(6),
+
+            // Настраиваемый цвет линий и узлов сетки.
+            row![
+                text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
+                grid_color_row,
+            ].align_y(Alignment::Center).spacing(6),
+            grid_color_picker,
+            ].spacing(12).width(Length::Fill)).height(Length::Fill),
+
+            // Кнопки всегда видны, даже если палитра раскрыта.
+            row![
+                Space::new().width(Length::Fill),
+                self.btn_secondary(t!("msg_0152")).on_press(Message::CloseSettings),
+                self.btn(t!("msg_0151")).on_press(Message::ApplySettings),
+            ].spacing(10)
+        ]
+        .spacing(12)
+        .padding(20);
+
+        container(content)
             .style(|theme: &Theme| {
                 let palette = theme.extended_palette();
                 container::Style {
-                    background: Some(palette.background.strong.color.into()),
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                    },
                     ..Default::default()
                 }
             })
-    };
-
-    let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-    let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
-    let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
-    let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
-
-    // Основной ряд цветов и расширенная палитра 8×8, как в Track Properties.
-    let make_grid_color_btn = |color: [u8; 3]| -> Element<'a, Message> {
-        let selected = color == draft.grid_color;
-        button(text("")).width(24).height(24)
-            .style(move |_: &Theme, _| button::Style {
-                background: Some(iced::Background::Color(Color::from_rgb8(
-                    color[0], color[1], color[2],
-                ))),
-                border: iced::Border {
-                    color: if selected { Color::WHITE } else { Color::from_rgb(0.5, 0.5, 0.5) },
-                    width: if selected { 2.0 } else { 1.0 },
-                    radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
-                },
-                ..Default::default()
-            })
-            .on_press(Message::SettingsGridColorChanged(color))
+            .width(Length::Fixed(520.0))
+            // Высота ограничена реальным размером окна, основная часть прокручивается.
+            .height(Length::Fixed(
+                (if self.show_color_picker == Some(ColorPickerKind::GridColor) {
+                    690.0_f32
+                } else {
+                    480.0_f32
+                }).min((self.window_size.height - 64.0).max(240.0))
+            ))
             .into()
-    };
-
-    let mut grid_color_buttons: Vec<Element<'a, Message>> = self.palette.iter()
-        .copied()
-        .map(make_grid_color_btn)
-        .collect();
-    grid_color_buttons.push(self.chevron_toggle(ColorPickerKind::GridColor));
-    let grid_color_row = row(grid_color_buttons).spacing(2);
-
-    let grid_color_picker: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::GridColor) {
-        let mut palette_rows: Vec<Element<'a, Message>> = Vec::new();
-        for chunk in get_extended_palette().chunks(8) {
-            let buttons: Vec<Element<'a, Message>> = chunk.iter()
-                .copied()
-                .map(make_grid_color_btn)
-                .collect();
-            palette_rows.push(row(buttons).spacing(2).into());
-        }
-        container(column(palette_rows).spacing(2))
-            .padding(iced::Padding::new(0.0).left(166.0))
-            .into()
-    } else {
-        column![].into()
-    };
-
-    let current_lang_label = match draft.lang.as_str() {
-        "en" => "English",
-        _ => "Русский",
-    };
-
-    // Подсветка: зелёная рамка если координаты валидны, обычная если нет
-    let is_valid = draft.parsed_lat.is_some() && draft.parsed_lon.is_some();
-    
-    let coord_style = move |theme: &Theme, status: iced::widget::text_input::Status| {
-        // Получаем дефолтный стиль от native_theme_iced
-        let mut style = input_style(theme, status);
-        
-        // Если координаты распарсились корректно, меняем цвет рамки на зелёный
-        if is_valid {
-            style.border = iced::Border {
-                color: Color::from_rgb(0.2, 0.7, 0.3), // зелёный цвет
-                width: 1.0,
-                radius: 4.0.into(),
-            };
-        }
-        style
-    };
-
-    let content = column![
-        // Заголовок
-        row![
-            mouse_area(
-                container(text(t!("msg_0202")).size(20))
-                    .width(Length::Fill)
-                    .padding(4)
-                    .style(|theme: &Theme| {
-                        let palette = theme.extended_palette();
-                        container::Style {
-                            background: Some(palette.background.weak.color.into()),
-                            ..Default::default()
-                        }
-                    })
-            ).on_press(Message::ModalDragStart),
-            container(
-                self.icon_button(lucide_iced::bytes::X, Message::CloseSettings)
-            ).padding(4)
-        ].align_y(Alignment::Center).width(Length::Fill),
-
-        separator(),
-
-        // Прокручивается только содержимое настроек; кнопки остаются видимыми.
-        scrollable(column![
-        // Стартовая локация — единое поле ввода
-        row![
-            text(t!("msg_0236")).width(160),
-            text_input("55.016359 82.945971", &draft.coord_input)
-                .on_input(Message::SettingsCoordChanged)
-                .width(240)
-                .padding(input_pad)
-                .style(coord_style),
-        ].align_y(Alignment::Center).spacing(6),
-
-        // Подсказка по форматам
-        container(
-            text(t!("msg_0235"))
-                .size(11)
-                .color(Color::from_rgb(0.5, 0.5, 0.5))
-        ).padding([0, 160]),
-
-        // Язык
-        row![
-            text(t!("msg_0237")).width(160),
-            pick_list(
-                ["Русский", "English"],
-                Some(current_lang_label),
-                |label: &str| Message::SettingsLangChanged(label.to_string())
-            ).padding(pick_pad).style(pick_style.clone()),
-        ].align_y(Alignment::Center),
-
-        // Допуск упрощения
-        row![
-            text(t!("msg_0238")).width(160),
-            iced::widget::slider(0.1..=10.0, draft.simplify_tolerance, Message::SettingsToleranceChanged)
-                .step(0.1)
-                .width(200),
-            text(format!("{:.1} {}", draft.simplify_tolerance, t!("msg_0221"))).width(50),
-        ].align_y(Alignment::Center).spacing(6),
-
-        separator(),
-        row![
-            text(if crate::i18n::current_lang() == "en" { "FoxyDrop folder" } else { "Папка FoxyDrop" }).width(160),
-            text_input("", &draft.drop_folder)
-                .width(Length::Fill)
-                .padding(input_pad)
-                // Поле без on_input (только чтение): не используем бледный disabled-стиль.
-                .style(|theme: &Theme, _status| {
-                    let pal = theme.extended_palette();
-                    iced::widget::text_input::Style {
-                        background: pal.background.weak.color.into(),
-                        border: iced::Border {
-                            color: pal.background.strong.color,
-                            width: 1.0,
-                            radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
-                        },
-                        icon: pal.background.base.text,
-                        placeholder: pal.background.base.text,
-                        value: pal.background.base.text,
-                        selection: pal.primary.weak.color,
-                    }
-                }),
-            self.btn_secondary("...").on_press(Message::SettingsChooseDropFolder),
-        ].align_y(Alignment::Center).spacing(6),
-
-        // Настраиваемый цвет линий и узлов сетки.
-        row![
-            text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
-            grid_color_row,
-        ].align_y(Alignment::Center).spacing(6),
-        grid_color_picker,
-        ].spacing(12).width(Length::Fill)).height(Length::Fill),
-
-        // Кнопки всегда видны, даже если палитра раскрыта.
-        row![
-            Space::new().width(Length::Fill),
-            self.btn_secondary(t!("msg_0152")).on_press(Message::CloseSettings),
-            self.btn(t!("msg_0151")).on_press(Message::ApplySettings),
-        ].spacing(10)
-    ]
-    .spacing(12)
-    .padding(20);
-
-    container(content)
-        .style(|theme: &Theme| {
-            let palette = theme.extended_palette();
-            container::Style {
-                background: Some(palette.background.base.color.into()),
-                border: iced::Border {
-                    color: palette.background.strong.color,
-                    width: 1.0,
-                    radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
-                },
-                ..Default::default()
-            }
-        })
-        .width(Length::Fixed(520.0))
-        // Высота ограничена реальным размером окна, основная часть прокручивается.
-        .height(Length::Fixed(
-            (if self.show_color_picker == Some(ColorPickerKind::GridColor) {
-                690.0_f32
-            } else {
-                480.0_f32
-            }).min((self.window_size.height - 64.0).max(240.0))
-        ))
-        .into()
-}
+    }
 }

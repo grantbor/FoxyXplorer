@@ -79,10 +79,10 @@ impl App {
                     Message::OpenFoxyDrop,
                 ),
                 match self.drop_phase {
-                    crate::foxydrop::Phase::Running => "FoxyDrop: Server Running",
-                    crate::foxydrop::Phase::Starting => "FoxyDrop: Starting",
-                    crate::foxydrop::Phase::Stopping => "FoxyDrop: Stopping",
-                    crate::foxydrop::Phase::Stopped => "FoxyDrop: Server Down",
+                    crate::foxydrop::Phase::Running => t!("msg_0239"),
+                    crate::foxydrop::Phase::Starting => t!("msg_0240"),
+                    crate::foxydrop::Phase::Stopping => t!("msg_0241"),
+                    crate::foxydrop::Phase::Stopped => t!("msg_0242"),
                 },
             ),
             with_tooltip(

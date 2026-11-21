@@ -620,8 +620,8 @@
     "en": "Coordinates:"
   },
   "msg_0156": {
-    "ru": "Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)",
-    "en": "Formats: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' | Grid node (A1) | Node + azimuth + meters (A1 120 110)"
+    "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)",
+    "en": "Formats: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' | Grid node (A1) | Node + azimuth + meters (A1 120 110)"
   },
   "msg_0157": {
     "ru": "Высота (м):",
@@ -936,8 +936,8 @@
     "en": "segments"
   }, 
   "msg_0235": {
-    "ru": "Форматы: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss''",
-    "en": "Formats: dd.dddddd dd.dddddd | dd°mm.mmmm' dd°mm.mmmm' | dd°mm'ss.ss'' dd°mm'ss.ss'' "
+    "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss''",
+    "en": "Formats: dd.dddddd | dd°mm.mmmm'| dd°mm'ss.ss''"
   },    
   "msg_0236": {
     "ru": "Старовая локация:",
@@ -950,5 +950,21 @@
   "msg_0238": {
     "ru": "Допуск упрощения:",
     "en": "Simplify tolerance:"
+  },    
+  "msg_0239": {
+    "ru": "FoxyDrop: сервер запущен",
+    "en": "FoxyDrop: Server Running"
+  },    
+  "msg_0240": {
+    "ru": "FoxyDrop: запуск сервера...",
+    "en": "FoxyDrop: Starting"
+  },    
+  "msg_0241": {
+    "ru": "FoxyDrop: остановка сервера...",
+    "en": "FoxyDrop: Stopping"
+  },    
+  "msg_0242": {
+    "ru": "FoxyDrop: сервер остановлен",
+    "en": "FoxyDrop: Server Down"
   }
 }
