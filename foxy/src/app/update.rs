@@ -16,7 +16,7 @@ use crate::{load_kit, save_session};
 
 use std::sync::Arc;
 use crate::UndoState;
-use crate::{AppTheme, theme_pair_for};
+use crate::{AppTheme, theme_for};
 
 use std::collections::HashSet; 
 use crate::{TrackRowData, TrackListState}; 
@@ -209,9 +209,9 @@ impl App {
                 "light" => AppTheme::Light,
                 _       => AppTheme::Dark,
             };
-            let (th, r) = theme_pair_for(&self.ui_theme, self.current_theme);
+            let th = theme_for(&self.ui_theme, self.current_theme);
             self.theme = th;
-            self.resolved_theme = r;
+
         }
 
         self.undo_stack.clear();
@@ -1436,9 +1436,8 @@ impl App {
                     AppTheme::Light => AppTheme::Dark,
                     AppTheme::Dark  => AppTheme::Light,
                 };
-                let (t, r) = theme_pair_for(&self.ui_theme, self.current_theme);
+                let t = theme_for(&self.ui_theme, self.current_theme);
                 self.theme = t;
-                self.resolved_theme = r;
 
                 // Кэши надо сбросить — цвета линий/подписей на канвасах завязаны на тему.
                 self.canvas_cache.clear();
@@ -1499,9 +1498,9 @@ impl App {
                                 Ok(_) => {
                                     self.simplify_tolerance = new_cfg.simplify_tolerance;
                                     self.ui_theme = crate::ui_theme_from_name(&new_cfg.ui_theme);
-                                    let (theme, resolved) = theme_pair_for(&self.ui_theme, self.current_theme);
+                                    let theme = theme_for(&self.ui_theme, self.current_theme);
                                     self.theme = theme;
-                                    self.resolved_theme = resolved;
+
                                     self.canvas_cache.clear();
                                     self.osm_canvas_cache.clear();
                                     self.tracks_cache.clear();
@@ -2985,9 +2984,9 @@ impl App {
             }
             Message::RefreshSystemTheme => {
                 // User-selected themes are pinned; OS notifications must not override them.
-                let (theme, resolved) = theme_pair_for(&self.ui_theme, self.current_theme);
+                let theme = theme_for(&self.ui_theme, self.current_theme);
                 self.theme = theme;
-                self.resolved_theme = resolved;
+
                 self.canvas_cache.clear();
                 self.grid_cache.clear();
                 self.osm_canvas_cache.clear();

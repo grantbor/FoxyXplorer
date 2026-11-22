@@ -26,7 +26,7 @@ use iced::{Alignment, Color, Element, Length, Point, Size, Task};
 use iced::keyboard::Modifiers;
 use iced::Subscription;
 use iced::window::settings::PlatformSpecific;
-use native_theme_iced::ResolvedTheme; 
+ 
 
 use util::geo::{merc_of, lonlat_of, affine};
 use util::coords::today;
@@ -496,7 +496,7 @@ pub(crate) struct App {
     pub(crate) theme: iced::Theme,
     pub(crate) current_theme: AppTheme,
     pub(crate) ui_theme: iced::Theme,
-    pub(crate) resolved_theme: ResolvedTheme, 
+
     pub(crate) simplify_tolerance: f64,     // Значение по умолчанию 2.0. В будущем будет меняться через настройки.
     pub(crate) tracks: Vec<Arc<domain::Track>>,
     pub(crate) waypoints: Vec<Arc<domain::Waypoint>>,
@@ -560,28 +560,64 @@ fn modal_drag_padding(offset: Point) -> iced::Padding {
     pad
 }
 
-pub(crate) fn theme_pair(theme: AppTheme) -> (iced::Theme, ResolvedTheme) {
-    let (preset, is_dark) = match theme {
-        AppTheme::Light => ("catppuccin-latte", false),
-        AppTheme::Dark  => ("catppuccin-mocha", true),
-    };
-    if let Ok((t, r)) = native_theme_iced::from_preset(preset, is_dark) {
-        (t, r)
-    } else {
-        // Fallback, если пресета нет в вашей версии native_theme_iced
-        match theme {
-            AppTheme::Light => (
-                iced::Theme::Light,
-                native_theme_iced::from_preset("default", false).unwrap().1,
-            ),
-            AppTheme::Dark => (
-                iced::Theme::Dark,
-                native_theme_iced::from_preset("default", true).unwrap().1,
-            ),
-        }
+
+
+
+/// One entry per theme family in Settings.
+pub(crate) const THEME_FAMILY_LABELS: &[&str] = &[
+    "Default", "Solarized", "Gruvbox",
+    "Catppuccin Frappé", "Catppuccin Macchiato", "Catppuccin Mocha",
+    "Tokyo Night", "Tokyo Night Storm", "Kanagawa", "Kanagawa Dragon",
+    "Dracula", "Nord", "Moonfly", "Nightfly", "Oxocarbon", "Ferra",
+];
+
+/// Map old saved theme variants to their single dropdown family.
+pub(crate) fn theme_family_name(theme: &iced::Theme) -> &'static str {
+    use iced::Theme;
+    match theme {
+        Theme::Light | Theme::Dark => "Default",
+        Theme::SolarizedLight | Theme::SolarizedDark => "Solarized",
+        Theme::GruvboxLight | Theme::GruvboxDark => "Gruvbox",
+        Theme::CatppuccinLatte | Theme::CatppuccinMocha => "Catppuccin Mocha",
+        Theme::CatppuccinFrappe => "Catppuccin Frappé",
+        Theme::CatppuccinMacchiato => "Catppuccin Macchiato",
+        Theme::TokyoNightLight | Theme::TokyoNight => "Tokyo Night",
+        Theme::TokyoNightStorm => "Tokyo Night Storm",
+        Theme::KanagawaLotus | Theme::KanagawaWave => "Kanagawa",
+        Theme::KanagawaDragon => "Kanagawa Dragon",
+        Theme::Dracula => "Dracula",
+        Theme::Nord => "Nord",
+        Theme::Moonfly => "Moonfly",
+        Theme::Nightfly => "Nightfly",
+        Theme::Oxocarbon => "Oxocarbon",
+        Theme::Ferra => "Ferra",
+        Theme::Custom(_) => "Default",
     }
 }
 
+/// Dark representatives are converted to Light by the existing theme_for().
+pub(crate) fn theme_from_family(family: &str) -> iced::Theme {
+    use iced::Theme;
+    match family {
+        "Default" => Theme::Dark,
+        "Solarized" => Theme::SolarizedDark,
+        "Gruvbox" => Theme::GruvboxDark,
+        "Catppuccin Frappé" => Theme::CatppuccinFrappe,
+        "Catppuccin Macchiato" => Theme::CatppuccinMacchiato,
+        "Catppuccin Mocha" => Theme::CatppuccinMocha,
+        "Tokyo Night" => Theme::TokyoNight,
+        "Tokyo Night Storm" => Theme::TokyoNightStorm,
+        "Kanagawa" => Theme::KanagawaWave,
+        "Kanagawa Dragon" => Theme::KanagawaDragon,
+        "Dracula" => Theme::Dracula,
+        "Nord" => Theme::Nord,
+        "Moonfly" => Theme::Moonfly,
+        "Nightfly" => Theme::Nightfly,
+        "Oxocarbon" => Theme::Oxocarbon,
+        "Ferra" => Theme::Ferra,
+        _ => Theme::CatppuccinFrappe,
+    }
+}
 
 /// Iced's built-in themes (excluding Custom). Stored in config.json by display name.
 pub(crate) fn ui_theme_from_name(name: &str) -> iced::Theme {
@@ -591,62 +627,40 @@ pub(crate) fn ui_theme_from_name(name: &str) -> iced::Theme {
         .unwrap_or(iced::Theme::CatppuccinFrappe)
 }
 
-/// A built-in iced theme doesn't necessarily have both modes. The corresponding
-/// native-theme preset supplies the missing mode and styles for non-iced widgets.
-pub(crate) fn theme_pair_for(selected: &iced::Theme, mode: AppTheme) -> (iced::Theme, ResolvedTheme) {
+/// Returns a single iced theme for the chosen family and Light/Dark mode.
+/// Families without a second variant fall back to iced::Theme::Light in light mode.
+pub(crate) fn theme_for(selected: &iced::Theme, mode: AppTheme) -> iced::Theme {
     use iced::Theme;
-    let is_dark = mode == AppTheme::Dark;
-    let preset = match selected {
-        Theme::Light | Theme::Dark => "adwaita",
-        Theme::Dracula | Theme::Ferra => "dracula",
-        Theme::Nord | Theme::KanagawaWave | Theme::KanagawaDragon | Theme::KanagawaLotus => "nord",
-        Theme::SolarizedLight | Theme::SolarizedDark => "solarized",
-        Theme::GruvboxLight | Theme::GruvboxDark => "gruvbox",
-        Theme::CatppuccinLatte => if is_dark { "catppuccin-mocha" } else { "catppuccin-latte" },
-        Theme::CatppuccinFrappe => if is_dark { "catppuccin-frappe" } else { "catppuccin-latte" },
-        Theme::CatppuccinMacchiato => if is_dark { "catppuccin-macchiato" } else { "catppuccin-latte" },
-        Theme::CatppuccinMocha => if is_dark { "catppuccin-mocha" } else { "catppuccin-latte" },
-        Theme::TokyoNight | Theme::TokyoNightStorm | Theme::TokyoNightLight => "tokyo-night",
-        Theme::Moonfly | Theme::Nightfly | Theme::Oxocarbon => "one-dark",
-        Theme::Custom(_) => "adwaita",
-    };
-    let (native_iced, resolved) = native_theme_iced::from_preset(preset, is_dark)
-        .unwrap_or_else(|_| theme_pair(mode));
-
-    // Keep exact built-in iced palettes whenever the requested mode exists.
-    // For single-mode themes the native preset produces an opposite-mode palette.
-    let built_in = match (selected, mode) {
-        (Theme::Light | Theme::Dark, AppTheme::Light) => Some(Theme::Light),
-        (Theme::Light | Theme::Dark, AppTheme::Dark) => Some(Theme::Dark),
-        (Theme::SolarizedLight | Theme::SolarizedDark, AppTheme::Light) => Some(Theme::SolarizedLight),
-        (Theme::SolarizedLight | Theme::SolarizedDark, AppTheme::Dark) => Some(Theme::SolarizedDark),
-        (Theme::GruvboxLight | Theme::GruvboxDark, AppTheme::Light) => Some(Theme::GruvboxLight),
-        (Theme::GruvboxLight | Theme::GruvboxDark, AppTheme::Dark) => Some(Theme::GruvboxDark),
-        (Theme::CatppuccinLatte, AppTheme::Light) => Some(Theme::CatppuccinLatte),
-        (Theme::CatppuccinLatte, AppTheme::Dark) => Some(Theme::CatppuccinMocha),
-        (Theme::CatppuccinFrappe, AppTheme::Light) => Some(Theme::CatppuccinLatte),
-        (Theme::CatppuccinFrappe, AppTheme::Dark) => Some(Theme::CatppuccinFrappe),
-        (Theme::CatppuccinMacchiato, AppTheme::Light) => Some(Theme::CatppuccinLatte),
-        (Theme::CatppuccinMacchiato, AppTheme::Dark) => Some(Theme::CatppuccinMacchiato),
-        (Theme::CatppuccinMocha, AppTheme::Light) => Some(Theme::CatppuccinLatte),
-        (Theme::CatppuccinMocha, AppTheme::Dark) => Some(Theme::CatppuccinMocha),
-        (Theme::TokyoNightLight, AppTheme::Light) => Some(Theme::TokyoNightLight),
-        (Theme::TokyoNightLight, AppTheme::Dark) => Some(Theme::TokyoNight),
-        (Theme::TokyoNightStorm, AppTheme::Light) => Some(Theme::TokyoNightLight),
-        (Theme::TokyoNightStorm, AppTheme::Dark) => Some(Theme::TokyoNightStorm),
-        (Theme::TokyoNight, AppTheme::Light) => Some(Theme::TokyoNightLight),
-        (Theme::TokyoNight, AppTheme::Dark) => Some(Theme::TokyoNight),
-        (Theme::KanagawaLotus, AppTheme::Light) => Some(Theme::KanagawaLotus),
-        (Theme::KanagawaLotus, AppTheme::Dark) => Some(Theme::KanagawaWave),
-        (Theme::KanagawaWave, AppTheme::Light) => Some(Theme::KanagawaLotus),
-        (Theme::KanagawaWave, AppTheme::Dark) => Some(Theme::KanagawaWave),
-        (Theme::KanagawaDragon, AppTheme::Light) => Some(Theme::KanagawaLotus),
-        (Theme::KanagawaDragon, AppTheme::Dark) => Some(Theme::KanagawaDragon),
-        (Theme::Dracula | Theme::Nord | Theme::Moonfly | Theme::Nightfly | Theme::Oxocarbon | Theme::Ferra, AppTheme::Dark) => Some(selected.clone()),
-        _ => None,
-    };
-    (built_in.unwrap_or(native_iced), resolved)
+    match (selected, mode) {
+        (Theme::Light | Theme::Dark, AppTheme::Light) => Theme::Light,
+        (Theme::Light | Theme::Dark, AppTheme::Dark) => Theme::Dark,
+        (Theme::SolarizedLight | Theme::SolarizedDark, AppTheme::Light) => Theme::SolarizedLight,
+        (Theme::SolarizedLight | Theme::SolarizedDark, AppTheme::Dark) => Theme::SolarizedDark,
+        (Theme::GruvboxLight | Theme::GruvboxDark, AppTheme::Light) => Theme::GruvboxLight,
+        (Theme::GruvboxLight | Theme::GruvboxDark, AppTheme::Dark) => Theme::GruvboxDark,
+        (Theme::CatppuccinLatte, AppTheme::Light) => Theme::CatppuccinLatte,
+        (Theme::CatppuccinLatte, AppTheme::Dark) => Theme::CatppuccinMocha,
+        (Theme::CatppuccinFrappe, AppTheme::Light) => Theme::CatppuccinLatte,
+        (Theme::CatppuccinFrappe, AppTheme::Dark) => Theme::CatppuccinFrappe,
+        (Theme::CatppuccinMacchiato, AppTheme::Light) => Theme::CatppuccinLatte,
+        (Theme::CatppuccinMacchiato, AppTheme::Dark) => Theme::CatppuccinMacchiato,
+        (Theme::CatppuccinMocha, AppTheme::Light) => Theme::CatppuccinLatte,
+        (Theme::CatppuccinMocha, AppTheme::Dark) => Theme::CatppuccinMocha,
+        (Theme::TokyoNightLight | Theme::TokyoNight, AppTheme::Light) => Theme::TokyoNightLight,
+        (Theme::TokyoNightLight | Theme::TokyoNight, AppTheme::Dark) => Theme::TokyoNight,
+        (Theme::TokyoNightStorm, AppTheme::Light) => Theme::TokyoNightLight,
+        (Theme::TokyoNightStorm, AppTheme::Dark) => Theme::TokyoNightStorm,
+        (Theme::KanagawaWave | Theme::KanagawaLotus, AppTheme::Light) => Theme::KanagawaLotus,
+        (Theme::KanagawaWave | Theme::KanagawaLotus, AppTheme::Dark) => Theme::KanagawaWave,
+        (Theme::KanagawaDragon, AppTheme::Light) => Theme::KanagawaLotus,
+        (Theme::KanagawaDragon, AppTheme::Dark) => Theme::KanagawaDragon,
+        (Theme::Custom(_), AppTheme::Light) => Theme::Light,
+        (Theme::Custom(_), AppTheme::Dark) => Theme::Dark,
+        (_, AppTheme::Light) => Theme::Light,
+        (theme, AppTheme::Dark) => theme.clone(),
+    }
 }
+
 
 impl App {
     pub(crate) fn online_basemap(&self) -> Option<BasemapSource> {
@@ -690,16 +704,12 @@ impl App {
         }
     }
 
-    fn new (
-        _initial_theme: iced::Theme,
-        _initial_resolved_theme: ResolvedTheme,
-        initial_theme_kind: AppTheme,
-    ) -> (App, Task<Message>) {
+    fn new(initial_theme_kind: AppTheme) -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
         // --- Читаем пользовательский конфиг ---
         let cfg = crate::config::load();
         let ui_theme = ui_theme_from_name(&cfg.ui_theme);
-        let (theme, resolved_theme) = theme_pair_for(&ui_theme, initial_theme_kind);
+        let theme = theme_for(&ui_theme, initial_theme_kind);
         // Применяем язык сразу, до создания App
         crate::i18n::set_lang(Box::leak(cfg.lang.clone().into_boxed_str()));
         let force_osm = args.iter().any(|a| a == "--osm");
@@ -741,7 +751,7 @@ impl App {
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
                     show_track_save_menu: false, show_wp_save_menu: false,
-                    theme, resolved_theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
+                    theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
                     modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
@@ -771,9 +781,7 @@ impl App {
                         "light" => AppTheme::Light,
                         _       => AppTheme::Dark,
                     };
-                    let (th, r) = theme_pair_for(&app.ui_theme, app.current_theme);
-                    app.theme = th;
-                    app.resolved_theme = r;
+                    app.theme = theme_for(&app.ui_theme, app.current_theme);
                 }
                 app.status = format!("{} ({} {} {} {})", t!("msg_0224"), t!("msg_0225"), app.tracks.len(), t!("msg_0226"), app.waypoints.len());
                 let task = app.request_osm_tiles();
@@ -806,7 +814,7 @@ impl App {
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 360.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
             show_track_save_menu: false, show_wp_save_menu: false,
-            theme, resolved_theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
+            theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
             modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
@@ -1111,15 +1119,35 @@ impl App {
             } else {
                 row![
                     map_stack,
+                    // Resize handle: themed background, visible grip and horizontal-resize cursor.
                     mouse_area(
-                        container(text(""))
-                            .width(Length::Fixed(6.0))
-                            .height(Length::Fill)
-                            .style(|_| container::Style {
-                                background: Some(Color::from_rgb(0.2, 0.2, 0.25).into()),
-                                ..Default::default()
-                            })
-                    ).on_press(Message::DividerPressed).on_release(Message::DividerReleased),
+                        container(
+                            container(Space::new())
+                                .width(Length::Fixed(3.0))
+                                .height(Length::Fixed(56.0))
+                                .style(|theme: &iced::Theme| container::Style {
+                                    background: Some(theme.palette().primary.into()),
+                                    border: iced::Border {
+                                        radius: 2.0.into(),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                })
+                        )
+                        .width(Length::Fixed(8.0))
+                        .height(Length::Fill)
+                        .align_x(iced::alignment::Horizontal::Center)
+                        .align_y(iced::alignment::Vertical::Center)
+                        .style(|theme: &iced::Theme| container::Style {
+                            background: Some(
+                                theme.extended_palette().background.weak.color.into()
+                            ),
+                            ..Default::default()
+                        })
+                    )
+                    .interaction(iced::mouse::Interaction::ResizingHorizontally)
+                    .on_press(Message::DividerPressed)
+                    .on_release(Message::DividerReleased),
                     container(self.view_right_panel())
                         .width(Length::Fixed(self.right_panel_width))
                         .height(Length::Fill),
@@ -1332,29 +1360,6 @@ impl App {
     }
 }
 
-/// Начальная пара (iced::Theme, ResolvedTheme).
-/// На Windows всегда фиксированный пресет — система игнорируется.
-#[cfg(target_os = "windows")]
-fn initial_theme_pair() -> (iced::Theme, ResolvedTheme) {
-    if let Ok((t, r)) = native_theme_iced::from_preset("catppuccin-mocha", true) {
-        (t, r)
-    } else {
-        (iced::Theme::Dark, native_theme_iced::from_preset("default", true).unwrap().1)
-    }
-}
-
-/// На остальных ОС — системная тема, а при ошибке тот же пресет.
-#[cfg(not(target_os = "windows"))]
-fn initial_theme_pair() -> (iced::Theme, ResolvedTheme) {
-    if let Ok((t, r, _, _)) = native_theme_iced::from_system() {
-        (t, r)
-    } else if let Ok((t, r)) = native_theme_iced::from_preset("catppuccin-mocha", true) {
-        (t, r)
-    } else {
-        (iced::Theme::Dark, native_theme_iced::from_preset("default", true).unwrap().1)
-    }
-}
-
 fn main() -> iced::Result {
 
     // 1. Загружаем иконку (без паники, если что-то не так)
@@ -1386,7 +1391,11 @@ fn main() -> iced::Result {
         ..Default::default()
     };
     
-    let (initial_theme, initial_resolved) = initial_theme_pair();
+    // Respect the last saved mode; the theme family itself comes from config.json.
+    let initial_mode = match session.as_ref().and_then(|s| s.theme.as_deref()) {
+        Some("light") => AppTheme::Light,
+        _ => AppTheme::Dark,
+    };
 
     if let Some(s) = &session {
         if let Some((w, h)) = s.view.window_size { window_settings.size = Size::new(w, h); }
@@ -1394,11 +1403,7 @@ fn main() -> iced::Result {
     }
     i18n::set_lang("ru");   // default    
     iced::application(
-        move || App::new(
-            initial_theme.clone(),
-            initial_resolved.clone(),
-            AppTheme::Dark,
-        ),
+        move || App::new(initial_mode),
         App::update,
         App::view,
     )

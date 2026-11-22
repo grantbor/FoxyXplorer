@@ -167,7 +167,7 @@ impl App {
                     border: iced::Border { 
                         color: palette.background.strong.color, 
                         width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                        radius: crate::ui::styles::border_radius().into() 
                     },
                     ..Default::default()
                 }
@@ -226,13 +226,13 @@ impl App {
             row![
                 container(text("#_#")).padding([0, 4]),
                 text_input("", &draft.num2.map(|n| n.to_string()).unwrap_or_default())
-                    .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                    .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+                    .padding(crate::ui::styles::input_padding())
+                    .style(crate::ui::styles::text_input)
                     .on_input(Message::DraftNum2Changed).width(50),
                 container(text(t!("msg_0135"))).padding([0, 4]),
                 text_input("", &draft.suffix)
-                    .padding(native_theme_iced::input_padding(&self.resolved_theme))
-                    .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+                    .padding(crate::ui::styles::input_padding())
+                    .style(crate::ui::styles::text_input)
                     .on_input(Message::DraftSuffixChanged).width(80),
             ].align_y(Alignment::Center).spacing(4).into()
         };
@@ -244,7 +244,7 @@ impl App {
                     border: iced::Border { 
                         color: Color::from_rgb(0.5, 0.5, 0.5), 
                         width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into()
+                        radius: crate::ui::styles::border_radius().into()
                     },
                     ..Default::default()
                 })
@@ -306,18 +306,18 @@ impl App {
                 row![
                     text(t!("msg_0137")).width(120),
                     pick_list(fill_types, Some(draft.fill_type.clone()), Message::DraftFillTypeChanged)
-                        .padding(native_theme_iced::button_padding(&self.resolved_theme))
-                        .style(native_theme_iced::styles::pick_list(&self.resolved_theme)),
+                        .padding(crate::ui::styles::button_padding())
+                        .style(crate::ui::styles::pick_list),
                 ].align_y(Alignment::Center),
             ].spacing(10).into()
         } else {
             column![].into()
         };
 
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
-        let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
-        let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
+        let input_style = crate::ui::styles::text_input;
+        let input_pad = crate::ui::styles::input_padding();
+        let pick_pad = crate::ui::styles::button_padding();
+        let pick_style = crate::ui::styles::pick_list;
 
         let content = column![
             // Заголовок с кнопкой закрытия
@@ -465,7 +465,7 @@ impl App {
                     border: iced::Border { 
                         color: palette.background.strong.color, 
                         width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                        radius: crate::ui::styles::border_radius().into() 
                     },
                     ..Default::default()
                 }
@@ -493,7 +493,7 @@ impl App {
                     border: iced::Border { 
                         color: Color::from_rgb(0.5, 0.5, 0.5), 
                         width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into()
+                        radius: crate::ui::styles::border_radius().into()
                     },
                     ..Default::default()
                 })
@@ -549,8 +549,8 @@ impl App {
             column![].into()
         };
 
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
+        let input_style = crate::ui::styles::text_input;
+        let input_pad = crate::ui::styles::input_padding();
 
         let content = column![
             // Заголовок с кнопкой закрытия
@@ -624,7 +624,7 @@ impl App {
                     border: iced::Border { 
                         color: palette.background.strong.color, 
                         width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                        radius: crate::ui::styles::border_radius().into() 
                     },
                     ..Default::default()
                 }
@@ -685,7 +685,7 @@ impl App {
                     border: iced::Border { 
                         color: palette.background.strong.color, 
                         width: 1.0, 
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into() 
+                        radius: crate::ui::styles::border_radius().into() 
                     },
                     ..Default::default()
                 }
@@ -703,7 +703,7 @@ impl App {
         button(lucide_iced::themed_icon(icon, 16.0))
             .width(24).height(24).padding(0)
             .on_press(Message::ToggleColorPicker(kind))
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .style(crate::ui::styles::button)
             .into()
     }
     
@@ -731,7 +731,7 @@ impl App {
                     border: iced::Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }
@@ -771,7 +771,7 @@ impl App {
                     border: iced::Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }
@@ -791,7 +791,7 @@ impl App {
                             .width(Length::Fill)
                             .padding([4, 12])
                             .on_press(Message::ContextMenuSelect(idx))
-                            .style(native_theme_iced::styles::button(&self.resolved_theme)),
+                            .style(crate::ui::styles::button),
                     );
                 }
                 ContextMenuItem::Label(label) => {
@@ -832,7 +832,7 @@ impl App {
                     border: iced::Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }
@@ -846,8 +846,8 @@ impl App {
         azimuth_input: &'a str,
         distance_input: &'a str,
     ) -> Element<'a, Message> {
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
+        let input_style = crate::ui::styles::text_input;
+        let input_pad = crate::ui::styles::input_padding();
 
         let content = column![
             text(t!("msg_0062")).size(20),
@@ -880,7 +880,7 @@ impl App {
                     border: iced::Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }
@@ -987,7 +987,7 @@ impl App {
                     border: iced::Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }
@@ -1121,14 +1121,10 @@ impl App {
                     Message::FoxyDropIpSelected
                 )
                 .padding(
-                    native_theme_iced::button_padding(
-                        &self.resolved_theme
-                    )
+                    crate::ui::styles::button_padding()
                 )
                 .style(
-                    native_theme_iced::styles::pick_list(
-                        &self.resolved_theme
-                    )
+                    crate::ui::styles::pick_list
                 ),
             ]
             .spacing(10)
@@ -1208,9 +1204,7 @@ impl App {
                     border: iced::Border {
                         color: pal.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(
-                            &self.resolved_theme
-                        ).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }
@@ -1234,10 +1228,10 @@ impl App {
                 })
         };
 
-        let input_style = native_theme_iced::styles::text_input(&self.resolved_theme);
-        let input_pad = native_theme_iced::input_padding(&self.resolved_theme);
-        let pick_pad = native_theme_iced::button_padding(&self.resolved_theme);
-        let pick_style = native_theme_iced::styles::pick_list(&self.resolved_theme);
+        let input_style = crate::ui::styles::text_input;
+        let input_pad = crate::ui::styles::input_padding();
+        let pick_pad = crate::ui::styles::button_padding();
+        let pick_style = crate::ui::styles::pick_list;
 
         // Основной ряд цветов и расширенная палитра 8×8, как в Track Properties.
         let make_grid_color_btn = |color: [u8; 3]| -> Element<'a, Message> {
@@ -1250,7 +1244,7 @@ impl App {
                     border: iced::Border {
                         color: if selected { Color::WHITE } else { Color::from_rgb(0.5, 0.5, 0.5) },
                         width: if selected { 2.0 } else { 1.0 },
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 })
@@ -1290,7 +1284,7 @@ impl App {
         let is_valid = draft.parsed_lat.is_some() && draft.parsed_lon.is_some();
         
         let coord_style = move |theme: &Theme, status: iced::widget::text_input::Status| {
-            // Получаем дефолтный стиль от native_theme_iced
+            // Берём стандартный стиль iced
             let mut style = input_style(theme, status);
             
             // Если координаты распарсились корректно, меняем цвет рамки на зелёный
@@ -1360,9 +1354,9 @@ impl App {
         row![
             text(if crate::i18n::current_lang() == "en" { "Theme" } else { "Тема" }).width(160),
             pick_list(
-                iced::Theme::ALL.to_vec(),
-                Some(draft.ui_theme.clone()),
-                Message::SettingsThemeChanged,
+                crate::THEME_FAMILY_LABELS.to_vec(),
+                Some(crate::theme_family_name(&draft.ui_theme)),
+                |family| Message::SettingsThemeChanged(crate::theme_from_family(family)),
             )
             .padding(pick_pad)
             .style(pick_style.clone()),
@@ -1390,7 +1384,7 @@ impl App {
                             border: iced::Border {
                                 color: pal.background.strong.color,
                                 width: 1.0,
-                                radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                                radius: crate::ui::styles::border_radius().into(),
                             },
                             icon: pal.background.base.text,
                             placeholder: pal.background.base.text,
@@ -1427,7 +1421,7 @@ impl App {
                     border: iced::Border {
                         color: palette.background.strong.color,
                         width: 1.0,
-                        radius: native_theme_iced::border_radius(&self.resolved_theme).into(),
+                        radius: crate::ui::styles::border_radius().into(),
                     },
                     ..Default::default()
                 }

@@ -15,12 +15,12 @@ impl App {
         on_input: fn(String) -> Message,
         on_clear: Message,
     ) -> Element<'a, Message> {
-        let mut pad = native_theme_iced::input_padding(&self.resolved_theme);
+        let mut pad = crate::ui::styles::input_padding();
         pad.right += 22.0;
 
         let input = text_input(placeholder, value)
             .padding(pad)
-            .style(native_theme_iced::styles::text_input(&self.resolved_theme))
+            .style(crate::ui::styles::text_input)
             .on_input(on_input)
             .size(12);
 
@@ -42,7 +42,7 @@ impl App {
             .width(Length::Fixed(22.0))
             .height(Length::Fixed(22.0))
             .padding(0)
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .style(crate::ui::styles::button)
             .on_press(on_clear)
             .into()
         };

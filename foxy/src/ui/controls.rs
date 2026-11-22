@@ -35,14 +35,14 @@ impl App {
     // =========================================================
     pub fn btn<'a>(&'a self, label: impl Into<String>) -> Button<'a, Message> {
         button(text(label.into()))
-            .padding(native_theme_iced::button_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::button_primary(&self.resolved_theme))
+            .padding(crate::ui::styles::button_padding())
+            .style(crate::ui::styles::button_primary)
     }
 
     pub fn btn_secondary<'a>(&'a self, label: impl Into<String>) -> Button<'a, Message> {
         button(text(label.into()))
-            .padding(native_theme_iced::button_padding(&self.resolved_theme))
-            .style(native_theme_iced::styles::button(&self.resolved_theme))
+            .padding(crate::ui::styles::button_padding())
+            .style(crate::ui::styles::button)
     }
 
     // =========================================================
@@ -59,7 +59,7 @@ impl App {
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(32.0))
         .padding(0)
-        .style(native_theme_iced::styles::button(&self.resolved_theme))
+        .style(crate::ui::styles::button)
         .on_press(msg)
     }
 
@@ -74,7 +74,7 @@ impl App {
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(32.0))
         .padding(0)
-        .style(native_theme_iced::styles::button(&self.resolved_theme))
+        .style(crate::ui::styles::button)
     }
 
     // =========================================================
@@ -86,17 +86,15 @@ impl App {
         active: bool,
         msg: Message,
     ) -> Button<'a, Message> {
-        let color = if active {
-            Color::from_rgb8(255, 102, 0) // #FF6600 — оранжевый — включено
-        } else {
-            Color::from_rgb(0.55, 0.55, 0.55) // серый — выключено
-        };
-
         let svg_icon = svg(svg::Handle::from_memory(icon))
             .width(Length::Fixed(20.0))
             .height(Length::Fixed(20.0))
-            .style(move |_, _| svg::Style {
-                color: Some(color),
+            .style(move |theme: &Theme, _| svg::Style {
+                color: Some(if active {
+                    Color::from_rgb8(255, 102, 0)
+                } else {
+                    theme.palette().text
+                }),
                 ..Default::default()
             });
 
@@ -110,7 +108,7 @@ impl App {
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(32.0))
         .padding(0)
-        .style(native_theme_iced::styles::button(&self.resolved_theme))
+        .style(crate::ui::styles::button)
         .on_press(msg)
     }
 
@@ -134,7 +132,7 @@ impl App {
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(32.0))
         .padding(0)
-        .style(native_theme_iced::styles::button(&self.resolved_theme))
+        .style(crate::ui::styles::button)
         .on_press(msg)
     }
 
@@ -162,7 +160,7 @@ impl App {
         .width(Length::Fixed(24.0))
         .height(Length::Fixed(24.0))
         .padding(0)
-        .style(native_theme_iced::styles::button(&self.resolved_theme))
+        .style(crate::ui::styles::button)
         .on_press(msg)
     }
 

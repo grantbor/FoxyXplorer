@@ -9,7 +9,7 @@ impl App {
     pub(crate) fn view_top_toolbar(&self) -> Element<'_, Message> {
         row![
             with_tooltip(
-                self.btn(t!("msg_0180")).on_press(Message::PickKit),
+                self.btn_secondary(t!("msg_0180")).on_press(Message::PickKit),
                 t!("msg_0181")
             ),
             with_tooltip(
@@ -102,7 +102,7 @@ impl App {
                 .width(Length::Fixed(32.0))
                 .height(Length::Fixed(32.0))
                 .padding(0)
-                .style(native_theme_iced::styles::button(&self.resolved_theme))
+                .style(crate::ui::styles::button)
                 .on_press(Message::OpenAbout),
                 t!("msg_0179"),
             ),
@@ -131,9 +131,9 @@ impl App {
             .on_press(Message::SelectTool(tool));
 
             let styled_btn = if is_active {
-                btn.style(native_theme_iced::styles::button_primary(&self.resolved_theme))
+                btn.style(crate::ui::styles::button_primary)
             } else {
-                btn.style(native_theme_iced::styles::button(&self.resolved_theme))
+                btn.style(crate::ui::styles::button)
             };
 
             // Оборачиваем в тултип (появляется справа)
