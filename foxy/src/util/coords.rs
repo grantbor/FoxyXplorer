@@ -28,7 +28,7 @@ pub fn build_template(d: &TrackProps) -> String {
     } else {
         let n2 = d.num2.map(|n| format!("_{}", n)).unwrap_or_default();
         let sfx = if d.suffix.is_empty() { String::new() } else { format!("_{}", d.suffix) };
-        format!("{}_{}_{}{}{}", d.date_str.replace("-", ""), d.callsign, d.num1, n2, sfx)
+        format!("{}_{}{}{}{}", d.date_str.replace("-", ""), d.callsign, d.num1, n2, sfx)
     }
 }
 
