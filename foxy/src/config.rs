@@ -19,7 +19,7 @@ pub struct Config {
 }
 
 fn default_drop_port() -> u16 { 8070 }
-fn default_ui_theme() -> String { "Catppuccin Frappé".to_string() }
+fn default_ui_theme() -> String { "Default".to_string() }
 
 fn default_grid_color() -> [u8; 3] {
     [255, 70, 70]

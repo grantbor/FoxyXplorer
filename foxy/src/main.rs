@@ -35,6 +35,29 @@ use util::icon::load_icon_from_svg;
 
 pub(crate) const ICON_SVG: &[u8] = include_bytes!("../assets/icon.svg");
 
+// Two-color SVG for the cursor: 4-unit white stroke under a 2-unit black
+// stroke. The glyph geometry and its 24x24 viewBox do not change.
+// Lucide-generated SVG icons contain path geometry inside a standard <svg> root.
+fn outlined_tool_cursor_svg(source: &[u8]) -> Vec<u8> {
+    let Ok(svg) = std::str::from_utf8(source) else {
+        return source.to_vec();
+    };
+    let Some(start) = svg.find('>').map(|i| i + 1) else {
+        return source.to_vec();
+    };
+    let Some(end) = svg.rfind("</svg>") else {
+        return source.to_vec();
+    };
+    let shapes = &svg[start..end];
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<g stroke="#FFFFFF" stroke-width="4">{shapes}</g>
+<g stroke="#000000" stroke-width="2">{shapes}</g>
+</svg>"##
+    )
+    .into_bytes()
+}
+
 const VIEW_W: f32 = 1100.0;
 const VIEW_H: f32 = 720.0;
 pub(crate) const DEFAULT_CENTER_LON: f64 = 82.945971;
@@ -256,7 +279,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
     Layer(usize), ToggleGrid, ToggleLabels, CycleFormat,
-    Moved(Point), Scrolled(ScrollDelta), Fit,
+    Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
     PickTrack, TracksPicked(Option<Vec<PathBuf>>),
@@ -464,6 +487,7 @@ pub(crate) struct App {
     pub(crate) tile_handles: RefCell<HashMap<(usize, usize, u32, u32), Option<ImageHandle>>>,
     pub(crate) dragging: bool,
     pub(crate) cursor: Option<Point>,
+    pub(crate) map_cursor_inside: bool,
     pub(crate) status: String,
     pub(crate) last_geom_ms: Cell<f64>,
     pub(crate) last_bounds: Cell<Size>,
@@ -736,7 +760,7 @@ impl App {
                     cx: 0.0, cy: 0.0, scale: 1.0,
                     canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(),
                     tracks_cache: Cache::default(),
-                    tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None,
+                    tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None, map_cursor_inside: false,
                     status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
                     osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
                     tracks: session.tracks.into_iter().map(Arc::new).collect(), 
@@ -802,7 +826,7 @@ impl App {
             drop_restart_after_stop: false,
             cx: 0.0, cy: 0.0, scale: 1.0,
             canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
-            tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None,
+            tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None, map_cursor_inside: false,
             status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
             osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
             tracks: Vec::new(), waypoints: Vec::new(), next_id: 0,
@@ -1355,8 +1379,65 @@ impl App {
         let tracks_canvas = Canvas::new(canvas::TrackProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let grid_canvas = Canvas::new(canvas::GridProgram { app: self }).width(Length::Fill).height(Length::Fill);
 
-        mouse_area(stack![map_canvas, tracks_canvas, grid_canvas])
-            .on_move(Message::Moved).on_scroll(Message::Scrolled).into()
+        // Custom tool cursors are rendered as 24x24 SVGs. iced::mouse::Interaction
+        // does not support custom SVG cursors. Each icon has its own hotspot,
+        // whose position corresponds to the actual mouse event coordinates.
+        // Generated outlines are cached once; only SVG handles are made in view().
+        static OUTLINED_CURSORS: std::sync::OnceLock<[Vec<u8>; 5]> =
+            std::sync::OnceLock::new();
+        let cursor_images = OUTLINED_CURSORS.get_or_init(|| [
+            outlined_tool_cursor_svg(lucide_iced::bytes::MOUSE_POINTER),
+            outlined_tool_cursor_svg(lucide_iced::bytes::MOUSE_POINTER_2),
+            outlined_tool_cursor_svg(lucide_iced::bytes::PEN_TOOL),
+            outlined_tool_cursor_svg(lucide_iced::bytes::PENCIL),
+            outlined_tool_cursor_svg(lucide_iced::bytes::CIRCLE_PLUS),
+        ]);
+        let cursor_icon: Option<(usize, f32, f32)> = match self.active_tool {
+            Tool::SelectObjects => Some((0, 4.0, 3.0)),
+            Tool::SelectPoints  => Some((1, 3.0, 3.0)),
+            Tool::DrawTrack     => Some((2, 12.0, 21.0)),
+            Tool::Freehand      => Some((3, 4.0, 20.0)),
+            Tool::AddWaypoint   => Some((4, 12.0, 12.0)),
+            _ => None,
+        };
+
+        // Do not replace the pointer inside modals or on the floating tool
+        // palette on the left (56 px). Keep normal mouse events on the map.
+        let show_tool_cursor = self.modal.is_none()
+            && self.context_menu.is_none()
+            && self.map_cursor_inside
+            && self.cursor.is_some_and(|p| p.x >= 56.0)
+            && cursor_icon.is_some();
+
+        let canvases = stack![map_canvas, tracks_canvas, grid_canvas];
+        let contents: Element<'_, Message> = if show_tool_cursor {
+            let (index, hotspot_x, hotspot_y) = cursor_icon.unwrap();
+            let p = self.cursor.unwrap();
+            let position = Point::new(p.x - hotspot_x, p.y - hotspot_y);
+            // Use a plain SVG, not lucide_iced::themed_icon: the latter
+            // recolors the entire image and would erase the white outline.
+            let cursor_svg = iced::widget::svg(
+                iced::widget::svg::Handle::from_memory(cursor_images[index].as_slice())
+            )
+            .width(Length::Fixed(24.0))
+            .height(Length::Fixed(24.0))
+            .style(|_, _| iced::widget::svg::Style { color: None });
+            stack![
+                canvases,
+                iced::widget::pin(cursor_svg).position(position),
+            ].into()
+        } else {
+            canvases.into()
+        };
+
+        let mut area = mouse_area(contents)
+            .on_move(Message::Moved)
+            .on_exit(Message::MapCursorExited)
+            .on_scroll(Message::Scrolled);
+        if show_tool_cursor {
+            area = area.interaction(iced::mouse::Interaction::Hidden);
+        }
+        area.into()
     }
 }
 

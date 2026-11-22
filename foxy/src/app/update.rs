@@ -34,7 +34,7 @@ impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             // --- View & Canvas ---
-            Message::MapPressed(_) | Message::MapReleased(_) | Message::Moved(_) | Message::Scrolled(_)
+            Message::MapPressed(_) | Message::MapReleased(_) | Message::Moved(_) | Message::MapCursorExited | Message::Scrolled(_)
             | Message::Fit | Message::WindowResized(_) | Message::WindowMoved(_)
             | Message::DividerPressed | Message::DividerReleased | Message::CursorMoved(_)  => {
                 self.update_view(m);
@@ -792,6 +792,7 @@ impl App {
             }
             
             Message::Moved(p) => {
+                self.map_cursor_inside = true;
                 if self.dragging {
                     if let Some(prev) = self.cursor {
                         self.cx -= (p.x - prev.x) as f64 * self.scale;
@@ -854,6 +855,9 @@ impl App {
                     self.cursor = Some(p);
                     self.refresh_status();
                 }
+            }
+            Message::MapCursorExited => {
+                self.map_cursor_inside = false;
             }
             Message::MapReleased(p) => {
                 self.cursor = Some(p);
