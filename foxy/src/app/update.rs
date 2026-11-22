@@ -2826,7 +2826,18 @@ impl App {
                 );
             }
             
-            Message::SaveWaypointsWptNewPicked(None) => {}            
+            Message::SaveWaypointsWptNewPicked(Some(path)) => {
+                let sel_wps: Vec<_> = self.waypoints.iter()
+                    .filter(|w| self.selection.waypoints.contains(&w.id))
+                    .map(|w| w.as_ref())
+                    .collect();
+            
+                if let Err(e) = io::save_any(&[], &sel_wps, &path) {
+                    self.status = format!("Ошибка: {e}");
+                } else {
+                    self.status = format!("Сохранено в {}", path.display());
+                }
+            }            
 
             Message::SaveWaypointsWptAppend => {
                 let mut dialog = rfd::AsyncFileDialog::new()
