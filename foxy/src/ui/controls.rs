@@ -1,4 +1,4 @@
-use iced::widget::{button, container, svg, text, tooltip, Button};
+use iced::widget::{button, container, text, tooltip, Button};
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::{App, Message};
 
@@ -78,7 +78,7 @@ impl App {
     }
 
     // =========================================================
-    // Кнопка-переключатель (оранжевая при активном, серая при неактивном)
+    // Кнопка-переключатель (оранжевая при активном, цвет темы при неактивном)
     // =========================================================
     pub fn icon_toggle_button<'a>(
         &'a self,
@@ -86,20 +86,10 @@ impl App {
         active: bool,
         msg: Message,
     ) -> Button<'a, Message> {
-        let svg_icon = svg(svg::Handle::from_memory(icon))
-            .width(Length::Fixed(20.0))
-            .height(Length::Fixed(20.0))
-            .style(move |theme: &Theme, _| svg::Style {
-                color: Some(if active {
-                    Color::from_rgb8(255, 102, 0)
-                } else {
-                    theme.palette().text
-                }),
-                ..Default::default()
-            });
+        let icon_widget = lucide_iced::themed_icon(icon, 20.0);
 
         button(
-            container(svg_icon)
+            container(icon_widget)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .center_x(Length::Fill)
@@ -108,7 +98,13 @@ impl App {
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(32.0))
         .padding(0)
-        .style(crate::ui::styles::button)
+        .style(move |theme: &Theme, status| {
+            let mut style = crate::ui::styles::button(theme, status);
+            if active {
+                style.text_color = Color::from_rgb8(255, 102, 0);
+            }
+            style
+        })
         .on_press(msg)
     }
 
