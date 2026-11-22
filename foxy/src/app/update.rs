@@ -16,7 +16,7 @@ use crate::{load_kit, save_session};
 
 use std::sync::Arc;
 use crate::UndoState;
-use crate::{AppTheme, theme_pair};
+use crate::{AppTheme, theme_pair_for};
 
 use std::collections::HashSet; 
 use crate::{TrackRowData, TrackListState}; 
@@ -56,7 +56,7 @@ impl App {
             | Message::OpenSettings | Message::CloseSettings | Message::ApplySettings
             | Message::SettingsCoordChanged(_)
             | Message::SettingsLangChanged(_) | Message::SettingsToleranceChanged(_)
-            | Message::SettingsGridColorChanged(_)
+            | Message::SettingsGridColorChanged(_) | Message::SettingsThemeChanged(_)
             | Message::SettingsChooseDropFolder | Message::SettingsDropFolderPicked(_)
             | Message::OpenFoxyDrop | Message::CloseFoxyDrop
             | Message::FoxyDropStart | Message::FoxyDropStop
@@ -209,7 +209,7 @@ impl App {
                 "light" => AppTheme::Light,
                 _       => AppTheme::Dark,
             };
-            let (th, r) = theme_pair(self.current_theme);
+            let (th, r) = theme_pair_for(&self.ui_theme, self.current_theme);
             self.theme = th;
             self.resolved_theme = r;
         }
@@ -1436,7 +1436,7 @@ impl App {
                     AppTheme::Light => AppTheme::Dark,
                     AppTheme::Dark  => AppTheme::Light,
                 };
-                let (t, r) = theme_pair(self.current_theme);
+                let (t, r) = theme_pair_for(&self.ui_theme, self.current_theme);
                 self.theme = t;
                 self.resolved_theme = r;
 
@@ -1472,6 +1472,7 @@ impl App {
                         simplify_tolerance: cfg.simplify_tolerance,
                         grid_color: cfg.grid_color,
                         drop_folder: cfg.drop_folder.clone(),
+                        ui_theme: self.ui_theme.clone(),
                     },
                 });
             }
@@ -1492,10 +1493,18 @@ impl App {
                                 grid_color: draft.grid_color,
                                 drop_folder: draft.drop_folder.clone(),
                                 drop_port: crate::config::load().drop_port,
+                                ui_theme: draft.ui_theme.to_string(),
                             };
                             match crate::config::save(&new_cfg) {
                                 Ok(_) => {
                                     self.simplify_tolerance = new_cfg.simplify_tolerance;
+                                    self.ui_theme = crate::ui_theme_from_name(&new_cfg.ui_theme);
+                                    let (theme, resolved) = theme_pair_for(&self.ui_theme, self.current_theme);
+                                    self.theme = theme;
+                                    self.resolved_theme = resolved;
+                                    self.canvas_cache.clear();
+                                    self.osm_canvas_cache.clear();
+                                    self.tracks_cache.clear();
                                     self.grid_color = new_cfg.grid_color;
                                     self.drop_service.set_directory(PathBuf::from(&new_cfg.drop_folder));
                                     self.grid_cache.clear();
@@ -1561,6 +1570,11 @@ impl App {
                 }
             }
             Message::SettingsDropFolderPicked(None) => {}
+            Message::SettingsThemeChanged(theme) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    draft.ui_theme = theme;
+                }
+            }
             Message::SettingsGridColorChanged(color) => {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     draft.grid_color = color;
@@ -2970,14 +2984,14 @@ impl App {
                 self.osm_canvas_cache.clear();
             }
             Message::RefreshSystemTheme => {
-                #[cfg(not(target_os = "windows"))]
-                {
-                    if let Ok((theme, resolved, _, _)) = native_theme_iced::from_system() {
-                        self.theme = theme;
-                        self.resolved_theme = resolved;
-                    }
-                }
-                // На Windows — no-op: тема фиксирована.
+                // User-selected themes are pinned; OS notifications must not override them.
+                let (theme, resolved) = theme_pair_for(&self.ui_theme, self.current_theme);
+                self.theme = theme;
+                self.resolved_theme = resolved;
+                self.canvas_cache.clear();
+                self.grid_cache.clear();
+                self.osm_canvas_cache.clear();
+                self.tracks_cache.clear();
             }
             Message::AutoSaveTick => {
                 save_session(self);

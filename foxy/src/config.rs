@@ -14,9 +14,12 @@ pub struct Config {
     pub drop_folder: String,
     #[serde(default = "default_drop_port")]
     pub drop_port: u16,
+    #[serde(default = "default_ui_theme")]
+    pub ui_theme: String,
 }
 
 fn default_drop_port() -> u16 { 8070 }
+fn default_ui_theme() -> String { "Catppuccin Frappé".to_string() }
 
 fn default_grid_color() -> [u8; 3] {
     [255, 70, 70]
@@ -32,6 +35,7 @@ impl Default for Config {
             grid_color: default_grid_color(),
             drop_folder: String::new(),
             drop_port: default_drop_port(),
+            ui_theme: default_ui_theme(),
         }
     }
 }

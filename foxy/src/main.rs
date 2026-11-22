@@ -113,6 +113,7 @@ pub(crate) struct SettingsDraft {
     pub simplify_tolerance: f64,
     pub grid_color: [u8; 3],
     pub drop_folder: String,
+    pub ui_theme: iced::Theme,
 }
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
@@ -340,6 +341,7 @@ pub(crate) enum Message {
     SettingsLangChanged(String),
     SettingsToleranceChanged(f64),
     SettingsGridColorChanged([u8; 3]),
+    SettingsThemeChanged(iced::Theme),
     SettingsChooseDropFolder,
     SettingsDropFolderPicked(Option<PathBuf>),
     OpenFoxyDrop,
@@ -493,6 +495,7 @@ pub(crate) struct App {
     pub(crate) show_wp_save_menu: bool,
     pub(crate) theme: iced::Theme,
     pub(crate) current_theme: AppTheme,
+    pub(crate) ui_theme: iced::Theme,
     pub(crate) resolved_theme: ResolvedTheme, 
     pub(crate) simplify_tolerance: f64,     // Значение по умолчанию 2.0. В будущем будет меняться через настройки.
     pub(crate) tracks: Vec<Arc<domain::Track>>,
@@ -579,6 +582,72 @@ pub(crate) fn theme_pair(theme: AppTheme) -> (iced::Theme, ResolvedTheme) {
     }
 }
 
+
+/// Iced's built-in themes (excluding Custom). Stored in config.json by display name.
+pub(crate) fn ui_theme_from_name(name: &str) -> iced::Theme {
+    iced::Theme::ALL.iter()
+        .find(|theme| theme.to_string() == name)
+        .cloned()
+        .unwrap_or(iced::Theme::CatppuccinFrappe)
+}
+
+/// A built-in iced theme doesn't necessarily have both modes. The corresponding
+/// native-theme preset supplies the missing mode and styles for non-iced widgets.
+pub(crate) fn theme_pair_for(selected: &iced::Theme, mode: AppTheme) -> (iced::Theme, ResolvedTheme) {
+    use iced::Theme;
+    let is_dark = mode == AppTheme::Dark;
+    let preset = match selected {
+        Theme::Light | Theme::Dark => "adwaita",
+        Theme::Dracula | Theme::Ferra => "dracula",
+        Theme::Nord | Theme::KanagawaWave | Theme::KanagawaDragon | Theme::KanagawaLotus => "nord",
+        Theme::SolarizedLight | Theme::SolarizedDark => "solarized",
+        Theme::GruvboxLight | Theme::GruvboxDark => "gruvbox",
+        Theme::CatppuccinLatte => if is_dark { "catppuccin-mocha" } else { "catppuccin-latte" },
+        Theme::CatppuccinFrappe => if is_dark { "catppuccin-frappe" } else { "catppuccin-latte" },
+        Theme::CatppuccinMacchiato => if is_dark { "catppuccin-macchiato" } else { "catppuccin-latte" },
+        Theme::CatppuccinMocha => if is_dark { "catppuccin-mocha" } else { "catppuccin-latte" },
+        Theme::TokyoNight | Theme::TokyoNightStorm | Theme::TokyoNightLight => "tokyo-night",
+        Theme::Moonfly | Theme::Nightfly | Theme::Oxocarbon => "one-dark",
+        Theme::Custom(_) => "adwaita",
+    };
+    let (native_iced, resolved) = native_theme_iced::from_preset(preset, is_dark)
+        .unwrap_or_else(|_| theme_pair(mode));
+
+    // Keep exact built-in iced palettes whenever the requested mode exists.
+    // For single-mode themes the native preset produces an opposite-mode palette.
+    let built_in = match (selected, mode) {
+        (Theme::Light | Theme::Dark, AppTheme::Light) => Some(Theme::Light),
+        (Theme::Light | Theme::Dark, AppTheme::Dark) => Some(Theme::Dark),
+        (Theme::SolarizedLight | Theme::SolarizedDark, AppTheme::Light) => Some(Theme::SolarizedLight),
+        (Theme::SolarizedLight | Theme::SolarizedDark, AppTheme::Dark) => Some(Theme::SolarizedDark),
+        (Theme::GruvboxLight | Theme::GruvboxDark, AppTheme::Light) => Some(Theme::GruvboxLight),
+        (Theme::GruvboxLight | Theme::GruvboxDark, AppTheme::Dark) => Some(Theme::GruvboxDark),
+        (Theme::CatppuccinLatte, AppTheme::Light) => Some(Theme::CatppuccinLatte),
+        (Theme::CatppuccinLatte, AppTheme::Dark) => Some(Theme::CatppuccinMocha),
+        (Theme::CatppuccinFrappe, AppTheme::Light) => Some(Theme::CatppuccinLatte),
+        (Theme::CatppuccinFrappe, AppTheme::Dark) => Some(Theme::CatppuccinFrappe),
+        (Theme::CatppuccinMacchiato, AppTheme::Light) => Some(Theme::CatppuccinLatte),
+        (Theme::CatppuccinMacchiato, AppTheme::Dark) => Some(Theme::CatppuccinMacchiato),
+        (Theme::CatppuccinMocha, AppTheme::Light) => Some(Theme::CatppuccinLatte),
+        (Theme::CatppuccinMocha, AppTheme::Dark) => Some(Theme::CatppuccinMocha),
+        (Theme::TokyoNightLight, AppTheme::Light) => Some(Theme::TokyoNightLight),
+        (Theme::TokyoNightLight, AppTheme::Dark) => Some(Theme::TokyoNight),
+        (Theme::TokyoNightStorm, AppTheme::Light) => Some(Theme::TokyoNightLight),
+        (Theme::TokyoNightStorm, AppTheme::Dark) => Some(Theme::TokyoNightStorm),
+        (Theme::TokyoNight, AppTheme::Light) => Some(Theme::TokyoNightLight),
+        (Theme::TokyoNight, AppTheme::Dark) => Some(Theme::TokyoNight),
+        (Theme::KanagawaLotus, AppTheme::Light) => Some(Theme::KanagawaLotus),
+        (Theme::KanagawaLotus, AppTheme::Dark) => Some(Theme::KanagawaWave),
+        (Theme::KanagawaWave, AppTheme::Light) => Some(Theme::KanagawaLotus),
+        (Theme::KanagawaWave, AppTheme::Dark) => Some(Theme::KanagawaWave),
+        (Theme::KanagawaDragon, AppTheme::Light) => Some(Theme::KanagawaLotus),
+        (Theme::KanagawaDragon, AppTheme::Dark) => Some(Theme::KanagawaDragon),
+        (Theme::Dracula | Theme::Nord | Theme::Moonfly | Theme::Nightfly | Theme::Oxocarbon | Theme::Ferra, AppTheme::Dark) => Some(selected.clone()),
+        _ => None,
+    };
+    (built_in.unwrap_or(native_iced), resolved)
+}
+
 impl App {
     pub(crate) fn online_basemap(&self) -> Option<BasemapSource> {
         if self.active == self.layers.len() {
@@ -622,13 +691,15 @@ impl App {
     }
 
     fn new (
-        theme: iced::Theme,
-        resolved_theme: ResolvedTheme,
+        _initial_theme: iced::Theme,
+        _initial_resolved_theme: ResolvedTheme,
         initial_theme_kind: AppTheme,
     ) -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
         // --- Читаем пользовательский конфиг ---
         let cfg = crate::config::load();
+        let ui_theme = ui_theme_from_name(&cfg.ui_theme);
+        let (theme, resolved_theme) = theme_pair_for(&ui_theme, initial_theme_kind);
         // Применяем язык сразу, до создания App
         crate::i18n::set_lang(Box::leak(cfg.lang.clone().into_boxed_str()));
         let force_osm = args.iter().any(|a| a == "--osm");
@@ -676,7 +747,7 @@ impl App {
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
                     rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
-                    current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
+                    current_theme: initial_theme_kind, ui_theme: ui_theme.clone(), compact_view: false, last_open_dir: None, last_save_dir: None,
                 
                 };
 
@@ -700,7 +771,7 @@ impl App {
                         "light" => AppTheme::Light,
                         _       => AppTheme::Dark,
                     };
-                    let (th, r) = theme_pair(app.current_theme);
+                    let (th, r) = theme_pair_for(&app.ui_theme, app.current_theme);
                     app.theme = th;
                     app.resolved_theme = r;
                 }
@@ -741,7 +812,7 @@ impl App {
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
             rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
-            current_theme: initial_theme_kind, compact_view: false, last_open_dir: None, last_save_dir: None,
+            current_theme: initial_theme_kind, ui_theme: ui_theme.clone(), compact_view: false, last_open_dir: None, last_save_dir: None,
         };
 
         let kit_path: Option<PathBuf> = if force_osm {

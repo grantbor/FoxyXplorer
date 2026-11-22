@@ -1356,7 +1356,19 @@ impl App {
             ].align_y(Alignment::Center),
 
             // Допуск упрощения
-            row![
+            // Глобальная тема: встроенные варианты iced::Theme.
+        row![
+            text(if crate::i18n::current_lang() == "en" { "Theme" } else { "Тема" }).width(160),
+            pick_list(
+                iced::Theme::ALL.to_vec(),
+                Some(draft.ui_theme.clone()),
+                Message::SettingsThemeChanged,
+            )
+            .padding(pick_pad)
+            .style(pick_style.clone()),
+        ].align_y(Alignment::Center).spacing(6),
+
+        row![
                 text(t!("msg_0238")).width(160),
                 iced::widget::slider(0.1..=10.0, draft.simplify_tolerance, Message::SettingsToleranceChanged)
                     .step(0.1)
