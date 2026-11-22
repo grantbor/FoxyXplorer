@@ -253,6 +253,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
     }
 
     let mut best: Option<GridData> = None;
+    let mut best_source: Option<PathBuf> = None;
     for p in &gpxs {
         let Ok(bytes) = std::fs::read(p) else { continue };
         let Ok(g) = grid::Grid::from_gpx(&geoio::text::decode(&bytes)) else { continue; };
@@ -266,6 +267,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
                 }
             }
             best = Some((g, lines));
+            best_source = Some(p.clone());
         }
     }
     if best.is_none() {
@@ -275,7 +277,62 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
         ));
     }
 
+    if let Some(source) = best_source {
+        if let Err(e) = copy_kit_grid_if_missing(root, &source) {
+            // Copying is secondary: failure must not prevent the kit from opening.
+            notes.push(format!("Не удалось скопировать сетку в 10.Tracks: {e}"));
+        }
+    }
     Ok((layers, best, notes))
+}
+
+// Keep the original grid GPX alongside the kit tracks, without overwriting
+// a grid (possibly with a different filename) already stored there.
+fn copy_kit_grid_if_missing(root: &Path, source: &Path) -> Result<(), String> {
+    let tracks_dir = root.join("10.Tracks");
+
+    if tracks_dir.is_dir() {
+        let entries = std::fs::read_dir(&tracks_dir)
+            .map_err(|e| format!("{}: {e}", tracks_dir.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if !path.is_file()
+                || !path.extension().and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("gpx"))
+            {
+                continue;
+            }
+            let bytes = std::fs::read(&path)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            if grid::Grid::from_gpx(&geoio::text::decode(&bytes)).is_ok() {
+                return Ok(());
+            }
+        }
+    }
+
+    std::fs::create_dir_all(&tracks_dir)
+        .map_err(|e| format!("{}: {e}", tracks_dir.display()))?;
+    let name = source.file_name().ok_or_else(|| "У сетки нет имени файла".to_string())?;
+    let destination = tracks_dir.join(name);
+    let mut input = std::fs::File::open(source)
+        .map_err(|e| format!("{}: {e}", source.display()))?;
+    // create_new ensures an existing file is never replaced, even if it
+    // appears between our directory scan and the copy.
+    let mut output = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&destination)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", destination.display())),
+    };
+    if let Err(e) = std::io::copy(&mut input, &mut output) {
+        drop(output);
+        let _ = std::fs::remove_file(&destination);
+        return Err(format!("{}: {e}", destination.display()));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
