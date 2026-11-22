@@ -280,7 +280,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
     if let Some(source) = best_source {
         if let Err(e) = copy_kit_grid_if_missing(root, &source) {
             // Copying is secondary: failure must not prevent the kit from opening.
-            notes.push(format!("Не удалось скопировать сетку в 10.Tracks: {e}"));
+            notes.push(format!("Не удалось скопировать сетку в 10-Tracks: {e}"));
         }
     }
     Ok((layers, best, notes))
@@ -289,7 +289,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
 // Keep the original grid GPX alongside the kit tracks, without overwriting
 // a grid (possibly with a different filename) already stored there.
 fn copy_kit_grid_if_missing(root: &Path, source: &Path) -> Result<(), String> {
-    let tracks_dir = root.join("10.Tracks");
+    let tracks_dir = root.join("10-Tracks");
 
     if tracks_dir.is_dir() {
         let entries = std::fs::read_dir(&tracks_dir)
