@@ -34,7 +34,8 @@ impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             // --- View & Canvas ---
-            Message::MapPressed(_) | Message::MapReleased(_) | Message::Moved(_) | Message::MapCursorExited | Message::Scrolled(_)
+            Message::MapPressed(_) | Message::MapReleased(_)
+            | Message::MapMiddlePressed(_) | Message::MapMiddleReleased | Message::Moved(_) | Message::MapCursorExited | Message::Scrolled(_)
             | Message::Fit | Message::WindowResized(_) | Message::WindowMoved(_)
             | Message::DividerPressed | Message::DividerReleased | Message::CursorMoved(_)  => {
                 self.update_view(m);
@@ -722,6 +723,23 @@ impl App {
     fn update_view(&mut self, m: Message) {
         match m {
              
+            // MMB is a temporary pan gesture, independent of the selected tool.
+            Message::MapMiddlePressed(p) => {
+                self.middle_panning = true;
+                self.cursor = Some(p);
+                self.map_cursor_inside = true;
+            }
+            Message::MapMiddleReleased => {
+                if self.middle_panning {
+                    self.middle_panning = false;
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+                    self.maybe_update_declination(true);
+                    self.refresh_status();
+                }
+            }
             Message::MapPressed(p) => {
                 self.cursor = Some(p);
                 self.search_focused = false;
@@ -793,7 +811,7 @@ impl App {
             
             Message::Moved(p) => {
                 self.map_cursor_inside = true;
-                if self.dragging {
+                if self.dragging || self.middle_panning {
                     if let Some(prev) = self.cursor {
                         self.cx -= (p.x - prev.x) as f64 * self.scale;
                         self.cy += (p.y - prev.y) as f64 * self.scale;
@@ -1353,6 +1371,7 @@ impl App {
                 self.redo_stack.clear();
                 
                 // --- Временные состояния инструментов ---
+                self.middle_panning = false;
                 self.dragging = false;
                 self.resizing_panel = false;
                 self.moving_points = false;

@@ -188,6 +188,17 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         // ============================================================
         // ЛЕВАЯ КНОПКА
         // ============================================================
+        // MMB: pan from any tool without generating MapPressed (LMB).
+        if let iced::Event::Mouse(
+            iced::mouse::Event::ButtonPressed(iced::mouse::Button::Middle)
+        ) = event {
+            if let Some(pos) = cursor.position_in(bounds) {
+                return Some(iced::widget::Action::publish(
+                    Message::MapMiddlePressed(pos)
+                ));
+            }
+        }
+
         if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) = event {
             if let Some(pos) = cursor.position_in(bounds) {
                 return Some(iced::widget::Action::publish(Message::MapPressed(pos)));

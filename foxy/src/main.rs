@@ -318,6 +318,7 @@ pub(crate) enum Message {
     ClearWaypointCrosshair,
     SelectTool(Tool),
     MapPressed(Point), MapReleased(Point),
+    MapMiddlePressed(Point), MapMiddleReleased,
     DeleteSelectedPoints,
     KeyPressed(iced::keyboard::Key, Modifiers),
     KeyReleased(iced::keyboard::Key),
@@ -486,6 +487,7 @@ pub(crate) struct App {
     pub(crate) tracks_cache: Cache,
     pub(crate) tile_handles: RefCell<HashMap<(usize, usize, u32, u32), Option<ImageHandle>>>,
     pub(crate) dragging: bool,
+    pub(crate) middle_panning: bool,
     pub(crate) cursor: Option<Point>,
     pub(crate) map_cursor_inside: bool,
     pub(crate) status: String,
@@ -760,7 +762,7 @@ impl App {
                     cx: 0.0, cy: 0.0, scale: 1.0,
                     canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(),
                     tracks_cache: Cache::default(),
-                    tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None, map_cursor_inside: false,
+                    tile_handles: RefCell::new(HashMap::new()), dragging: false, middle_panning: false, cursor: None, map_cursor_inside: false,
                     status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
                     osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
                     tracks: session.tracks.into_iter().map(Arc::new).collect(), 
@@ -826,7 +828,7 @@ impl App {
             drop_restart_after_stop: false,
             cx: 0.0, cy: 0.0, scale: 1.0,
             canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
-            tile_handles: RefCell::new(HashMap::new()), dragging: false, cursor: None, map_cursor_inside: false,
+            tile_handles: RefCell::new(HashMap::new()), dragging: false, middle_panning: false, cursor: None, map_cursor_inside: false,
             status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
             osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
             tracks: Vec::new(), waypoints: Vec::new(), next_id: 0,
@@ -980,10 +982,14 @@ impl App {
             
             // Отслеживаем глобальное движение курсора для контекстного меню
             iced::event::listen_with(|event, _status, _id| {
-                if let iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) = event {
-                    Some(Message::GlobalCursorMoved(position))
-                } else {
-                    None
+                match event {
+                    iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                        Some(Message::GlobalCursorMoved(position))
+                    }
+                    iced::Event::Mouse(
+                        iced::mouse::Event::ButtonReleased(iced::mouse::Button::Middle)
+                    ) => Some(Message::MapMiddleReleased),
+                    _ => None,
                 }
             }),
 
@@ -1403,7 +1409,8 @@ impl App {
 
         // Do not replace the pointer inside modals or on the floating tool
         // palette on the left (56 px). Keep normal mouse events on the map.
-        let show_tool_cursor = self.modal.is_none()
+        let show_tool_cursor = !self.middle_panning
+            && self.modal.is_none()
             && self.context_menu.is_none()
             && self.map_cursor_inside
             && self.cursor.is_some_and(|p| p.x >= 56.0)
@@ -1434,7 +1441,9 @@ impl App {
             .on_move(Message::Moved)
             .on_exit(Message::MapCursorExited)
             .on_scroll(Message::Scrolled);
-        if show_tool_cursor {
+        if self.middle_panning {
+            area = area.interaction(iced::mouse::Interaction::Grabbing);
+        } else if show_tool_cursor {
             area = area.interaction(iced::mouse::Interaction::Hidden);
         }
         area.into()
