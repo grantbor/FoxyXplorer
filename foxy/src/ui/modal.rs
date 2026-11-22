@@ -237,13 +237,13 @@ impl App {
             ].align_y(Alignment::Center).spacing(4).into()
         };
 
-        let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
+        let make_color_btn = |c: [u8; 3], selected: bool, msg: Message| -> Element<'a, Message> {
             button(text("")).width(24).height(24)
                 .style(move |_: &Theme, _| button::Style {
                     background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
                     border: iced::Border { 
-                        color: Color::from_rgb(0.5, 0.5, 0.5), 
-                        width: 1.0, 
+                        color: if selected { Color::WHITE } else { Color::from_rgb(0.5, 0.5, 0.5) },
+                        width: if selected { 2.0 } else { 1.0 },
                         radius: crate::ui::styles::border_radius().into()
                     },
                     ..Default::default()
@@ -254,7 +254,7 @@ impl App {
 
         let mut color_btns: Vec<Element<'a, Message>> = Vec::new();
         for &c in &self.palette {
-            color_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
+            color_btns.push(make_color_btn(c, c == draft.line_color, Message::DraftColorChanged(c)));
         }
         
         color_btns.push(self.chevron_toggle(ColorPickerKind::LineColor));
@@ -263,7 +263,7 @@ impl App {
 
         let mut fill_color_btns: Vec<Element<'a, Message>> = Vec::new();
         for &c in &self.palette {
-            fill_color_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
+            fill_color_btns.push(make_color_btn(c, c == draft.fill_color, Message::DraftFillColorChanged(c)));
         }
         fill_color_btns.push(self.chevron_toggle(ColorPickerKind::FillColor));
         
@@ -275,7 +275,7 @@ impl App {
             for chunk in ext_palette.chunks(8) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
-                    row_btns.push(make_color_btn(c, Message::DraftColorChanged(c)));
+                    row_btns.push(make_color_btn(c, c == draft.line_color, Message::DraftColorChanged(c)));
                 }
                 grid_rows.push(row(row_btns).spacing(2).into());
             }
@@ -290,7 +290,7 @@ impl App {
             for chunk in ext_palette.chunks(8) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
-                    row_btns.push(make_color_btn(c, Message::DraftFillColorChanged(c)));
+                    row_btns.push(make_color_btn(c, c == draft.fill_color, Message::DraftFillColorChanged(c)));
                 }
                 grid_rows.push(row(row_btns).spacing(2).into());
             }
@@ -486,13 +486,13 @@ impl App {
         let text_colors = vec![[0, 0, 0], [255, 255, 255]];
         let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]];
 
-        let make_color_btn = |c: [u8; 3], msg: Message| -> Element<'a, Message> {
+        let make_color_btn = |c: [u8; 3], selected: bool, msg: Message| -> Element<'a, Message> {
             button(text("")).width(24).height(24)
                 .style(move |_: &Theme, _| button::Style {
                     background: Some(iced::Background::Color(Color::from_rgb8(c[0], c[1], c[2]))),
                     border: iced::Border { 
-                        color: Color::from_rgb(0.5, 0.5, 0.5), 
-                        width: 1.0, 
+                        color: if selected { Color::WHITE } else { Color::from_rgb(0.5, 0.5, 0.5) },
+                        width: if selected { 2.0 } else { 1.0 },
                         radius: crate::ui::styles::border_radius().into()
                     },
                     ..Default::default()
@@ -503,7 +503,7 @@ impl App {
 
         let mut text_color_btns: Vec<Element<'a, Message>> = text_colors
             .iter()
-            .map(|&c| make_color_btn(c, Message::DraftWpTextColorChanged(c)))
+            .map(|&c| make_color_btn(c, c == draft.text_color, Message::DraftWpTextColorChanged(c)))
             .collect();
             
         text_color_btns.push(self.chevron_toggle(ColorPickerKind::WpTextColor));
@@ -512,7 +512,7 @@ impl App {
 
         let mut bg_color_btns: Vec<Element<'a, Message>> = bg_colors
             .iter()
-            .map(|&c| make_color_btn(c, Message::DraftWpBgColorChanged(c)))
+            .map(|&c| make_color_btn(c, c == draft.bg_color, Message::DraftWpBgColorChanged(c)))
             .collect();
             
         bg_color_btns.push(self.chevron_toggle(ColorPickerKind::WpBgColor));
@@ -525,7 +525,7 @@ impl App {
             for chunk in ext_palette.chunks(8) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
-                    row_btns.push(make_color_btn(c, Message::DraftWpTextColorChanged(c)));
+                    row_btns.push(make_color_btn(c, c == draft.text_color, Message::DraftWpTextColorChanged(c)));
                 }
                 grid_rows.push(row(row_btns).spacing(2).into());
             }
@@ -540,7 +540,7 @@ impl App {
             for chunk in ext_palette.chunks(8) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
-                    row_btns.push(make_color_btn(c, Message::DraftWpBgColorChanged(c)));
+                    row_btns.push(make_color_btn(c, c == draft.bg_color, Message::DraftWpBgColorChanged(c)));
                 }
                 grid_rows.push(row(row_btns).spacing(2).into());
             }

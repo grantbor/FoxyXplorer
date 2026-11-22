@@ -1492,13 +1492,25 @@ impl App {
                         parsed_lon: Some(cfg.default_lon),
                         lang: cfg.lang.clone(),
                         simplify_tolerance: cfg.simplify_tolerance,
-                        grid_color: cfg.grid_color,
+                        grid_color: self.grid_color,
                         drop_folder: cfg.drop_folder.clone(),
                         ui_theme: self.ui_theme.clone(),
+                        original_grid_color: self.grid_color,
+                        original_ui_theme: self.ui_theme.clone(),
                     },
                 });
             }
             Message::CloseSettings => {
+                // Cancel/X: revert only live-previewed preferences, do not write config.json.
+                if let Some(Modal::Settings { draft }) = &self.modal {
+                    self.grid_color = draft.original_grid_color;
+                    self.ui_theme = draft.original_ui_theme.clone();
+                    self.theme = crate::theme_for(&self.ui_theme, self.current_theme);
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+                }
                 self.modal_drag_offset = Point::ORIGIN;
                 self.show_color_picker = None;
                 self.modal = None;
@@ -1594,12 +1606,20 @@ impl App {
             Message::SettingsDropFolderPicked(None) => {}
             Message::SettingsThemeChanged(theme) => {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
-                    draft.ui_theme = theme;
+                    draft.ui_theme = theme.clone();
+                    self.ui_theme = theme;
+                    self.theme = crate::theme_for(&self.ui_theme, self.current_theme);
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
                 }
             }
             Message::SettingsGridColorChanged(color) => {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     draft.grid_color = color;
+                    self.grid_color = color;
+                    self.grid_cache.clear();
                     self.show_color_picker = None;
                 }
             }

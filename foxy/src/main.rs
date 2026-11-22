@@ -137,6 +137,8 @@ pub(crate) struct SettingsDraft {
     pub grid_color: [u8; 3],
     pub drop_folder: String,
     pub ui_theme: iced::Theme,
+    pub original_grid_color: [u8; 3],
+    pub original_ui_theme: iced::Theme,
 }
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
