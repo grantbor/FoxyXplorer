@@ -2969,7 +2969,19 @@ impl App {
             Message::KitPicked(None) => {}
             
             Message::PickTrack => {
-                let dir = self.last_open_dir.clone();
+                // The Geodata dialog starts in the loaded kit's 10-Tracks folder.
+                // Without a kit, keep the existing last-opened-directory behavior.
+                let dir = self.last_kit.as_ref()
+                    .filter(|kit| kit.is_dir())
+                    .map(|kit| {
+                        let tracks_dir = kit.join("10-Tracks");
+                        if tracks_dir.is_dir() {
+                            tracks_dir
+                        } else {
+                            kit.to_path_buf()
+                        }
+                    })
+                    .or_else(|| self.last_open_dir.clone());
                 return Task::perform(
                     async move {
                         let mut dialog = rfd::AsyncFileDialog::new()

@@ -449,6 +449,7 @@ impl App {
             ].align_y(Alignment::Center),
 
             row![
+                Space::new().width(Length::Fill),
                 self.btn_secondary(t!("msg_0150")).on_press(Message::SaveTrackProps),
                 self.btn_secondary(t!("msg_0151")).on_press(Message::ApplyTrackProps),
                 self.btn_secondary(t!("msg_0152")).on_press(Message::CloseTrackProps),
@@ -610,6 +611,7 @@ impl App {
             bg_picker_ui,
             
             row![
+                Space::new().width(Length::Fill),
                 self.btn_secondary(t!("msg_0160")).on_press(Message::None),
                 self.btn_secondary(t!("msg_0151")).on_press(Message::ApplyWaypointProps),
                 self.btn_secondary(t!("msg_0152")).on_press(Message::CloseWaypointProps),
@@ -716,6 +718,7 @@ impl App {
             text(t!("msg_0167")).size(14),
             Space::new().height(10),
             row![
+                Space::new().width(Length::Fill),
                 self.btn(t!("msg_0168")).on_press(Message::ExecuteClearAll),
                 self.btn_secondary(t!("msg_0152")).on_press(Message::CancelClearAll),
             ].spacing(10)
@@ -867,6 +870,7 @@ impl App {
             ].align_y(Alignment::Center),
             Space::new().height(8),
             row![
+                Space::new().width(Length::Fill),
                 self.btn(t!("msg_0176")).on_press(Message::ExecuteProjection),
                 self.btn_secondary(t!("msg_0152")).on_press(Message::CloseWaypointProjection),
             ].spacing(10)
@@ -1406,8 +1410,8 @@ impl App {
             // Кнопки всегда видны, даже если палитра раскрыта.
             row![
                 Space::new().width(Length::Fill),
-                self.btn_secondary(t!("msg_0152")).on_press(Message::CloseSettings),
                 self.btn(t!("msg_0151")).on_press(Message::ApplySettings),
+                self.btn_secondary(t!("msg_0152")).on_press(Message::CloseSettings),
             ].spacing(10)
         ]
         .spacing(12)
