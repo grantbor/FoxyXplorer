@@ -612,7 +612,7 @@ impl App {
             
             row![
                 Space::new().width(Length::Fill),
-                self.btn_secondary(t!("msg_0160")).on_press(Message::None),
+               // self.btn_secondary(t!("msg_0160")).on_press(Message::None),
                 self.btn_secondary(t!("msg_0151")).on_press(Message::ApplyWaypointProps),
                 self.btn_secondary(t!("msg_0152")).on_press(Message::CloseWaypointProps),
             ].spacing(10)

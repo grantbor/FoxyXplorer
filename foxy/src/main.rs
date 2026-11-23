@@ -1460,7 +1460,7 @@ impl App {
         let cursor_icon: Option<(usize, f32, f32)> = match self.active_tool {
             Tool::SelectObjects => Some((0, 4.0, 3.0)),
             Tool::SelectPoints  => Some((1, 3.0, 3.0)),
-            Tool::DrawTrack     => Some((2, 12.0, 21.0)),
+            Tool::DrawTrack     => Some((2, 2.3, 2.3)),
             Tool::Freehand      => Some((3, 4.0, 20.0)),
             Tool::AddWaypoint   => Some((4, 12.0, 12.0)),
             _ => None,
