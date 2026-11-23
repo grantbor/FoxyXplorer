@@ -101,7 +101,8 @@ impl App {
 
             // --- Модальное окно точки ---
             Message::DraftWpNameChanged(_) | Message::DraftWpDescChanged(_) | Message::DraftWpCoordsChanged(_)
-            | Message::DraftWpEleChanged(_) | Message::DraftWpTextColorChanged(_) | Message::DraftWpBgColorChanged(_) => {
+            | Message::DraftWpEleChanged(_) | Message::DraftWpTextColorChanged(_) | Message::DraftWpBgColorChanged(_)
+            | Message::DraftWpCategoryChanged(_) | Message::DraftWpAzimuthChanged(_) => {
                 self.update_wp_modal(m);
             }
 
@@ -304,6 +305,8 @@ impl App {
             source: domain::FileSource::New,
             text_color: [0, 0, 0],
             bg_color: [0, 255, 255],
+            category_code: None,
+            azimuth: None,
         };
         
         self.next_id += 1;
@@ -2390,6 +2393,8 @@ impl App {
                     source: domain::FileSource::New,
                     text_color: [0, 0, 0],
                     bg_color: [0, 255, 255],
+            category_code: None,
+            azimuth: None,
                 };
                 self.next_id += 1;
                 self.waypoints.push(Arc::new(new_wp.clone()));
@@ -2509,6 +2514,8 @@ impl App {
                     source: domain::FileSource::New,
                     text_color: [0, 0, 0],
                     bg_color: [0, 255, 255],
+            category_code: None,
+            azimuth: None,
                 };
                 self.next_id += 1;
                 self.push_undo(t!("msg_0058"));
@@ -2606,6 +2613,8 @@ impl App {
                                 source: domain::FileSource::New,
                                 text_color: w.text_color,
                                 bg_color: w.bg_color,
+                                category_code: None,
+                                azimuth: None,
                             };
 
                             self.next_id += 1;
@@ -2653,6 +2662,35 @@ impl App {
                 let mut tid = None;
                 if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
                     draft.ele = s.parse::<f64>().ok(); tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpCategoryChanged(name) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
+                    let category = crate::util::waypoint_categories::all()
+                        .iter().find(|category| category.name == name);
+                    draft.category_code = category.map(|category| category.code.clone());
+                    // Категория задаёт цвет по умолчанию, но дальше его можно сменить вручную.
+                    if let Some(color) = category.and_then(|category| category.color) {
+                        draft.bg_color = color;
+                    }
+                    tid = Some(*waypoint_id);
+                }
+                if let Some(id) = tid { self.update_waypoint_preview(id); }
+            }
+            Message::DraftWpAzimuthChanged(value) => {
+                let mut tid = None;
+                if let Some(Modal::WaypointProps { waypoint_id, draft, .. }) = &mut self.modal {
+                    let value = value.trim();
+                    if value.is_empty() {
+                        draft.azimuth = None;
+                        tid = Some(*waypoint_id);
+                    } else if let Some(azimuth) = value.parse::<u16>().ok().filter(|v| *v <= 359) {
+                        draft.azimuth = Some(azimuth);
+                        tid = Some(*waypoint_id);
+                    }
+                    // Недопустимый ввод отклоняем, не теряя прежнее значение.
                 }
                 if let Some(id) = tid { self.update_waypoint_preview(id); }
             }

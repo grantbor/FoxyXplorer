@@ -1,0 +1,15 @@
+code,name,group,color
+important,Важное,g_artifact,"[b:#FF0000, f:]"
+unproved,Неподтвержденное,g_artifact,[b:#00FFFF]
+other,Разное,g_other,[b:#00FF00]
+cellar,Подвалы и чердаки,g_terrain,[b:#FF00FF]
+trace,След,g_artifact,[b:#00FFFF]
+echo,Отклик,g_artifact,[b:#00FFFF]
+animal,Животное,g_other,[b:#ffff00]
+task,Задача,g_task,[b:#EAEAEA]
+terrain,Местность,g_terrain, [b:#008000]
+cam,Камера,g_terrain,[b:#00FFFF]
+hatch,Люк,g_terrain,[b:#800080]
+zabros,Заброс,g_terrain,[b:#ffff00]
+hist_general,История (иное),g_history,[b:#ffff00]
+hist_terrain,История (местность),g_history,[b:#ffff00]

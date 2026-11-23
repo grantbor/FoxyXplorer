@@ -198,6 +198,9 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
         *next_id += 1;
     }
     
+    // geoio читает стандартные WPT-поля. Специальные поля 22/23 (category/:azimuth)
+    // восстанавливаем отдельно из исходных байтов, не декодируя CP1251 как UTF-8.
+    let wpt_extras = if ext == "wpt" { read_wpt_extras(&bytes) } else { Vec::new() };
     let mut waypoints = Vec::new();
     for (i, w) in gd.waypoints.into_iter().enumerate() {
         let name = if w.name.is_empty() {
@@ -219,6 +222,8 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             source: FileSource::File { path: path.to_path_buf(), read_only: is_read_only },
             text_color: w.text_color, // <-- из geoio
             bg_color: w.bg_color,     // <-- из geoio
+            category_code: wpt_extras.get(i).and_then(|(category, _)| category.clone()),
+            azimuth: wpt_extras.get(i).and_then(|(_, azimuth)| *azimuth),
         });
         *next_id += 1;
     }
@@ -372,6 +377,140 @@ pub fn save_kml(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
     std::fs::write(path, xml).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+
+// Специальные поля пользовательского WPT (индексы начинаются с нуля):
+// 22 — код категории, 23 — азимут в форме :35. Поле 24 и всё остальное
+// оставляем за исходным форматом/библиотекой geoio.
+fn read_wpt_extras(bytes: &[u8]) -> Vec<(Option<String>, Option<u16>)> {
+    bytes.split(|b| *b == b'\n')
+        .skip(4) // стандартный заголовок OziExplorer
+        .filter_map(|line| {
+            let fields: Vec<&[u8]> = line.split(|b| *b == b',').collect();
+            let number = std::str::from_utf8(fields.first()?).ok()?.trim();
+            if number.parse::<usize>().is_err() { return None; }
+            let ascii = |index: usize| fields.get(index)
+                .and_then(|s| std::str::from_utf8(s).ok())
+                .map(str::trim);
+            let category = ascii(22).filter(|s| !s.is_empty()).map(str::to_string);
+            let azimuth = ascii(23)
+                .and_then(|s| s.strip_prefix(':'))
+                .and_then(|s| s.parse::<u16>().ok())
+                .filter(|v| *v <= 359);
+            Some((category, azimuth))
+        })
+        .collect()
+}
+
+/// Дополняем результат стандартного CP1251-экспорта geoio без перекодирования.
+/// Не переписываем базовые поля, чтобы не нарушать сохранение WPT и Append.
+fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, String> {
+    // Для старых/обычных точек сохраняем байты geoio в точности.
+    if waypoints.iter().all(|w| w.category_code.is_none() && w.azimuth.is_none()) {
+        return Ok(bytes);
+    }
+
+    let mut output = Vec::with_capacity(bytes.len() + waypoints.len() * 20);
+    let mut count = 0usize;
+    for (line_index, raw_line) in bytes.split_inclusive(|b| *b == b'\n').enumerate() {
+        if line_index < 4 {
+            output.extend_from_slice(raw_line);
+            continue;
+        }
+        let (content, ending): (&[u8], &[u8]) = if let Some(s) = raw_line.strip_suffix(b"\r\n") {
+            (s, b"\r\n")
+        } else if let Some(s) = raw_line.strip_suffix(b"\n") {
+            (s, b"\n")
+        } else {
+            (raw_line, b"")
+        };
+
+        let mut fields: Vec<Vec<u8>> = content.split(|b| *b == b',').map(|s| s.to_vec()).collect();
+        let has_record_number = fields.first().and_then(|s| std::str::from_utf8(s).ok())
+            .and_then(|s| s.trim().parse::<usize>().ok()).is_some();
+        if !has_record_number {
+            output.extend_from_slice(raw_line);
+            continue;
+        }
+        let waypoint = waypoints.get(count).ok_or("Количество строк WPT не совпадает с количеством точек")?;
+        // В стандартном WPT последняя ячейка может быть служебной (например, 420).
+        // Если geoio не выписал два дополнительных поля, вставляем их ПЕРЕД последней ячейкой.
+        if fields.len() < 25 {
+            let final_field = fields.pop().unwrap_or_default();
+            fields.resize(24, Vec::new());
+            fields.push(final_field);
+        }
+        let category = waypoint.category_code.as_deref().unwrap_or("");
+        if !category.is_ascii() || category.contains(',') || category.contains('\r') || category.contains('\n') {
+            return Err(format!("Неподдерживаемый код категории WPT: {category}"));
+        }
+        fields[22] = category.as_bytes().to_vec();
+        fields[23] = waypoint.azimuth.map(|v| format!(":{v}").into_bytes()).unwrap_or_default();
+        for (index, field) in fields.iter().enumerate() {
+            if index > 0 { output.push(b','); }
+            output.extend_from_slice(field);
+        }
+        output.extend_from_slice(ending);
+        count += 1;
+    }
+    if count != waypoints.len() {
+        return Err(format!("В результате экспорта WPT ожидалось {} точек, получено {count}", waypoints.len()));
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod wpt_extra_tests {
+    use super::*;
+
+    #[test]
+    fn sample_has_category_and_azimuth() {
+        let sample = b"OziExplorer Waypoint File Version 1.1\r\nWGS 84\r\nReserved 2\r\ngarmin\r\n1,Test,  51.669144,  39.099740,46349.7377440,  0, 0, 3,         0,     65535,, 0, 0,    0,   -777, 6, 0,17,0,10.0,2,,cellar,:35,420\r\n";
+        assert_eq!(read_wpt_extras(sample), vec![(Some("cellar".to_string()), Some(35))]);
+    }
+
+    #[test]
+    fn save_and_append_metadata_roundtrip() {
+        let ordinary = Waypoint {
+            id: 1, name: "Обычная".to_string(), lon: 39.0, lat: 51.0,
+            ele: None, time: None, symbol: None, description: None,
+            visible: true, source: FileSource::New,
+            text_color: [0, 0, 0], bg_color: [0, 255, 255],
+            category_code: None, azimuth: None,
+        };
+        let annotated = Waypoint {
+            id: 2, name: "Тест".to_string(), lon: 39.1, lat: 51.1,
+            category_code: Some("cellar".to_string()), azimuth: Some(35),
+            ..ordinary.clone()
+        };
+        let refs = [&ordinary, &annotated];
+        let geo_wps: Vec<_> = refs.iter().map(|w| geoio::Waypoint {
+            name: ozi_hack(&w.name), lon: w.lon, lat: w.lat,
+            ele_m: w.ele, time: w.time,
+            description: w.description.clone().unwrap_or_default(),
+            text_color: w.text_color, bg_color: w.bg_color,
+        }).collect();
+        let raw = geoio::wpt::write(&geo_wps, geoio::text::Encoding::Cp1251);
+        let output = add_wpt_extras(raw, &refs).unwrap();
+        assert_eq!(read_wpt_extras(&output), vec![
+            (None, None),
+            (Some("cellar".to_string()), Some(35)),
+        ]);
+        assert!(output.starts_with(b"OziExplorer Waypoint File Version"));
+    }
+
+    #[test]
+    fn sample_with_only_category() {
+        let sample = b"OziExplorer Waypoint File Version 1.1\r\nWGS 84\r\nReserved 2\r\ngarmin\r\n1,Test,  51.669144,  39.099740,46349.7377440,  0, 0, 3,         0,     65535,, 0, 0,    0,   -777, 6, 0,17,0,10.0,2,,cellar,,420\r\n";
+        assert_eq!(read_wpt_extras(sample), vec![(Some("cellar".to_string()), None)]);
+    }
+
+    #[test]
+    fn sample_with_only_azimuth() {
+        let sample = b"OziExplorer Waypoint File Version 1.1\r\nWGS 84\r\nReserved 2\r\ngarmin\r\n1,Test,  51.667969,  39.098366,46349.6094044,  0, 0, 3,         0,     65535,, 0, 0,    0,   -777, 6, 0,17,0,10.0,2,,,:222,420\r\n";
+        assert_eq!(read_wpt_extras(sample), vec![(None, Some(222))]);
+    }
+}
+
 pub fn save_wpt(waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
     let geo_wps: Vec<geoio::Waypoint> = waypoints.iter().map(|w| geoio::Waypoint {
         name: ozi_hack(&w.name),
@@ -385,6 +524,8 @@ pub fn save_wpt(waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
     }).collect();
     
     let bytes = geoio::wpt::write(&geo_wps, geoio::text::Encoding::Cp1251);
+    // Сохраняем оригинальную CP1251-кодировку и остальные поля geoio без изменений.
+    let bytes = add_wpt_extras(bytes, waypoints)?;
     std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 

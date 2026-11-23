@@ -23,6 +23,12 @@ pub struct Waypoint {
     pub text_color: [u8; 3],
     #[serde(default = "default_bg_color")]
     pub bg_color: [u8; 3],
+    /// Код категории из waypoints.csv; WPT: поле 23 (индекс 22).
+    #[serde(default)]
+    pub category_code: Option<String>,
+    /// Азимут в градусах 0..359; WPT: поле 24 (индекс 23), например :35.
+    #[serde(default)]
+    pub azimuth: Option<u16>,
 }
 
 fn default_text_color() -> [u8; 3] { [0, 0, 0] }

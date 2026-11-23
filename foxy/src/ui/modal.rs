@@ -485,7 +485,15 @@ impl App {
         coord_input: &'a str,
     ) -> Element<'a, Message> {
         let text_colors = vec![[0, 0, 0], [255, 255, 255]];
-        let bg_colors = vec![[255, 0, 0], [0, 255, 255], [0, 128, 0], [255, 255, 0]];
+        let bg_colors = crate::util::waypoint_categories::background_colors();
+        let categories = crate::util::waypoint_categories::all();
+        let empty_category = if crate::i18n::current_lang() == "en" { "(None)" } else { "(Без категории)" };
+        let category_selected = draft.category_code.as_ref()
+            .and_then(|code| categories.iter().find(|c| &c.code == code))
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| empty_category.to_string());
+        let mut category_names = vec![empty_category.to_string()];
+        category_names.extend(categories.iter().map(|c| c.name.clone()));
 
         let make_color_btn = |c: [u8; 3], selected: bool, msg: Message| -> Element<'a, Message> {
             button(text("")).width(24).height(24)
@@ -536,9 +544,9 @@ impl App {
         };
 
         let bg_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpBgColor) {
-            let ext_palette = get_extended_palette();
+            //let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in ext_palette.chunks(8) {
+            for chunk in bg_colors.chunks(8) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
                     row_btns.push(make_color_btn(c, c == draft.bg_color, Message::DraftWpBgColorChanged(c)));
@@ -605,6 +613,20 @@ impl App {
                     .on_input(Message::DraftWpEleChanged).width(100)
                     .padding(input_pad).style(input_style.clone()),
             ],
+            row![
+                text(if crate::i18n::current_lang() == "en" { "Category" } else { "Категория" }).width(100),
+                pick_list(category_names, Some(category_selected), Message::DraftWpCategoryChanged)
+                    .width(Length::Fixed(290.0))
+                    .padding(crate::ui::styles::button_padding())
+                    .style(crate::ui::styles::pick_list),
+            ].align_y(Alignment::Center),
+            row![
+                text(if crate::i18n::current_lang() == "en" { "Azimuth" } else { "Азимут" }).width(100),
+                text_input("0–359", &draft.azimuth.map(|v| v.to_string()).unwrap_or_default())
+                    .on_input(Message::DraftWpAzimuthChanged)
+                    .width(Length::Fixed(90.0))
+                    .padding(input_pad).style(input_style.clone()),
+            ].align_y(Alignment::Center),
             row![text(t!("msg_0158")).width(100), text_color_row].align_y(Alignment::Center),
             text_picker_ui,
             row![text(t!("msg_0159")).width(100), bg_color_row].align_y(Alignment::Center),
