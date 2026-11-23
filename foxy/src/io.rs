@@ -190,6 +190,9 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
                 ..Default::default()
             },
         };
+        // Enforce naming-template rules even when the track was never renamed here.
+        crate::util::coords::enforce_named_track_style(&mut track.props);
+        track.color = track.props.line_color;
         recompute_track_stats(&mut track);
         tracks.push(track);
         *next_id += 1;

@@ -406,7 +406,7 @@ impl App {
                 text(t!("msg_0141")).width(120),
                 self.btn_secondary(t!("msg_0142")).on_press(Message::DraftDateYesterday),
                 self.btn_secondary(t!("msg_0143")).on_press(Message::DraftDateToday),
-                text_input("YYYY-MM-DD", &draft.date_str)
+                text_input("", &draft.date_str)
                     .on_input(Message::DraftDateChanged).width(120)
                     .padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center).spacing(4),

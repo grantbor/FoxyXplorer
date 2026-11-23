@@ -1788,12 +1788,25 @@ impl App {
                 if let Some(t) = self.tracks.iter().find(|t| t.id == id) {
                     // 1. Сначала извлекаем и клонируем всё, что нужно
                     let backup = t.as_ref().clone();
-                    let draft = backup.props.clone();
+                    let mut draft = backup.props.clone();
+                    // Importers may store the name without populating template fields.
+                    let recognized = crate::util::coords::parse_named_track(&draft.description);
+                    let is_named = recognized.is_some();
+                    if let Some(named) = recognized {
+                        draft.date_str = named.date_str;
+                        draft.callsign = named.callsign;
+                        draft.num1 = named.num1;
+                        draft.num2 = named.num2;
+                        draft.suffix = named.suffix;
+                    }
+                    crate::util::coords::enforce_named_track_style(&mut draft);
                     
                     // 2. Ссылка `t` больше не используется, теперь можно менять self
                     self.push_undo(t!("msg_0045"));
                     self.track_backup = Some(backup);
                     self.modal = Some(Modal::TrackProps { track_id: id, draft });
+                    // Preview normalization only for tracks with recognized names.
+                    if is_named { self.update_track_preview(id); }
                 }
             }
             Message::ApplyTrackProps => {
@@ -2119,6 +2132,14 @@ impl App {
                 let mut tid = None;
                 if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
                     draft.description = s;
+                    // Synchronize fields when an entire valid name was typed/pasted.
+                    if let Some(named) = crate::util::coords::parse_named_track(&draft.description) {
+                        draft.date_str = named.date_str;
+                        draft.callsign = named.callsign;
+                        draft.num1 = named.num1;
+                        draft.num2 = named.num2;
+                        draft.suffix = named.suffix;
+                    }
                     tid = Some(*track_id);
                 }
                 if let Some(id) = tid { self.update_track_preview(id); }
@@ -2193,25 +2214,11 @@ impl App {
             Message::DraftColorChanged(c) => {
                 let mut tid = None;
                 if let Some(Modal::TrackProps { track_id, draft }) = &mut self.modal {
-                    // Guard активен только когда Description воспроизводится через шаблон —
-                    // то есть все поля (callsign, num, date) заполнены и в правильном формате.
-                    let template_ready = build_template(draft) == draft.description;
-
-                    draft.line_color = if template_ready {
-                        match draft.callsign.as_str() {
-                            "Lisa" | "Avtonom" | "Kinolog" | "Pegas" => {
-                                let forbidden = [[0, 255, 255], [255, 0, 255], [255, 255, 255], [0, 0, 0]];
-                                if forbidden.contains(&c) { [255, 0, 0] } else { c }
-                            }
-                            "Veter"   => [255, 0, 255],   // только magenta
-                            "BPLA"    => [0, 255, 255],   // только cyan
-                            "Bort"    => [255, 255, 255], // только white
-                            "Zadacha" => [0, 0, 0],       // только black
-                            _ => c,                       // неизвестный/пустой callsign — свободно
-                        }
-                    } else {
-                        c  // не соответствует шаблону — можно любой цвет
-                    };
+                    // Check the actual name, not whether this track was renamed in Foxy.
+                    // A prohibited click on an ordinary callsign keeps its previous color.
+                    draft.line_color = crate::util::coords::requested_track_color(
+                        &draft.description, draft.line_color, c,
+                    );
                     tid = Some(*track_id);
                 }
                 self.show_color_picker = None;
@@ -3451,7 +3458,9 @@ impl App {
     // 9. Вспомогательные методы
     // =========================================================================
     pub(crate) fn update_track_preview(&mut self, id: u64) {
-        if let Some(Modal::TrackProps { draft, .. }) = &self.modal {
+        if let Some(Modal::TrackProps { draft, .. }) = &mut self.modal {
+            // Shared protection for imported names, edited names and line widths.
+            crate::util::coords::enforce_named_track_style(draft);
             if let Some(t) = self.tracks.iter_mut().find(|t| t.id == id) {
                 let t_mut = Arc::make_mut(t);
                 t_mut.props = draft.clone();

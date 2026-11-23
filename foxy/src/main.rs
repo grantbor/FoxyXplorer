@@ -1500,7 +1500,7 @@ impl App {
             .on_move(Message::Moved)
             .on_exit(Message::MapCursorExited)
             .on_scroll(Message::Scrolled);
-        if self.middle_panning {
+        if self.middle_panning || self.dragging {
             area = area.interaction(iced::mouse::Interaction::Grabbing);
         } else if show_tool_cursor {
             area = area.interaction(iced::mouse::Interaction::Hidden);
