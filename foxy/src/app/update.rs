@@ -321,7 +321,6 @@ impl App {
             is_new: true,
         });
         
-        self.active_tool = crate::Tool::SelectPoints;
         self.tracks_cache.clear();
     }
 
