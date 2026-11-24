@@ -1,7 +1,7 @@
 use iced::widget::{
-    column, container, mouse_area, row, scrollable, text, text_input, tooltip, Space, stack,
+    column, container, mouse_area, row, scrollable, text, text_input, Space, stack,
 };
-use iced::{Alignment, Color, Element, Length, Theme};
+use iced::{Alignment, Color, Element, Length};
 use crate::{App, Message, ContextMenuItem};
 use crate::ui::controls::with_tooltip;
 use crate::t;
@@ -197,19 +197,7 @@ impl App {
                 color_box,
                 container(
                     mouse_area(
-                        tooltip(
-                            self.list_item(&t.name, selected, Message::SelectTrack(t.id)),
-                            container(text(t.name.clone())).padding([2, 6]).style(|theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                container::Style {
-                                    background: Some(palette.background.weak.color.into()),
-                                    text_color: Some(palette.background.weak.text),
-                                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
-                                    ..Default::default()
-                                }
-                            }),
-                            tooltip::Position::Bottom,
-                        )
+                        self.list_item(&t.name, selected, Message::SelectTrack(t.id))
                     ).on_right_press(Message::ShowContextMenu(
                         self.global_cursor,
                         vec![
@@ -399,25 +387,24 @@ impl App {
             let coord = coord::format_pair(w.lat, w.lon, self.format);
             let (date, time) = waypoint_panel_date_time(w);
 
+            // Only waypoint descriptions need a tooltip. Empty descriptions
+            // leave the row without a tooltip, just like track names.
+            let waypoint_label: Element<'_, Message> = {
+                let name_button = self.list_item(&w.name, selected, Message::SelectWaypoint(w.id));
+                match w.description.as_deref().filter(|desc| !desc.trim().is_empty()) {
+                    // Hide description tooltip as soon as any context menu opens.
+                    Some(description) if self.context_menu.is_none() => with_tooltip(name_button, description),
+                    _ => name_button,
+                }
+            };
+
             let wp_id = w.id;
             let r = row![
                 self.visibility_button(w.visible, Message::ToggleWaypointVisible(w.id, !w.visible)),
                 icon,
                 container(
                     mouse_area(
-                        tooltip(
-                            self.list_item(&w.name, selected, Message::SelectWaypoint(w.id)),
-                            container(text(w.name.clone())).padding([2, 6]).style(|theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                container::Style {
-                                    background: Some(palette.background.weak.color.into()),
-                                    text_color: Some(palette.background.weak.text),
-                                    border: iced::Border { color: palette.background.strong.color, width: 1.0, radius: 4.0.into() },
-                                    ..Default::default()
-                                }
-                            }),
-                            tooltip::Position::Bottom,
-                        )
+                        waypoint_label
                     ).on_right_press(Message::ShowContextMenu(
                         self.global_cursor,
                         vec![
