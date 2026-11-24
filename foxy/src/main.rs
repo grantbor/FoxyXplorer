@@ -1378,7 +1378,9 @@ impl App {
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
         } else {
-            base_ui.into()
+            // Keep the root widget type stable when opening a modal.
+            // Otherwise iced recreates the sidebar scrollables and resets their offsets.
+            stack![base_ui].into()
         };
 
         // ---- Контекстное меню (верхний слой) ----
@@ -1415,7 +1417,8 @@ impl App {
             ]
             .into()
         } else {
-            composed_ui
+            // Keep the outer root stable when the context menu appears/disappears.
+            stack![composed_ui].into()
         }
     }  
 
