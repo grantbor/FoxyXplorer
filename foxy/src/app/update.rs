@@ -723,6 +723,28 @@ impl App {
     // 1. Логика View (Панорамирование, зум, ресайз окна)
     // =========================================================================
     fn update_view(&mut self, m: Message) {
+        // MouseArea events and global subscriptions may reach update_view
+        // independently of the map Canvas. A modal must block every map tool.
+        if self.modal.is_some() {
+            match m {
+                Message::MapPressed(_) | Message::MapMiddlePressed(_)
+                | Message::Moved(_) | Message::Scrolled(_) => return,
+                Message::MapReleased(_) => {
+                    // Avoid a stuck Pan drag if a modal appears mid-gesture.
+                    self.dragging = false;
+                    return;
+                }
+                Message::MapMiddleReleased => {
+                    self.middle_panning = false;
+                    return;
+                }
+                Message::MapCursorExited => {
+                    self.map_cursor_inside = false;
+                    return;
+                }
+                _ => {}
+            }
+        }
         match m {
              
             // MMB is a temporary pan gesture, independent of the selected tool.
@@ -1042,7 +1064,8 @@ impl App {
                 
 
                 // Управление рисованием
-                if (self.active_tool == crate::Tool::DrawTrack || self.active_tool == crate::Tool::Freehand) 
+                if !is_modal_open
+                    && (self.active_tool == crate::Tool::DrawTrack || self.active_tool == crate::Tool::Freehand)
                     && self.drawing_track.is_some() 
                 {
                     match &key {

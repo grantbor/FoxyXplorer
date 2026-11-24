@@ -25,6 +25,12 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         bounds: Rectangle,
         cursor: iced::mouse::Cursor,
     ) -> Option<iced::widget::Action<Message>> {
+        // Never deliver map gestures to tools while any modal is open,
+        // even if a future overlay stops capturing a particular event.
+        if self.app.modal.is_some() {
+            return None;
+        }
+
         // ============================================================
         // ПРАВАЯ КНОПКА — КОНТЕКСТНОЕ МЕНЮ
         // ============================================================

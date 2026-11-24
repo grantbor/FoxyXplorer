@@ -639,6 +639,25 @@ pub(crate) enum Modal {
     FoxyDrop,
 }
 
+// A tinted modal backdrop must also capture pointer events: a plain
+// container is transparent to hit-testing and lets map tools click through.
+fn modal_backdrop<'a>() -> Element<'a, Message> {
+    mouse_area(
+        container(Space::new())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_| container::Style {
+                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
+                ..Default::default()
+            }),
+    )
+    .on_press(Message::None)
+    .on_right_press(Message::None)
+    .on_middle_press(Message::None)
+    .on_scroll(|_| Message::None)
+    .into()
+}
+
 fn modal_drag_padding(offset: Point) -> iced::Padding {
     let mut pad = iced::Padding::new(0.0);
     if offset.y > 0.0 { pad = pad.top(offset.y * 2.0); } else { pad = pad.bottom(-offset.y * 2.0); }
@@ -1279,11 +1298,7 @@ impl App {
             let modal_ui = self.view_track_props_modal(*track_id, draft);
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1291,11 +1306,7 @@ impl App {
             let modal_ui = self.view_waypoint_props_modal(*waypoint_id, draft, coord_input);
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1303,11 +1314,7 @@ impl App {
             let modal_ui = self.view_track_list_modal(state);
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1319,11 +1326,7 @@ impl App {
             );
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1331,11 +1334,7 @@ impl App {
             let modal_ui = self.view_confirm_clear_all_modal();
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1343,11 +1342,7 @@ impl App {
             let modal_ui = self.view_confirm_load_session_modal();
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1355,11 +1350,7 @@ impl App {
             let modal_ui = self.view_waypoint_projection_modal(*from_id, azimuth_input, distance_input);
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1367,22 +1358,14 @@ impl App {
             let modal_ui = self.view_about_modal();
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
             ].into()
         } else if let Some(Modal::FoxyDrop) = &self.modal {
             let modal_ui = self.view_foxydrop_modal();
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
@@ -1390,11 +1373,7 @@ impl App {
             let modal_ui = self.view_settings_modal(draft);
             stack![
                 base_ui,
-                container(text("")).width(Length::Fill).height(Length::Fill)
-                    .style(|_| container::Style {
-                        background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()),
-                        ..Default::default()
-                    }),
+                modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
             ].into()
