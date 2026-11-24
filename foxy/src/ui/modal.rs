@@ -546,7 +546,7 @@ impl App {
         let bg_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpBgColor) {
             //let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in bg_colors.chunks(8) {
+            for chunk in get_extended_palette().chunks(8) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
                     row_btns.push(make_color_btn(c, c == draft.bg_color, Message::DraftWpBgColorChanged(c)));
