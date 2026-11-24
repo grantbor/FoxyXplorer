@@ -6,6 +6,30 @@ use crate::{App, Message, ContextMenuItem};
 use crate::ui::controls::with_tooltip;
 use crate::t;
 
+/// Show the waypoint's wall-clock time in its recording region, not the
+/// timezone of the computer where FoxyXplorer is running.
+fn waypoint_panel_date_time(w: &crate::domain::Waypoint) -> (String, String) {
+    let Some(utc) = w.time.filter(|t| t.is_finite()) else {
+        return ("-".to_owned(), "-".to_owned());
+    };
+
+    // Imported WPT offsets must survive Save/Append. For GPX, timezone metadata
+    // is set from the geographic location and timestamp during import. Legacy
+    // sessions can still resolve an offset using the same offline lookup.
+    let offset_minutes = w.utc_offset_minutes
+        .or_else(|| w.timezone_id.as_deref()
+            .and_then(|zone| crate::util::timezones::offset_for_zone(zone, utc)))
+        .or_else(|| crate::util::timezones::at(w.lon, w.lat, utc)
+            .map(|(_, offset)| offset))
+        .unwrap_or(0); // If location cannot be resolved, show UTC rather than host local time.
+
+    let local = utc + f64::from(offset_minutes) * 60.0;
+    let (year, month, day, hour, minute, _, _) = geoio::time::parts(local);
+    (
+        format!("{year:04}-{month:02}-{day:02}"),
+        format!("{hour:02}:{minute:02}"),
+    )
+}
 
 impl App {
     fn search_input<'a>(
@@ -360,6 +384,8 @@ impl App {
             Space::new().width(14.0),
             container(text(t!("msg_0083")).size(11)).width(Length::Fill),
             container(text(t!("msg_0102")).size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
+            container(text(if crate::i18n::current_lang() == "en" { "Date/Time" } else { "Дат/Вр" }).size(11))
+                .width(Length::Fixed(86.0)).align_x(Alignment::End),
         ].spacing(4);
 
         let query = self.search_waypoints.to_lowercase();
@@ -371,6 +397,7 @@ impl App {
             let selected = self.selection.waypoints.contains(&w.id);
             let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
             let coord = coord::format_pair(w.lat, w.lon, self.format);
+            let (date, time) = waypoint_panel_date_time(w);
 
             let wp_id = w.id;
             let r = row![
@@ -405,6 +432,11 @@ impl App {
                     ))
                 ).width(Length::Fill).clip(true),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
+                container(column![
+                    text(date).size(11).font(iced::Font::MONOSPACE),
+                    text(time).size(11).font(iced::Font::MONOSPACE),
+                ].spacing(0).align_x(Alignment::End))
+                    .width(Length::Fixed(86.0)).align_x(Alignment::End),
             ].spacing(4).align_y(Alignment::Center);
 
             list = list.push(r);
