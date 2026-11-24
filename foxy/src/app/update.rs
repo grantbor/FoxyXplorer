@@ -307,6 +307,8 @@ impl App {
             bg_color: [0, 255, 255],
             category_code: None,
             azimuth: None,
+            timezone_id: None,
+            utc_offset_minutes: None,
         };
         
         self.next_id += 1;
@@ -2417,6 +2419,8 @@ impl App {
                     bg_color: [0, 255, 255],
             category_code: None,
             azimuth: None,
+            timezone_id: None,
+            utc_offset_minutes: None,
                 };
                 self.next_id += 1;
                 self.waypoints.push(Arc::new(new_wp.clone()));
@@ -2538,6 +2542,8 @@ impl App {
                     bg_color: [0, 255, 255],
             category_code: None,
             azimuth: None,
+            timezone_id: None,
+            utc_offset_minutes: None,
                 };
                 self.next_id += 1;
                 self.push_undo(t!("msg_0058"));
@@ -2637,6 +2643,8 @@ impl App {
                                 bg_color: w.bg_color,
                                 category_code: None,
                                 azimuth: None,
+                                timezone_id: None,
+                                utc_offset_minutes: None,
                             };
 
                             self.next_id += 1;
@@ -2742,6 +2750,11 @@ impl App {
                     *coord_input = s.clone();
                     if let Some((lat, lon)) = parse_coords(&s, self.grid.as_ref(), self.declination) {
                         if lat.abs() <= 90.0 && lon.abs() <= 180.0 {
+                            if draft.lat != lat || draft.lon != lon {
+                                // A moved waypoint must use its new geographic time zone.
+                                draft.timezone_id = None;
+                                draft.utc_offset_minutes = None;
+                            }
                             draft.lat = lat;
                             draft.lon = lon;
                             draft.ele = None;

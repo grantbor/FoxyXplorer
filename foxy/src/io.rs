@@ -85,6 +85,11 @@ fn rgb_to_ozi(c: [u8; 3]) -> u32 {
 
 
 
+// Ozi WPT field 5 is a UTC instant. Field 25 stores the offset (minutes)
+// of the RECORDING LOCATION, not the local timezone of this computer.
+// For GPX with Z timestamps, coordinates are used to infer the IANA region.
+// Explicit field-25 offsets from imported WPTs are retained unchanged.
+
 pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
@@ -209,12 +214,21 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             w.name
         };
         
+        // Region is inferred at the instant of recording, including historical DST.
+        // A WPT-supplied field 25 takes precedence over inferred offsets to
+        // preserve existing Ozi records across Save and Append.
+        let inferred = w.time.and_then(|utc| crate::util::timezones::at(w.lon, w.lat, utc));
+        let stored_offset = if ext == "wpt" {
+            wpt_extras.get(i).and_then(|(_, _, offset)| *offset)
+        } else { None };
         waypoints.push(Waypoint {
             id: *next_id,
             name,
             lon: w.lon,
             lat: w.lat,
             ele: w.ele_m,
+            // geoio reads the numeric WPT timestamp as the original instant.
+            // Ozi's timezone offset in field 25 is for display, not a time shift.
             time: w.time,
             symbol: None,
             description: if w.description.is_empty() { None } else { Some(w.description) },
@@ -222,8 +236,10 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
             source: FileSource::File { path: path.to_path_buf(), read_only: is_read_only },
             text_color: w.text_color, // <-- из geoio
             bg_color: w.bg_color,     // <-- из geoio
-            category_code: wpt_extras.get(i).and_then(|(category, _)| category.clone()),
-            azimuth: wpt_extras.get(i).and_then(|(_, azimuth)| *azimuth),
+            category_code: wpt_extras.get(i).and_then(|(category, _, _)| category.clone()),
+            azimuth: wpt_extras.get(i).and_then(|(_, azimuth, _)| *azimuth),
+            timezone_id: inferred.as_ref().map(|(name, _)| name.clone()),
+            utc_offset_minutes: stored_offset.or_else(|| inferred.map(|(_, offset)| offset)),
         });
         *next_id += 1;
     }
@@ -378,10 +394,10 @@ pub fn save_kml(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
 }
 
 
-// Специальные поля пользовательского WPT (индексы начинаются с нуля):
-// 22 — код категории, 23 — азимут в форме :35. Поле 24 и всё остальное
-// оставляем за исходным форматом/библиотекой geoio.
-fn read_wpt_extras(bytes: &[u8]) -> Vec<(Option<String>, Option<u16>)> {
+// Дополнительные поля WPT (индексы начинаются с нуля):
+// 22 — category code; 23 — :azimuth; 24 — UTC offset in minutes.
+// Field 24 is metadata for display and MUST NOT shift timestamp in field 4.
+fn read_wpt_extras(bytes: &[u8]) -> Vec<(Option<String>, Option<u16>, Option<i32>)> {
     bytes.split(|b| *b == b'\n')
         .skip(4) // стандартный заголовок OziExplorer
         .filter_map(|line| {
@@ -396,7 +412,10 @@ fn read_wpt_extras(bytes: &[u8]) -> Vec<(Option<String>, Option<u16>)> {
                 .and_then(|s| s.strip_prefix(':'))
                 .and_then(|s| s.parse::<u16>().ok())
                 .filter(|v| *v <= 359);
-            Some((category, azimuth))
+            let offset = ascii(24)
+                .and_then(|s| s.parse::<i32>().ok())
+                .filter(|minutes| (-840..=840).contains(minutes));
+            Some((category, azimuth, offset))
         })
         .collect()
 }
@@ -404,10 +423,8 @@ fn read_wpt_extras(bytes: &[u8]) -> Vec<(Option<String>, Option<u16>)> {
 /// Дополняем результат стандартного CP1251-экспорта geoio без перекодирования.
 /// Не переписываем базовые поля, чтобы не нарушать сохранение WPT и Append.
 fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, String> {
-    // Для старых/обычных точек сохраняем байты geoio в точности.
-    if waypoints.iter().all(|w| w.category_code.is_none() && w.azimuth.is_none()) {
-        return Ok(bytes);
-    }
+    // Offset in field 25 must be written even when there is no category/azimuth.
+    if waypoints.is_empty() { return Ok(bytes); }
 
     let mut output = Vec::with_capacity(bytes.len() + waypoints.len() * 20);
     let mut count = 0usize;
@@ -432,8 +449,8 @@ fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, St
             continue;
         }
         let waypoint = waypoints.get(count).ok_or("Количество строк WPT не совпадает с количеством точек")?;
-        // В стандартном WPT последняя ячейка может быть служебной (например, 420).
-        // Если geoio не выписал два дополнительных поля, вставляем их ПЕРЕД последней ячейкой.
+        // Standard WPT field 25 holds the timezone offset in minutes.
+        // If geoio omitted category/azimuth columns, insert them before field 25.
         if fields.len() < 25 {
             let final_field = fields.pop().unwrap_or_default();
             fields.resize(24, Vec::new());
@@ -445,6 +462,18 @@ fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, St
         }
         fields[22] = category.as_bytes().to_vec();
         fields[23] = waypoint.azimuth.map(|v| format!(":{v}").into_bytes()).unwrap_or_default();
+        // Keep field 5 (UTC datetime) intact. Field 25 is *recording* time zone.
+        // Prefer imported metadata (especially when appending to an existing WPT).
+        if let Some(utc) = waypoint.time.filter(|t| t.is_finite()) {
+            let offset = waypoint.utc_offset_minutes
+                .or_else(|| waypoint.timezone_id.as_deref()
+                    .and_then(|name| crate::util::timezones::offset_for_zone(name, utc)))
+                .or_else(|| crate::util::timezones::at(waypoint.lon, waypoint.lat, utc)
+                    .map(|(_, minutes)| minutes));
+            // Never substitute this computer's local time zone on lookup failure.
+            fields[24] = offset.map(|minutes| minutes.to_string().into_bytes())
+                .unwrap_or_default();
+        }
         for (index, field) in fields.iter().enumerate() {
             if index > 0 { output.push(b','); }
             output.extend_from_slice(field);
@@ -459,13 +488,106 @@ fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, St
 }
 
 #[cfg(test)]
+mod wpt_timezone_tests {
+    use super::*;
+
+    fn sample_waypoint(time: Option<f64>, category_code: Option<&str>) -> Waypoint {
+        Waypoint {
+            id: 1, name: "Test".to_string(), lon: 39.0, lat: 51.0,
+            ele: None, time, symbol: None, description: None,
+            visible: true, source: FileSource::New,
+            text_color: [0, 0, 0], bg_color: [0, 255, 255],
+            category_code: category_code.map(str::to_owned), azimuth: None,
+            timezone_id: None, utc_offset_minutes: None,
+        }
+    }
+
+    fn data_fields(bytes: &[u8]) -> Vec<&[u8]> {
+        let record = bytes.split(|&b| b == b'\n')
+            .skip(4)
+            .find(|line| line.first().map_or(false, |c| c.is_ascii_digit()))
+            .expect("WPT data row");
+        record.split(|&b| b == b',').collect()
+    }
+
+    #[test]
+    fn timestamp_unchanged_and_offset_written_without_category() {
+        let timestamp = 1_764_000_000.625;
+        let w = sample_waypoint(Some(timestamp), None);
+        let raw = geoio::wpt::write(&[geoio::Waypoint {
+            name: w.name.clone(), lon: w.lon, lat: w.lat,
+            ele_m: w.ele, time: w.time, description: String::new(),
+            text_color: w.text_color, bg_color: w.bg_color,
+        }], geoio::text::Encoding::Cp1251);
+        let result = add_wpt_extras(raw.clone(), &[&w]).unwrap();
+        let before = data_fields(&raw);
+        let after = data_fields(&result);
+        assert_eq!(before[4], after[4], "WPT field 5 must not shift");
+        assert_eq!(after.len(), 25);
+        let expected = crate::util::timezones::at(w.lon, w.lat, timestamp).unwrap().1;
+        assert_eq!(std::str::from_utf8(after[24]).unwrap().trim(), expected.to_string());
+        let parsed = geoio::wpt::read(&result).unwrap();
+        let got = parsed.waypoints[0].time.unwrap();
+        assert!((got - timestamp).abs() < 0.02, "WPT round-trip changed UTC time");
+    }
+
+    #[test]
+    fn category_and_azimuth_do_not_displace_offset_field() {
+        let mut w = sample_waypoint(Some(1_764_000_000.0), Some("cellar"));
+        w.azimuth = Some(35);
+        let raw = geoio::wpt::write(&[geoio::Waypoint {
+            name: w.name.clone(), lon: w.lon, lat: w.lat,
+            ele_m: w.ele, time: w.time, description: String::new(),
+            text_color: w.text_color, bg_color: w.bg_color,
+        }], geoio::text::Encoding::Cp1251);
+        let result = add_wpt_extras(raw, &[&w]).unwrap();
+        let fields = data_fields(&result);
+        assert_eq!(fields[22], b"cellar");
+        assert_eq!(fields[23], b":35");
+        let expected = crate::util::timezones::at(w.lon, w.lat, w.time.unwrap()).unwrap().1;
+        assert_eq!(std::str::from_utf8(fields[24]).unwrap().trim(), expected.to_string());
+    }
+
+    #[test]
+    fn imported_wpt_offset_is_preserved_over_geographic_guess() {
+        let mut w = sample_waypoint(Some(1_764_000_000.0), Some("cellar"));
+        w.azimuth = Some(35);
+        // A pre-existing WPT says UTC+5, even though coordinates lie in UTC+7.
+        w.lon = 82.922;
+        w.lat = 55.507;
+        w.utc_offset_minutes = Some(300);
+        let raw = geoio::wpt::write(&[geoio::Waypoint {
+            name: w.name.clone(), lon: w.lon, lat: w.lat,
+            ele_m: w.ele, time: w.time, description: String::new(),
+            text_color: w.text_color, bg_color: w.bg_color,
+        }], geoio::text::Encoding::Cp1251);
+        let result = add_wpt_extras(raw, &[&w]).unwrap();
+        let fields = data_fields(&result);
+        assert_eq!(std::str::from_utf8(fields[24]).unwrap().trim(), "300");
+        assert_eq!(read_wpt_extras(&result)[0].2, Some(300));
+    }
+
+    #[test]
+    fn no_timestamp_keeps_empty_offset() {
+        let w = sample_waypoint(None, None);
+        let raw = geoio::wpt::write(&[geoio::Waypoint {
+            name: w.name.clone(), lon: w.lon, lat: w.lat,
+            ele_m: w.ele, time: None, description: String::new(),
+            text_color: w.text_color, bg_color: w.bg_color,
+        }], geoio::text::Encoding::Cp1251);
+        let result = add_wpt_extras(raw.clone(), &[&w]).unwrap();
+        assert_eq!(data_fields(&raw)[4], data_fields(&result)[4]);
+    }
+}
+
+#[cfg(test)]
 mod wpt_extra_tests {
     use super::*;
 
     #[test]
     fn sample_has_category_and_azimuth() {
         let sample = b"OziExplorer Waypoint File Version 1.1\r\nWGS 84\r\nReserved 2\r\ngarmin\r\n1,Test,  51.669144,  39.099740,46349.7377440,  0, 0, 3,         0,     65535,, 0, 0,    0,   -777, 6, 0,17,0,10.0,2,,cellar,:35,420\r\n";
-        assert_eq!(read_wpt_extras(sample), vec![(Some("cellar".to_string()), Some(35))]);
+        assert_eq!(read_wpt_extras(sample), vec![(Some("cellar".to_string()), Some(35), Some(420))]);
     }
 
     #[test]
@@ -476,6 +598,7 @@ mod wpt_extra_tests {
             visible: true, source: FileSource::New,
             text_color: [0, 0, 0], bg_color: [0, 255, 255],
             category_code: None, azimuth: None,
+            timezone_id: None, utc_offset_minutes: None,
         };
         let annotated = Waypoint {
             id: 2, name: "Тест".to_string(), lon: 39.1, lat: 51.1,
@@ -491,23 +614,24 @@ mod wpt_extra_tests {
         }).collect();
         let raw = geoio::wpt::write(&geo_wps, geoio::text::Encoding::Cp1251);
         let output = add_wpt_extras(raw, &refs).unwrap();
-        assert_eq!(read_wpt_extras(&output), vec![
-            (None, None),
-            (Some("cellar".to_string()), Some(35)),
-        ]);
+        let decoded = read_wpt_extras(&output);
+        assert_eq!(decoded[0].0, None);
+        assert_eq!(decoded[0].1, None);
+        assert_eq!(decoded[1].0.as_deref(), Some("cellar"));
+        assert_eq!(decoded[1].1, Some(35));
         assert!(output.starts_with(b"OziExplorer Waypoint File Version"));
     }
 
     #[test]
     fn sample_with_only_category() {
         let sample = b"OziExplorer Waypoint File Version 1.1\r\nWGS 84\r\nReserved 2\r\ngarmin\r\n1,Test,  51.669144,  39.099740,46349.7377440,  0, 0, 3,         0,     65535,, 0, 0,    0,   -777, 6, 0,17,0,10.0,2,,cellar,,420\r\n";
-        assert_eq!(read_wpt_extras(sample), vec![(Some("cellar".to_string()), None)]);
+        assert_eq!(read_wpt_extras(sample), vec![(Some("cellar".to_string()), None, Some(420))]);
     }
 
     #[test]
     fn sample_with_only_azimuth() {
         let sample = b"OziExplorer Waypoint File Version 1.1\r\nWGS 84\r\nReserved 2\r\ngarmin\r\n1,Test,  51.667969,  39.098366,46349.6094044,  0, 0, 3,         0,     65535,, 0, 0,    0,   -777, 6, 0,17,0,10.0,2,,,:222,420\r\n";
-        assert_eq!(read_wpt_extras(sample), vec![(None, Some(222))]);
+        assert_eq!(read_wpt_extras(sample), vec![(None, Some(222), Some(420))]);
     }
 }
 
@@ -517,6 +641,7 @@ pub fn save_wpt(waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
         lon: w.lon,
         lat: w.lat,
         ele_m: w.ele,
+        // Preserve the original timestamp. Ozi's local UTC offset is field 25.
         time: w.time,
         description: ozi_hack(w.description.as_deref().unwrap_or("")),
         text_color: w.text_color,

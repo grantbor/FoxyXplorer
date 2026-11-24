@@ -29,6 +29,14 @@ pub struct Waypoint {
     /// Азимут в градусах 0..359; WPT: поле 24 (индекс 23), например :35.
     #[serde(default)]
     pub azimuth: Option<u16>,
+    /// IANA time zone of the recording location (e.g. Asia/Novosibirsk).
+    /// UTC timestamp is always stored independently in `time`.
+    #[serde(default)]
+    pub timezone_id: Option<String>,
+    /// UTC offset of the recording location in minutes at the recording instant.
+    /// Preserved exactly when importing an existing WPT, including during Append.
+    #[serde(default)]
+    pub utc_offset_minutes: Option<i32>,
 }
 
 fn default_text_color() -> [u8; 3] { [0, 0, 0] }
