@@ -518,7 +518,7 @@ pub fn save_wpt(waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
         lat: w.lat,
         ele_m: w.ele,
         time: w.time,
-        description: w.description.clone().unwrap_or_default(),
+        description: ozi_hack(w.description.as_deref().unwrap_or("")),
         text_color: w.text_color,
         bg_color: w.bg_color,                                                             
     }).collect();
