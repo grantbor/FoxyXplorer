@@ -27,8 +27,8 @@ impl App {
                 body = body.push(text("FTP без шифрования: пароль и файлы передаются открытым текстом.").size(12));
                 body = body.push(row![
                     Space::new().width(Length::Fill),
-                    self.btn_secondary("Отмена").on_press(Message::FtpClose),
                     self.btn("Сохранить и отправить").on_press(Message::FtpStart),
+                    self.btn_secondary("Отмена").on_press(Message::FtpClose),
                 ].spacing(8));
             }
             Some(Modal::FtpProgress) => {

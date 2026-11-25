@@ -284,12 +284,14 @@ impl App {
                 },
                 t!("msg_0092")
             ),
-            with_tooltip(
-                if has_tracks && self.last_kit.is_some() {
-                    self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpTracks)
-                } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
-                "Отправить выбранные PLT по FTP"
-            ),
+            if self.ftp_enabled {
+                with_tooltip(
+                    if has_tracks && self.last_kit.is_some() {
+                        self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpTracks)
+                    } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
+                    "Отправить выбранные PLT по FTP"
+                )
+            } else { Space::new().width(Length::Fixed(0.0)).into() },
             Space::new().width(Length::Fill),
             with_tooltip(
                 if has_tracks {
@@ -486,12 +488,14 @@ impl App {
                 },
                 t!("msg_0108")
             ),
-            with_tooltip(
-                if has_wps && self.last_kit.is_some() {
-                    self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpWaypointNew)
-                } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
-                "FTP: выбрать WPT / WPT+"
-            ),
+            if self.ftp_enabled {
+                with_tooltip(
+                    if has_wps && self.last_kit.is_some() {
+                        self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpWaypointNew)
+                    } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
+                    "FTP: выбрать WPT / WPT+"
+                )
+            } else { Space::new().width(Length::Fixed(0.0)).into() },
             Space::new().width(Length::Fill),
             with_tooltip(
                 if has_wps {
@@ -557,7 +561,7 @@ impl App {
             Space::new().width(Length::Fill),
             self.icon_button(lucide_iced::bytes::X, Message::FtpWaypointNew),
         ].spacing(4).align_y(Alignment::Center);
-        let bottom_bar = if self.show_wp_ftp_menu { row_ftp } else if self.show_wp_save_menu { row_save } else { row_normal };
+        let bottom_bar = if self.ftp_enabled && self.show_wp_ftp_menu { row_ftp } else if self.show_wp_save_menu { row_save } else { row_normal };
 
         column![
             header,

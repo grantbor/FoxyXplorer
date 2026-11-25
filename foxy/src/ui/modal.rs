@@ -1,5 +1,5 @@
 use iced::widget::{
-    button, column, container, mouse_area, pick_list, row, scrollable, text, text_input, tooltip, Space,
+    button, checkbox, column, container, mouse_area, pick_list, row, scrollable, text, text_input, tooltip, Space,
 };
 use iced::{Alignment, Color, Element, Length, Theme};
 use crate::domain;
@@ -1287,6 +1287,59 @@ impl App {
             column![].into()
         };
 
+        // A single checkbox when disabled; the full settings block when enabled.
+        // Fields survive toggling and the OS credential store is never cleared here.
+        let ftp_settings: Element<'a, Message> = if draft.ftp_enabled {
+            column![
+                checkbox(true)
+                    .label(if crate::i18n::current_lang() == "en" {
+                        "FoxyUpload - FTP (unencrypted)"
+                    } else {
+                        "FoxyUpload - FTP (без шифрования)"
+                    })
+                    .on_toggle(Message::SettingsFtpEnabledChanged),
+                row![
+                    text("FTP server").width(160),
+                    text_input("ftp.example.com", &draft.ftp_host)
+                        .on_input(Message::SettingsFtpHostChanged)
+                        .padding(input_pad).style(input_style.clone()).width(Length::Fill),
+                ].align_y(Alignment::Center),
+                row![
+                    text("FTP port").width(160),
+                    text_input("21", &draft.ftp_port)
+                        .on_input(Message::SettingsFtpPortChanged)
+                        .padding(input_pad).style(input_style.clone()).width(80),
+                ].align_y(Alignment::Center),
+                row![
+                    text("FTP login").width(160),
+                    text_input("", &draft.ftp_username)
+                        .on_input(Message::SettingsFtpUserChanged)
+                        .padding(input_pad).style(input_style.clone()).width(Length::Fill),
+                ].align_y(Alignment::Center),
+                row![
+                    text("FTP password").width(160),
+                    text_input("", &draft.ftp_password)
+                        .secure(true)
+                        .on_input(Message::SettingsFtpPasswordChanged)
+                        .padding(input_pad).style(input_style.clone()).width(Length::Fill),
+                ].align_y(Alignment::Center),
+                text(if crate::i18n::current_lang() == "en" {
+                    "The FTP profile is stored in the system credential store, not config.json."
+                } else {
+                    "FTP-профиль сохраняется в системном хранилище паролей, а не в config.json."
+                }).size(11),
+            ].spacing(12).into()
+        } else {
+            checkbox(false)
+                .label(if crate::i18n::current_lang() == "en" {
+                    "FoxyUpload disabled"
+                } else {
+                    "FoxyUpload отключен"
+                })
+                .on_toggle(Message::SettingsFtpEnabledChanged)
+                .into()
+        };
+
         let current_lang_label = match draft.lang.as_str() {
             "en" => "English",
             _ => "Русский",
@@ -1408,33 +1461,7 @@ impl App {
             ].align_y(Alignment::Center).spacing(6),
 
             separator(),
-            text(if crate::i18n::current_lang() == "en" { "FoxyUpload · FTP (unencrypted)" } else { "FoxyUpload · FTP (без шифрования)" }).size(14),
-            row![
-                text("FTP server").width(160),
-                text_input("ftp.example.com", &draft.ftp_host)
-                    .on_input(Message::SettingsFtpHostChanged)
-                    .padding(input_pad).style(input_style.clone()).width(Length::Fill),
-            ].align_y(Alignment::Center),
-            row![
-                text("FTP port").width(160),
-                text_input("21", &draft.ftp_port)
-                    .on_input(Message::SettingsFtpPortChanged)
-                    .padding(input_pad).style(input_style.clone()).width(80),
-            ].align_y(Alignment::Center),
-            row![
-                text("FTP login").width(160),
-                text_input("", &draft.ftp_username)
-                    .on_input(Message::SettingsFtpUserChanged)
-                    .padding(input_pad).style(input_style.clone()).width(Length::Fill),
-            ].align_y(Alignment::Center),
-            row![
-                text("FTP password").width(160),
-                text_input("", &draft.ftp_password)
-                    .secure(true)
-                    .on_input(Message::SettingsFtpPasswordChanged)
-                    .padding(input_pad).style(input_style.clone()).width(Length::Fill),
-            ].align_y(Alignment::Center),
-            text("FTP-профиль сохраняется в системном хранилище паролей, а не в config.json.").size(11),
+            ftp_settings,
 
             // Настраиваемый цвет линий и узлов сетки.
             row![
@@ -1471,9 +1498,11 @@ impl App {
             // Высота ограничена реальным размером окна, основная часть прокручивается.
             .height(Length::Fixed(
                 (if self.show_color_picker == Some(ColorPickerKind::GridColor) {
-                    900.0_f32
-                } else {
+                    if draft.ftp_enabled { 900.0_f32 } else { 730.0_f32 }
+                } else if draft.ftp_enabled {
                     740.0_f32
+                } else {
+                    540.0_f32
                 }).min((self.window_size.height - 64.0).max(240.0))
             ))
             .into()

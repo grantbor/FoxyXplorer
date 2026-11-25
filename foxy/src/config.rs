@@ -16,6 +16,9 @@ pub struct Config {
     pub drop_port: u16,
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
+    /// False for existing installations: FoxyUpload is opt-in.
+    #[serde(default)]
+    pub ftp_enabled: bool,
 }
 
 fn default_drop_port() -> u16 { 8070 }
@@ -36,6 +39,7 @@ impl Default for Config {
             drop_folder: String::new(),
             drop_port: default_drop_port(),
             ui_theme: default_ui_theme(),
+            ftp_enabled: false,
         }
     }
 }

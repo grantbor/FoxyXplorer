@@ -107,6 +107,11 @@ impl App {
     }
 
     fn update_ftp(&mut self, message: Message) -> Task<Message> {
+        // Guard entry points as well as buttons: no FTP job can start while disabled.
+        if !self.ftp_enabled && !matches!(&message, Message::FtpFinished(_) | Message::FtpClose) {
+            self.status = "FoxyUpload отключен в настройках".into();
+            return Task::none();
+        }
         match message {
             Message::FtpTracks => {
                 if self.selection.tracks.is_empty() { self.status = "Выберите треки".into(); return Task::none(); }
@@ -229,6 +234,7 @@ impl App {
             | Message::FoxyDropStopped | Message::FoxyDropHeartbeat | Message::FoxyDropCopyUrl
             | Message::SettingsFtpHostChanged(_) | Message::SettingsFtpPortChanged(_)
             | Message::SettingsFtpUserChanged(_) | Message::SettingsFtpPasswordChanged(_)
+            | Message::SettingsFtpEnabledChanged(_)
             | Message::OpenUrl(_) => {
                 return self.update_ui(m); 
             }
@@ -1693,9 +1699,13 @@ impl App {
                 self.show_color_picker = None;
                 let cfg = crate::config::load();
                 let coord_input = format!("{:.6} {:.6}", cfg.default_lat, cfg.default_lon);
-                let ftp_profile = match crate::foxyupload::load_profile() {
-                    Ok(profile) => profile,
-                    Err(err) => { self.status = err; None }
+                let ftp_profile = if cfg.ftp_enabled {
+                    match crate::foxyupload::load_profile() {
+                        Ok(profile) => profile,
+                        Err(err) => { self.status = err; None }
+                    }
+                } else {
+                    None // Do not access the credential store while the module is off.
                 };
                 self.modal = Some(Modal::Settings {
                     draft: SettingsDraft {
@@ -1706,6 +1716,7 @@ impl App {
                         simplify_tolerance: cfg.simplify_tolerance,
                         grid_color: self.grid_color,
                         drop_folder: self.drop_service.directory().to_string_lossy().into_owned(),
+                        ftp_enabled: cfg.ftp_enabled,
                         ftp_host: ftp_profile.as_ref().map(|p| p.host.clone()).unwrap_or_default(),
                         ftp_port: ftp_profile.as_ref().map(|p| p.port.to_string()).unwrap_or_else(|| "21".into()),
                         ftp_username: ftp_profile.as_ref().map(|p| p.username.clone()).unwrap_or_default(),
@@ -1737,7 +1748,7 @@ impl App {
                         (Some(lat), Some(lon)) => {
                             // Do not save any FTP profile to config.json. The OS keyring
                             // stores the ENTIRE connection profile, including the host.
-                            if !draft.ftp_host.is_empty() || !draft.ftp_username.is_empty() || !draft.ftp_password.is_empty() {
+                            if draft.ftp_enabled && (!draft.ftp_host.is_empty() || !draft.ftp_username.is_empty() || !draft.ftp_password.is_empty()) {
                                 let existing = match crate::foxyupload::load_profile() {
                                     Ok(p) => p,
                                     Err(err) => { self.status = err; return Task::none(); }
@@ -1767,6 +1778,7 @@ impl App {
                                 drop_folder: String::new(), // moved to session (legacy config reader remains)
                                 drop_port: crate::config::load().drop_port,
                                 ui_theme: draft.ui_theme.to_string(),
+                                ftp_enabled: draft.ftp_enabled,
                             };
                             match crate::config::save(&new_cfg) {
                                 Ok(_) => {
@@ -1779,6 +1791,8 @@ impl App {
                                     self.osm_canvas_cache.clear();
                                     self.tracks_cache.clear();
                                     self.grid_color = new_cfg.grid_color;
+                                    self.ftp_enabled = new_cfg.ftp_enabled;
+                                    if !self.ftp_enabled { self.show_wp_ftp_menu = false; }
                                     self.drop_service.set_directory(PathBuf::from(&draft.drop_folder));
                                     self.grid_cache.clear();
                                     self.show_color_picker = None;
@@ -1844,6 +1858,33 @@ impl App {
                 }
             }
             Message::SettingsDropFolderPicked(None) => {}
+            Message::SettingsFtpEnabledChanged(enabled) => {
+                // Restore the stored profile when the user expands an initially
+                // disabled FoxyUpload block. Do not overwrite in-progress edits.
+                let should_restore = enabled && matches!(
+                    self.modal.as_ref(),
+                    Some(Modal::Settings { draft })
+                        if !draft.ftp_enabled && draft.ftp_host.trim().is_empty()
+                            && draft.ftp_username.trim().is_empty()
+                );
+                if should_restore {
+                    match crate::foxyupload::load_profile() {
+                        Ok(Some(profile)) => {
+                            if let Some(Modal::Settings { draft }) = &mut self.modal {
+                                draft.ftp_host = profile.host;
+                                draft.ftp_port = profile.port.to_string();
+                                draft.ftp_username = profile.username;
+                                // Password stays empty: unchanged password is read on Apply.
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(err) => { self.status = err; }
+                    }
+                }
+                if let Some(Modal::Settings { draft }) = &mut self.modal {
+                    draft.ftp_enabled = enabled;
+                }
+            }
             Message::SettingsFtpHostChanged(s) => {
                 if let Some(Modal::Settings { draft }) = &mut self.modal { draft.ftp_host = s; }
             }
