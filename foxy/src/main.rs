@@ -478,7 +478,6 @@ pub(crate) enum AppTheme {
 pub(crate) enum ColorPickerKind {
     LineColor,
     FillColor,
-    WpTextColor,
     WpBgColor,
     GridColor,
 }
