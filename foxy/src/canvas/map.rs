@@ -14,6 +14,39 @@ pub struct MapProgram<'a> {
     pub app: &'a App,
 }
 
+/// Hit-test the small grid-node marker and, when enabled, its adjacent label.
+fn grid_node_hit_test(click: Point, pt: Point, name: &str, show_label: bool) -> bool {
+    if (click.x - pt.x).hypot(click.y - pt.y) <= 10.0 { return true; }
+    if !show_label || name.is_empty() { return false; }
+    // The geometry matches GridProgram's node label layout.
+    let size = 13.0_f32;
+    let pad = 3.0_f32;
+    let width = name.chars().count() as f32 * size * 0.55 + pad * 2.0;
+    let height = size + pad * 2.0;
+    let left = pt.x + 6.0;
+    let top = pt.y - 6.0 - height;
+    click.x >= left && click.x <= left + width
+        && click.y >= top && click.y <= top + height
+}
+
+fn reference_point_menu(name: &str, lat: f64, lon: f64) -> Vec<crate::ContextMenuItem> {
+    let add_label = if crate::i18n::current_lang() == "en" {
+        "Add to map"
+    } else {
+        "Добавить на карту"
+    };
+    vec![
+        crate::ContextMenuItem::Label(name.to_string()),
+        crate::ContextMenuItem::Action(
+            t!("msg_0073").to_string(),
+            Message::CopyCoordinates(lat, lon),
+        ),
+        crate::ContextMenuItem::Action(
+            add_label.to_string(),
+            Message::AddNamedWaypoint(name.to_string(), lon, lat),
+        ),
+    ]
+}
 
 impl<'a> canvas::Program<Message> for MapProgram<'a> {
     type State = ();
@@ -114,7 +147,57 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                 }
 
                 // ============================================================
-                // ПРИОРИТЕТ 2: под курсором трек
+                // ПРИОРИТЕТ 2: видимый узел сетки (выше Wiki и треков)
+                // ============================================================
+                if self.app.show_grid {
+                    if let Some(grid) = &self.app.grid {
+                        // Later nodes are painted last, so test them first.
+                        for node in grid.nodes.iter().rev() {
+                            let (nx, ny) = crate::util::geo::merc_of(node.lon, node.lat);
+                            let pt = Point::new(
+                                hw + ((nx - self.app.cx) / self.app.scale) as f32,
+                                hh - ((ny - self.app.cy) / self.app.scale) as f32,
+                            );
+                            if grid_node_hit_test(pos, pt, &node.name, self.app.show_labels) {
+                                return Some(iced::widget::Action::publish(
+                                    Message::ShowContextMenu(
+                                        self.app.global_cursor,
+                                        reference_point_menu(&node.name, node.lat, node.lon),
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                // ============================================================
+                // ПРИОРИТЕТ 3: видимая точка Wiki-WPT или её подпись
+                // ============================================================
+                if self.app.show_wiki {
+                    for wiki in self.app.wiki_points.iter().rev() {
+                        let (wx, wy) = crate::util::geo::merc_of(wiki.lon, wiki.lat);
+                        let pt = Point::new(
+                            hw + ((wx - self.app.cx) / self.app.scale) as f32,
+                            hh - ((wy - self.app.cy) / self.app.scale) as f32,
+                        );
+                        // Match the culling in WikiProgram, including its margin.
+                        if pt.x < -200.0 || pt.x > bounds.width + 200.0
+                            || pt.y < -60.0 || pt.y > bounds.height + 60.0 {
+                            continue;
+                        }
+                        if super::waypoint_label::waypoint_label_hit_test(pt, &wiki.name, pos) {
+                            return Some(iced::widget::Action::publish(
+                                Message::ShowContextMenu(
+                                    self.app.global_cursor,
+                                    reference_point_menu(&wiki.name, wiki.lat, wiki.lon),
+                                ),
+                            ));
+                        }
+                    }
+                }
+
+                // ============================================================
+                // ПРИОРИТЕТ 4: под курсором трек
                 // ============================================================
                 if let Some(id) = hit_track {
                     if let Some(t) = self.app.tracks.iter().find(|t| t.id == id) {
@@ -173,7 +256,7 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                 }
 
                 // ============================================================
-                // ПРИОРИТЕТ 3: пустое место
+                // ПРИОРИТЕТ 5: пустое место
                 // ============================================================
                 let items = vec![
                     crate::ContextMenuItem::Action(
@@ -468,5 +551,46 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
         app.last_geom_ms
             .set(started.elapsed().as_secs_f64() * 1000.0);
         vec![geom]
+    }
+}
+
+#[cfg(test)]
+mod reference_point_context_tests {
+    use super::*;
+
+    #[test]
+    fn grid_node_and_label_can_be_hit_separately() {
+        let anchor = Point::new(150.0, 120.0);
+        assert!(grid_node_hit_test(Point::new(158.0, 120.0), anchor, "H12", false));
+        assert!(grid_node_hit_test(Point::new(170.0, 100.0), anchor, "H12", true));
+        assert!(!grid_node_hit_test(Point::new(170.0, 100.0), anchor, "H12", false));
+    }
+
+    #[test]
+    fn wiki_marker_and_label_are_both_clickable() {
+        let anchor = Point::new(150.0, 120.0);
+        assert!(super::super::waypoint_label::waypoint_label_hit_test(
+            anchor, "Wiki place", Point::new(150.0, 126.0),
+        ));
+        let rect = super::super::waypoint_label::waypoint_label_bounds(anchor, "Wiki place");
+        assert!(super::super::waypoint_label::waypoint_label_hit_test(
+            anchor, "Wiki place", Point::new(rect.x + 2.0, rect.y + 2.0),
+        ));
+        assert!(!super::super::waypoint_label::waypoint_label_hit_test(
+            anchor, "Wiki place", Point::new(0.0, 0.0),
+        ));
+    }
+
+    #[test]
+    fn context_menu_preserves_reference_point_name_and_coordinates() {
+        let items = reference_point_menu("H12", 54.945816, 83.084312);
+        assert_eq!(items.len(), 3);
+        match &items[2] {
+            crate::ContextMenuItem::Action(_, Message::AddNamedWaypoint(name, lon, lat)) => {
+                assert_eq!(name, "H12");
+                assert_eq!((*lat, *lon), (54.945816, 83.084312));
+            }
+            other => panic!("Wrong menu action: {other:?}"),
+        }
     }
 }

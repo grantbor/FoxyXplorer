@@ -426,6 +426,7 @@ pub(crate) enum Message {
     DeleteTrackById(u64),
     FitTrackById(u64),
     AddWaypointAt(f64, f64),  // lon, lat
+    AddNamedWaypoint(String, f64, f64), // name, lon, lat: copy of grid/Wiki point
     CopyCoordinates(f64, f64),  // lat, lon
     SplitTrackAt(u64, usize, usize), // track_id, seg_idx, pt_idx
     OpenWaypointProjection(u64),

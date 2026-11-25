@@ -3,16 +3,9 @@ use iced::widget::canvas::{self, Path as CanvasPath};
 use iced::{Color, Point, Size};
 use iced::advanced::text::{Paragraph, Text, LineHeight, Shaping};
 
-pub(super) fn draw_waypoint_label(
-    frame: &mut canvas::Frame,
-    pt: Point,
-    name: &str,
-    bg_rgb: [u8; 3],
-    fg_rgb: [u8; 3],
-    selected: bool,
-) {
+/// Label rectangle shared between drawing and right-click hit-testing.
+pub(super) fn waypoint_label_bounds(pt: Point, name: &str) -> iced::Rectangle {
     type Para = <iced::Renderer as iced::advanced::text::Renderer>::Paragraph;
-
     let paragraph = Para::with_text(Text {
         content: name,
         bounds: iced::Size::INFINITE,
@@ -24,13 +17,34 @@ pub(super) fn draw_waypoint_label(
         align_y: iced::alignment::Vertical::Top,
         wrapping: iced::advanced::text::Wrapping::None,
     });
-    let text_w = paragraph.min_bounds().width;
+    let width = (paragraph.min_bounds().width + 16.0).max(40.0);
+    iced::Rectangle {
+        x: pt.x - width / 2.0,
+        y: pt.y - 40.0,
+        width,
+        height: 24.0,
+    }
+}
 
-    let padding_h = 8.0;
-    let box_w = (text_w + 2.0 * padding_h).max(40.0);
-    let box_h = 24.0;
-    let box_x = pt.x - box_w / 2.0;
-    let box_y = pt.y - 40.0;
+/// The Wiki label or its circular anchor may be the target of the context menu.
+pub(super) fn waypoint_label_hit_test(pt: Point, name: &str, click: Point) -> bool {
+    if (pt.x - click.x).hypot(pt.y - click.y) <= 10.0 { return true; }
+    let rect = waypoint_label_bounds(pt, name);
+    click.x >= rect.x && click.x <= rect.x + rect.width
+        && click.y >= rect.y && click.y <= rect.y + rect.height
+}
+
+pub(super) fn draw_waypoint_label(
+    frame: &mut canvas::Frame,
+    pt: Point,
+    name: &str,
+    bg_rgb: [u8; 3],
+    fg_rgb: [u8; 3],
+    selected: bool,
+) {
+    let box_rect = waypoint_label_bounds(pt, name);
+    let (box_x, box_y, box_w, box_h) =
+        (box_rect.x, box_rect.y, box_rect.width, box_rect.height);
 
     frame.stroke(&CanvasPath::line(Point::new(pt.x, box_y + box_h), pt), canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5));
 

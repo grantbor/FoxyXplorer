@@ -31,6 +31,28 @@ fn is_space(key: &iced::keyboard::Key) -> bool {
         || matches!(key, iced::keyboard::Key::Character(c) if c == " ")
 }
 
+/// Construct an ordinary, editable waypoint (the same defaults as AddWaypointAt).
+fn new_user_waypoint(id: u64, name: String, lon: f64, lat: f64) -> domain::Waypoint {
+    domain::Waypoint {
+        id,
+        name,
+        lon,
+        lat,
+        ele: None,
+        time: None,
+        symbol: None,
+        description: None,
+        visible: true,
+        source: domain::FileSource::New,
+        text_color: [0, 0, 0],
+        bg_color: [0, 255, 255],
+        category_code: None,
+        azimuth: None,
+        timezone_id: None,
+        utc_offset_minutes: None,
+    }
+}
+
 impl App {
     fn ftp_tracks_dir(&self) -> Result<PathBuf, String> {
         let kit = self.last_kit.as_ref().filter(|p| p.is_dir())
@@ -279,7 +301,8 @@ impl App {
             | Message::OpenWaypointProps(_) | Message::AddNewWaypoint | Message::ApplyWaypointProps
             | Message::CloseWaypointProps | Message::ToggleWpSaveMenu | Message::CenterOnWaypoint(_)
             | Message::ClearWaypointCrosshair | Message::MeasureWaypoints | Message::CloseWaypointMeasure 
-            | Message::DeleteWaypointById(_) | Message::AddWaypointAt(_, _) |  Message::OpenWaypointProjection(_) 
+            | Message::DeleteWaypointById(_) | Message::AddWaypointAt(_, _) | Message::AddNamedWaypoint(_, _, _)
+            | Message::OpenWaypointProjection(_)
             | Message::CloseWaypointProjection | Message::ProjectAzimuthChanged(_) | Message::ProjectDistanceChanged(_) 
             | Message::ExecuteProjection  => {
                 return self.update_waypoints(m);
@@ -2803,20 +2826,9 @@ impl App {
                 self.tracks_cache.clear();
             }
             Message::AddWaypointAt(lon, lat) => {
-                let new_wp = domain::Waypoint {
-                    id: self.next_id,
-                    name: format!("Новая точка{}", self.next_id),
-                    lon, lat,
-                    ele: None, time: None, symbol: None, description: None,
-                    visible: true,
-                    source: domain::FileSource::New,
-                    text_color: [0, 0, 0],
-                    bg_color: [0, 255, 255],
-            category_code: None,
-            azimuth: None,
-            timezone_id: None,
-            utc_offset_minutes: None,
-                };
+                let new_wp = new_user_waypoint(
+                    self.next_id, format!("Новая точка{}", self.next_id), lon, lat,
+                );
                 self.next_id += 1;
                 self.push_undo(t!("msg_0058"));
                 self.waypoints.push(Arc::new(new_wp.clone()));
@@ -2827,6 +2839,21 @@ impl App {
                     coord_input: format!("{:.6} {:.6}", lat, lon),
                     is_new: true,
                 });
+                self.tracks_cache.clear();
+            }
+            Message::AddNamedWaypoint(name, lon, lat) => {
+                // Copy a grid node or Wiki-WPT into the editable waypoint list.
+                // Do not modify the original grid or the informational Wiki layer.
+                self.push_undo("Добавить точку на карту");
+                let id = self.next_id;
+                self.next_id += 1;
+                self.waypoints.push(Arc::new(new_user_waypoint(id, name, lon, lat)));
+                self.selection.tracks.clear();
+                self.selection.points.clear();
+                self.selection.waypoints.clear();
+                self.selection.waypoints.insert(id);
+                self.last_waypoint_clicked = Some(id);
+                self.search_waypoints.clear(); // Ensure the new entry is not hidden by an old filter.
                 self.tracks_cache.clear();
             }
             Message::OpenWaypointProjection(id) => {
@@ -3931,3 +3958,21 @@ impl App {
     
 }
 
+
+#[cfg(test)]
+mod named_waypoint_tests {
+    use super::*;
+
+    #[test]
+    fn reference_point_becomes_standard_editable_waypoint() {
+        let wp = new_user_waypoint(42, "H12".into(), 83.084312, 54.945816);
+        assert_eq!(wp.id, 42);
+        assert_eq!(wp.name, "H12");
+        assert_eq!((wp.lon, wp.lat), (83.084312, 54.945816));
+        assert!(wp.visible);
+        assert!(matches!(wp.source, domain::FileSource::New));
+        assert_eq!(wp.text_color, [0, 0, 0]);
+        assert_eq!(wp.bg_color, [0, 255, 255]);
+        assert!(wp.description.is_none());
+    }
+}
