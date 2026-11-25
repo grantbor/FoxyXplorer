@@ -31,6 +31,170 @@ fn is_space(key: &iced::keyboard::Key) -> bool {
 }
 
 impl App {
+    fn ftp_tracks_dir(&self) -> Result<PathBuf, String> {
+        let kit = self.last_kit.as_ref().filter(|p| p.is_dir())
+            .ok_or_else(|| "Для FTP необходимо сначала открыть комплект".to_string())?;
+        let directory = kit.join("10-Tracks");
+        std::fs::create_dir_all(&directory).map_err(|e| format!("{}: {e}", directory.display()))?;
+        Ok(directory)
+    }
+
+    fn ftp_path_within_kit(&self, path: &std::path::Path) -> Result<PathBuf, String> {
+        let directory = self.ftp_tracks_dir()?;
+        let target = path.parent().ok_or("Не выбрана папка WPT")?;
+        if target.canonicalize().map_err(|e| e.to_string())? != directory.canonicalize().map_err(|e| e.to_string())? {
+            return Err("Для отправки по FTP выберите WPT из папки комплекта 10-Tracks".into());
+        }
+        if !path.extension().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("wpt")) {
+            return Err("Для FTP нужен файл .wpt".into());
+        }
+        Ok(path.to_path_buf())
+    }
+
+    fn ftp_prepare(&self, kind: &crate::FtpKind) -> Result<Vec<PathBuf>, String> {
+        use std::collections::HashSet;
+        let directory = self.ftp_tracks_dir()?;
+        match kind {
+            crate::FtpKind::Tracks => {
+                let mut used = HashSet::new();
+                let mut planned = Vec::new();
+                for track in self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)) {
+                    let name = if track.props.description.trim().is_empty() { &track.name } else { &track.props.description };
+                    let safe = crate::foxyupload::safe_filename(name);
+                    let path = directory.join(format!("{safe}.plt"));
+                    if !used.insert(path.clone()) { return Err(format!("У выделенных треков совпадают имена: {safe}")); }
+                    planned.push((track, path));
+                }
+                if planned.is_empty() { return Err("Нет выбранных треков".into()); }
+                let mut paths = Vec::new();
+                for (t, path) in planned { crate::io::save_plt(t, &path)?; paths.push(path); }
+                Ok(paths)
+            }
+            crate::FtpKind::WaypointsNew(path) | crate::FtpKind::WaypointsAppend(path) => {
+                let path = self.ftp_path_within_kit(path)?;
+                let selected: Vec<_> = self.waypoints.iter()
+                    .filter(|w| self.selection.waypoints.contains(&w.id))
+                    .map(|w| w.as_ref()).collect();
+                if selected.is_empty() { return Err("Нет выбранных путевых точек".into()); }
+                if matches!(kind, crate::FtpKind::WaypointsAppend(_)) {
+                    if !path.is_file() { return Err("Исходный WPT для добавления не найден".into()); }
+                    let mut next_id = self.next_id;
+                    let old = crate::io::load_user_file(&path, &mut next_id)?;
+                    let mut all = old.waypoints;
+                    all.extend(selected.into_iter().cloned());
+                    let refs: Vec<_> = all.iter().collect();
+                    crate::io::save_any(&[], &refs, &path)?;
+                } else {
+                    crate::io::save_any(&[], &selected, &path)?;
+                }
+                Ok(vec![path])
+            }
+        }
+    }
+
+    fn ftp_grid_file(&self) -> Option<PathBuf> {
+        let directory = self.ftp_tracks_dir().ok()?;
+        let mut files: Vec<_> = std::fs::read_dir(directory).ok()?.flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|s| s.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("gpx")))
+            .collect();
+        files.sort();
+        files.into_iter().find(|path| {
+            std::fs::read(path).ok()
+                .and_then(|bytes| grid::Grid::from_gpx(&geoio::text::decode(&bytes)).ok())
+                .is_some_and(|grid| !grid.nodes.is_empty())
+        })
+    }
+
+    fn update_ftp(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::FtpTracks => {
+                if self.selection.tracks.is_empty() { self.status = "Выберите треки".into(); return Task::none(); }
+                if let Err(err) = self.ftp_tracks_dir() { self.status = err; return Task::none(); }
+                self.modal = Some(Modal::FtpConfirm { kind: crate::FtpKind::Tracks, folder: self.ftp_remote_folder.clone() });
+            }
+            Message::FtpWaypointNew => {
+                self.show_wp_ftp_menu = !self.show_wp_ftp_menu;
+                if self.show_wp_ftp_menu { self.show_wp_save_menu = false; }
+            }
+            Message::FtpNewDialog => {
+                let directory = match self.ftp_tracks_dir() { Ok(d) => d, Err(e) => { self.status = e; return Task::none(); } };
+                if self.selection.waypoints.is_empty() { self.status = "Выберите точки".into(); return Task::none(); }
+                self.show_wp_ftp_menu = false;
+                let filename = format!("Waypoints_{}.wpt", date_offset(0).replace('-', ""));
+                let dialog = rfd::AsyncFileDialog::new().set_directory(&directory)
+                    .set_file_name(&filename).add_filter("OziExplorer Waypoints", &["wpt"]);
+                return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::FtpNewPicked);
+            }
+            Message::FtpAppendDialog => {
+                let directory = match self.ftp_tracks_dir() { Ok(d) => d, Err(e) => { self.status = e; return Task::none(); } };
+                if self.selection.waypoints.is_empty() { self.status = "Выберите точки".into(); return Task::none(); }
+                self.show_wp_ftp_menu = false;
+                let dialog = rfd::AsyncFileDialog::new().set_directory(&directory)
+                    .add_filter("OziExplorer Waypoints", &["wpt"]);
+                return Task::perform(async move { dialog.pick_file().await.map(|h| h.path().to_path_buf()) }, Message::FtpAppendPicked);
+            }
+            Message::FtpNewPicked(Some(path)) => {
+                let path = match self.ftp_path_within_kit(&path) { Ok(p) => p, Err(e) => { self.status = e; return Task::none(); } };
+                self.modal = Some(Modal::FtpConfirm { kind: crate::FtpKind::WaypointsNew(path), folder: self.ftp_remote_folder.clone() });
+            }
+            Message::FtpAppendPicked(Some(path)) => {
+                let path = match self.ftp_path_within_kit(&path) { Ok(p) => p, Err(e) => { self.status = e; return Task::none(); } };
+                if !path.is_file() { self.status = format!("WPT не найден: {}", path.display()); return Task::none(); }
+                self.modal = Some(Modal::FtpConfirm { kind: crate::FtpKind::WaypointsAppend(path), folder: self.ftp_remote_folder.clone() });
+            }
+            Message::FtpNewPicked(None) | Message::FtpAppendPicked(None) => {}
+            Message::FtpFolderChanged(folder) => {
+                if let Some(Modal::FtpConfirm { folder: draft, .. }) = &mut self.modal { *draft = folder; }
+            }
+            Message::FtpStart => {
+                let (kind, folder) = match self.modal.as_ref() {
+                    Some(Modal::FtpConfirm { kind, folder }) => (kind.clone(), folder.trim().to_string()),
+                    _ => return Task::none(),
+                };
+                if let Err(e) = crate::foxyupload::validate_folder(&folder) { self.status = e; return Task::none(); }
+                let profile = match crate::foxyupload::load_profile() {
+                    Ok(Some(profile)) => profile,
+                    Ok(None) => { self.status = "FTP не настроен: откройте Настройки".into(); return Task::none(); }
+                    Err(e) => { self.status = e; return Task::none(); }
+                };
+                // Critical: local save / append happens ONCE before the network job.
+                let files = match self.ftp_prepare(&kind) {
+                    Ok(files) => files,
+                    Err(e) => { self.status = format!("Сохранение для FTP: {e}"); return Task::none(); }
+                };
+                let plan = crate::foxyupload::Plan {
+                    profile, remote_folder: folder.clone(), grid: self.ftp_grid_file(), files,
+                };
+                self.ftp_remote_folder = folder;
+                crate::save_session(self);
+                self.modal = Some(Modal::FtpProgress);
+                return Task::perform(
+                    async move {
+                        match tokio::task::spawn_blocking(move || crate::foxyupload::upload_batch(plan)).await {
+                            Ok(report) => report,
+                            Err(e) => crate::foxyupload::Report {
+                                failures: vec![crate::foxyupload::FailedFile { file: PathBuf::from("FTP"), error: format!("Ошибка сетевой задачи: {e}") }],
+                                ..Default::default()
+                            }
+                        }
+                    }, Message::FtpFinished
+                );
+            }
+            Message::FtpFinished(report) => {
+                self.status = if report.failures.is_empty() {
+                    format!("FTP: передано {} файлов", report.uploaded)
+                } else { format!("FTP: передано {}, ошибок {} — требуется вмешательство", report.uploaded, report.failures.len()) };
+                self.modal = Some(Modal::FtpResult(report));
+            }
+            Message::FtpClose => {
+                if !matches!(self.modal.as_ref(), Some(Modal::FtpProgress)) { self.modal = None; }
+            }
+            _ => {}
+        }
+        Task::none()
+    }
+
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         match m {
             // --- View & Canvas ---
@@ -63,9 +227,17 @@ impl App {
             | Message::FoxyDropStart | Message::FoxyDropStop
             | Message::FoxyDropIpSelected(_) | Message::FoxyDropStarted(_)
             | Message::FoxyDropStopped | Message::FoxyDropHeartbeat | Message::FoxyDropCopyUrl
+            | Message::SettingsFtpHostChanged(_) | Message::SettingsFtpPortChanged(_)
+            | Message::SettingsFtpUserChanged(_) | Message::SettingsFtpPasswordChanged(_)
             | Message::OpenUrl(_) => {
                 return self.update_ui(m); 
             }
+
+            // --- FTP: separate workflow; repeat ONLY the network transfer, never WPT+. ---
+            Message::FtpTracks | Message::FtpWaypointNew | Message::FtpNewDialog
+            | Message::FtpAppendDialog | Message::FtpNewPicked(_) | Message::FtpAppendPicked(_)
+            | Message::FtpFolderChanged(_) | Message::FtpStart | Message::FtpFinished(_)
+            | Message::FtpClose => { return self.update_ftp(m); }
 
             // --- Треки ---
             Message::Layer(_) | Message::SelectTrack(_) | Message::ToggleTrackVisible(_, _)
@@ -190,6 +362,11 @@ impl App {
         self.last_kit = sess.last_kit.clone();
         self.last_open_dir = sess.last_open_dir.clone();
         self.last_save_dir = sess.last_save_dir.clone();
+        self.ftp_remote_folder = sess.ftp_remote_folder.clone();
+        let dir = if sess.foxydrop_folder.is_empty() {
+            crate::config::load().drop_folder
+        } else { sess.foxydrop_folder.clone() };
+        self.drop_service.set_directory(PathBuf::from(dir));
         if let Some(kit) = &self.last_kit {
             self.apply_kit(crate::load_kit(kit));
         }
@@ -1056,6 +1233,8 @@ impl App {
                             Some(Modal::About)                        => Message::CloseAbout,
                             Some(Modal::Settings { .. })              => Message::CloseSettings,
                             Some(Modal::FoxyDrop)                    => Message::CloseFoxyDrop,
+                            Some(Modal::FtpConfirm { .. }) | Some(Modal::FtpResult(_)) => Message::FtpClose,
+                            Some(Modal::FtpProgress)                   => return Task::none(),
                             None                                      => return Task::none(),
                         };
                         return self.update(close_msg);
@@ -1394,6 +1573,8 @@ impl App {
                 self.selection = Selection::default();
                 self.next_id = 0;
                 self.last_kit = None;
+                self.ftp_remote_folder.clear();
+                self.drop_service.set_directory(PathBuf::new());
                 self.undo_stack.clear();
                 self.redo_stack.clear();
                 
@@ -1512,6 +1693,10 @@ impl App {
                 self.show_color_picker = None;
                 let cfg = crate::config::load();
                 let coord_input = format!("{:.6} {:.6}", cfg.default_lat, cfg.default_lon);
+                let ftp_profile = match crate::foxyupload::load_profile() {
+                    Ok(profile) => profile,
+                    Err(err) => { self.status = err; None }
+                };
                 self.modal = Some(Modal::Settings {
                     draft: SettingsDraft {
                         coord_input: coord_input.clone(),
@@ -1520,7 +1705,11 @@ impl App {
                         lang: cfg.lang.clone(),
                         simplify_tolerance: cfg.simplify_tolerance,
                         grid_color: self.grid_color,
-                        drop_folder: cfg.drop_folder.clone(),
+                        drop_folder: self.drop_service.directory().to_string_lossy().into_owned(),
+                        ftp_host: ftp_profile.as_ref().map(|p| p.host.clone()).unwrap_or_default(),
+                        ftp_port: ftp_profile.as_ref().map(|p| p.port.to_string()).unwrap_or_else(|| "21".into()),
+                        ftp_username: ftp_profile.as_ref().map(|p| p.username.clone()).unwrap_or_default(),
+                        ftp_password: String::new(),
                         ui_theme: self.ui_theme.clone(),
                         original_grid_color: self.grid_color,
                         original_ui_theme: self.ui_theme.clone(),
@@ -1546,13 +1735,36 @@ impl App {
                 if let Some(Modal::Settings { draft }) = &self.modal {
                     match (draft.parsed_lat, draft.parsed_lon) {
                         (Some(lat), Some(lon)) => {
+                            // Do not save any FTP profile to config.json. The OS keyring
+                            // stores the ENTIRE connection profile, including the host.
+                            if !draft.ftp_host.is_empty() || !draft.ftp_username.is_empty() || !draft.ftp_password.is_empty() {
+                                let existing = match crate::foxyupload::load_profile() {
+                                    Ok(p) => p,
+                                    Err(err) => { self.status = err; return Task::none(); }
+                                };
+                                let password = if draft.ftp_password.is_empty() {
+                                    existing.map(|p| p.password).unwrap_or_default()
+                                } else { draft.ftp_password.clone() };
+                                let port = match draft.ftp_port.parse::<u16>() {
+                                    Ok(p) if p != 0 => p,
+                                    _ => { self.status = "Неверный FTP-порт".into(); return Task::none(); }
+                                };
+                                let profile = crate::foxyupload::Profile {
+                                    host: draft.ftp_host.trim().to_string(), port,
+                                    username: draft.ftp_username.trim().to_string(), password,
+                                };
+                                if let Err(err) = crate::foxyupload::save_profile(&profile) {
+                                    self.status = err;
+                                    return Task::none();
+                                }
+                            }
                             let new_cfg = crate::config::Config {
                                 default_lon: lon,
                                 default_lat: lat,
                                 lang: draft.lang.clone(),
                                 simplify_tolerance: draft.simplify_tolerance,
                                 grid_color: draft.grid_color,
-                                drop_folder: draft.drop_folder.clone(),
+                                drop_folder: String::new(), // moved to session (legacy config reader remains)
                                 drop_port: crate::config::load().drop_port,
                                 ui_theme: draft.ui_theme.to_string(),
                             };
@@ -1567,12 +1779,13 @@ impl App {
                                     self.osm_canvas_cache.clear();
                                     self.tracks_cache.clear();
                                     self.grid_color = new_cfg.grid_color;
-                                    self.drop_service.set_directory(PathBuf::from(&new_cfg.drop_folder));
+                                    self.drop_service.set_directory(PathBuf::from(&draft.drop_folder));
                                     self.grid_cache.clear();
                                     self.show_color_picker = None;
                                     crate::i18n::set_lang(Box::leak(new_cfg.lang.clone().into_boxed_str()));
                                     self.status = "Настройки сохранены".into();
                                     self.modal = None;
+                                    save_session(self);
                                 }
                                 Err(e) => {
                                     self.status = format!("Ошибка сохранения: {e}");
@@ -1631,6 +1844,18 @@ impl App {
                 }
             }
             Message::SettingsDropFolderPicked(None) => {}
+            Message::SettingsFtpHostChanged(s) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal { draft.ftp_host = s; }
+            }
+            Message::SettingsFtpPortChanged(s) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal { draft.ftp_port = s; }
+            }
+            Message::SettingsFtpUserChanged(s) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal { draft.ftp_username = s; }
+            }
+            Message::SettingsFtpPasswordChanged(s) => {
+                if let Some(Modal::Settings { draft }) = &mut self.modal { draft.ftp_password = s; }
+            }
             Message::SettingsThemeChanged(theme) => {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     draft.ui_theme = theme.clone();
@@ -3035,6 +3260,10 @@ impl App {
             }
             Message::KitPicked(Some(path)) => {
                 if self.apply_kit(load_kit(&path)) {
+                    if self.last_kit.as_deref() != Some(path.as_path()) {
+                        self.ftp_remote_folder.clear();
+                        self.drop_service.set_directory(PathBuf::new());
+                    }
                     self.last_kit = Some(path.clone());
                     session::save_last_kit(&path);
                 }

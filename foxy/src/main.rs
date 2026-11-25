@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod app; 
 mod foxydrop;
+mod foxyupload;
 mod canvas;
 mod domain;
 mod io;
@@ -139,6 +140,10 @@ pub(crate) struct SettingsDraft {
     pub ui_theme: iced::Theme,
     pub original_grid_color: [u8; 3],
     pub original_ui_theme: iced::Theme,
+    pub ftp_host: String,
+    pub ftp_port: String,
+    pub ftp_username: String,
+    pub ftp_password: String,
 }
 
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
@@ -437,6 +442,11 @@ pub(crate) enum Message {
     FoxyDropStopped,
     FoxyDropHeartbeat,
     FoxyDropCopyUrl,
+    FtpTracks, FtpWaypointNew, FtpNewDialog, FtpAppendDialog,
+    FtpNewPicked(Option<PathBuf>), FtpAppendPicked(Option<PathBuf>),
+    FtpFolderChanged(String), FtpStart, FtpFinished(foxyupload::Report), FtpClose,
+    SettingsFtpHostChanged(String), SettingsFtpPortChanged(String),
+    SettingsFtpUserChanged(String), SettingsFtpPasswordChanged(String),
     None,
 }
 
@@ -473,6 +483,13 @@ pub(crate) enum ColorPickerKind {
     GridColor,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) enum FtpKind {
+    Tracks,
+    WaypointsNew(PathBuf),
+    WaypointsAppend(PathBuf),
+}
+
 pub(crate) struct DrawingTrack {
     pub points: Vec<(f64, f64)>, // (lon, lat)
     pub target_track_id: Option<u64>,
@@ -493,6 +510,8 @@ pub(crate) fn build_session(app: &App) -> session::Session {
         last_kit: app.last_kit.clone(),
         last_open_dir: app.last_open_dir.clone(),
         last_save_dir: app.last_save_dir.clone(),
+        ftp_remote_folder: app.ftp_remote_folder.clone(),
+        foxydrop_folder: app.drop_service.directory().to_string_lossy().into_owned(),
         view: session::SessionView {
             cx: app.cx,
             cy: app.cy,
@@ -563,6 +582,7 @@ pub(crate) struct App {
     pub(crate) last_waypoint_clicked: Option<u64>,
     pub(crate) search_tracks: String,
     pub(crate) search_waypoints: String,
+    pub(crate) ftp_remote_folder: String,
     pub(crate) last_kit: Option<PathBuf>, 
     pub(crate) last_open_dir: Option<PathBuf>,
     pub(crate) last_save_dir: Option<PathBuf>,
@@ -579,6 +599,7 @@ pub(crate) struct App {
     pub(crate) last_waypoint_click: Option<(u64, std::time::Instant)>,
     pub(crate) show_track_save_menu: bool,
     pub(crate) show_wp_save_menu: bool,
+    pub(crate) show_wp_ftp_menu: bool,
     pub(crate) theme: iced::Theme,
     pub(crate) current_theme: AppTheme,
     pub(crate) ui_theme: iced::Theme,
@@ -637,6 +658,9 @@ pub(crate) enum Modal {
     //Settings,
     Settings { draft: SettingsDraft },
     FoxyDrop,
+    FtpConfirm { kind: FtpKind, folder: String },
+    FtpProgress,
+    FtpResult(foxyupload::Report),
 }
 
 // A tinted modal backdrop must also capture pointer events: a plain
@@ -831,7 +855,7 @@ impl App {
                 let mut app = App {
                     layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
                     show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
-                    drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(&cfg.drop_folder))),
+                    drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(if session.foxydrop_folder.is_empty() { &cfg.drop_folder } else { &session.foxydrop_folder }))),
                     drop_phase: foxydrop::Phase::Stopped,
                     drop_address: None,
                     drop_ips: foxydrop::local_ipv4_addresses(),
@@ -847,7 +871,7 @@ impl App {
                     tracks: session.tracks.into_iter().map(Arc::new).collect(), 
                     waypoints: session.waypoints.into_iter().map(Arc::new).collect(), 
                     next_id: session.next_id, selection: Selection::default(),
-                    last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
+                    ftp_remote_folder: session.ftp_remote_folder.clone(), last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
                     last_track_clicked: None, last_waypoint_clicked: None,
                     search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
                     palette: load_palette(), modal: None, track_backup: None, last_track_click: None, 
@@ -855,7 +879,7 @@ impl App {
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
-                    show_track_save_menu: false, show_wp_save_menu: false,
+                    show_track_save_menu: false, show_wp_save_menu: false, show_wp_ftp_menu: false,
                     theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
                     modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
@@ -912,13 +936,13 @@ impl App {
             osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
             tracks: Vec::new(), waypoints: Vec::new(), next_id: 0,
             selection: Selection::default(),
-            last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
+            ftp_remote_folder: String::new(), last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None, last_waypoint_clicked: None,
             search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
             palette: load_palette(), modal: None, track_backup: None, last_track_click: None, show_color_picker: None,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
-            show_track_save_menu: false, show_wp_save_menu: false,
+            show_track_save_menu: false, show_wp_save_menu: false, show_wp_ftp_menu: false,
             theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
             modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
@@ -1368,6 +1392,15 @@ impl App {
                 modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
                     .padding(modal_drag_padding(self.modal_drag_offset))
+            ].into()
+        } else if matches!(self.modal.as_ref(), Some(Modal::FtpConfirm { .. } | Modal::FtpProgress | Modal::FtpResult(_))) {
+            let modal_ui = self.view_ftp_modal();
+            stack![
+                base_ui,
+                mouse_area(container(text("")).width(Length::Fill).height(Length::Fill)
+                    .style(|_| container::Style { background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.15).into()), ..Default::default() }))
+                    .on_press(Message::None).on_right_press(Message::None).on_middle_press(Message::None),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
             ].into()
         } else if let Some(Modal::Settings { draft }) = &self.modal {
             let modal_ui = self.view_settings_modal(draft);

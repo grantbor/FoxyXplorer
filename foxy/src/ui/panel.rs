@@ -284,6 +284,12 @@ impl App {
                 },
                 t!("msg_0092")
             ),
+            with_tooltip(
+                if has_tracks && self.last_kit.is_some() {
+                    self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpTracks)
+                } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
+                "Отправить выбранные PLT по FTP"
+            ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 if has_tracks {
@@ -480,6 +486,12 @@ impl App {
                 },
                 t!("msg_0108")
             ),
+            with_tooltip(
+                if has_wps && self.last_kit.is_some() {
+                    self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpWaypointNew)
+                } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
+                "FTP: выбрать WPT / WPT+"
+            ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 if has_wps {
@@ -539,7 +551,13 @@ impl App {
             ),
         ].spacing(4).align_y(Alignment::Center);
 
-        let bottom_bar = if self.show_wp_save_menu { row_save } else { row_normal };
+        let row_ftp = row![
+            with_tooltip(self.btn_secondary("WPT").on_press(Message::FtpNewDialog), "Создать WPT, затем отправить"),
+            with_tooltip(self.btn_secondary("WPT+").on_press(Message::FtpAppendDialog), "Добавить в WPT, затем отправить"),
+            Space::new().width(Length::Fill),
+            self.icon_button(lucide_iced::bytes::X, Message::FtpWaypointNew),
+        ].spacing(4).align_y(Alignment::Center);
+        let bottom_bar = if self.show_wp_ftp_menu { row_ftp } else if self.show_wp_save_menu { row_save } else { row_normal };
 
         column![
             header,

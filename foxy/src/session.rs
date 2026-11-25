@@ -30,6 +30,10 @@ pub struct Session {
 
     #[serde(default)]
     pub last_save_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub ftp_remote_folder: String,
+    #[serde(default)]
+    pub foxydrop_folder: String,
 }
 
 pub fn foxy_config_dir() -> PathBuf {

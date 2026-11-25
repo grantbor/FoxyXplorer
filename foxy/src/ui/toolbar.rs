@@ -74,7 +74,7 @@ impl App {
             // FoxyDrop
             with_tooltip(
                 self.icon_toggle_button(
-                    lucide_iced::bytes::UPLOAD,
+                    lucide_iced::bytes::DOWNLOAD,
                     self.drop_phase == crate::foxydrop::Phase::Running,
                     Message::OpenFoxyDrop,
                 ),

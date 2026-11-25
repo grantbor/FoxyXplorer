@@ -272,7 +272,7 @@ impl App {
         let line_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::LineColor) {
             let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in ext_palette.chunks(8) {
+            for chunk in ext_palette.chunks(10) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
                     row_btns.push(make_color_btn(c, c == draft.line_color, Message::DraftColorChanged(c)));
@@ -287,7 +287,7 @@ impl App {
         let fill_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::FillColor) {
             let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in ext_palette.chunks(8) {
+            for chunk in ext_palette.chunks(10) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
                     row_btns.push(make_color_btn(c, c == draft.fill_color, Message::DraftFillColorChanged(c)));
@@ -484,8 +484,13 @@ impl App {
         draft: &'a domain::Waypoint,
         coord_input: &'a str,
     ) -> Element<'a, Message> {
-        let text_colors = vec![[0, 0, 0], [255, 255, 255]];
-        let bg_colors = crate::util::waypoint_categories::background_colors();
+        // Waypoint text is deliberately limited to black or white.
+        let text_colors = [[0, 0, 0], [255, 255, 255]];
+        let mut bg_colors = crate::util::waypoint_categories::background_colors();
+        // The category palette has eight distinct colors; add black as the ninth.
+        if !bg_colors.contains(&[0, 0, 0]) {
+            bg_colors.push([0, 0, 0]);
+        }
         let categories = crate::util::waypoint_categories::all();
         let empty_category = if crate::i18n::current_lang() == "en" { "(None)" } else { "(Без категории)" };
         let category_selected = draft.category_code.as_ref()
@@ -510,13 +515,11 @@ impl App {
                 .into()
         };
 
-        let mut text_color_btns: Vec<Element<'a, Message>> = text_colors
+        let text_color_btns: Vec<Element<'a, Message>> = text_colors
             .iter()
             .map(|&c| make_color_btn(c, c == draft.text_color, Message::DraftWpTextColorChanged(c)))
             .collect();
-            
-        text_color_btns.push(self.chevron_toggle(ColorPickerKind::WpTextColor));
-        
+
         let text_color_row = row(text_color_btns).spacing(2);
 
         let mut bg_color_btns: Vec<Element<'a, Message>> = bg_colors
@@ -528,25 +531,9 @@ impl App {
         
         let bg_color_row = row(bg_color_btns).spacing(2);
         
-        let text_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpTextColor) {
-            let ext_palette = get_extended_palette();
-            let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in ext_palette.chunks(8) {
-                let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
-                for &c in chunk {
-                    row_btns.push(make_color_btn(c, c == draft.text_color, Message::DraftWpTextColorChanged(c)));
-                }
-                grid_rows.push(row(row_btns).spacing(2).into());
-            }
-            container(column(grid_rows).spacing(2)).padding([0, 100]).into()
-        } else {
-            column![].into()
-        };
-
         let bg_picker_ui: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::WpBgColor) {
-            //let ext_palette = get_extended_palette();
             let mut grid_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in get_extended_palette().chunks(8) {
+            for chunk in get_extended_palette().chunks(10) {
                 let mut row_btns: Vec<Element<'a, Message>> = Vec::new();
                 for &c in chunk {
                     row_btns.push(make_color_btn(c, c == draft.bg_color, Message::DraftWpBgColorChanged(c)));
@@ -628,7 +615,6 @@ impl App {
                     .padding(input_pad).style(input_style.clone()),
             ].align_y(Alignment::Center),
             row![text(t!("msg_0158")).width(100), text_color_row].align_y(Alignment::Center),
-            text_picker_ui,
             row![text(t!("msg_0159")).width(100), bg_color_row].align_y(Alignment::Center),
             bg_picker_ui,
             
@@ -1259,7 +1245,7 @@ impl App {
         let pick_pad = crate::ui::styles::button_padding();
         let pick_style = crate::ui::styles::pick_list;
 
-        // Основной ряд цветов и расширенная палитра 8×8, как в Track Properties.
+        // Основной ряд цветов и расширенная палитра 10×6, как в Track Properties.
         let make_grid_color_btn = |color: [u8; 3]| -> Element<'a, Message> {
             let selected = color == draft.grid_color;
             button(text("")).width(24).height(24)
@@ -1287,7 +1273,7 @@ impl App {
 
         let grid_color_picker: Element<'a, Message> = if self.show_color_picker == Some(ColorPickerKind::GridColor) {
             let mut palette_rows: Vec<Element<'a, Message>> = Vec::new();
-            for chunk in get_extended_palette().chunks(8) {
+            for chunk in get_extended_palette().chunks(10) {
                 let buttons: Vec<Element<'a, Message>> = chunk.iter()
                     .copied()
                     .map(make_grid_color_btn)
@@ -1421,6 +1407,35 @@ impl App {
                 self.btn_secondary("...").on_press(Message::SettingsChooseDropFolder),
             ].align_y(Alignment::Center).spacing(6),
 
+            separator(),
+            text(if crate::i18n::current_lang() == "en" { "FoxyUpload · FTP (unencrypted)" } else { "FoxyUpload · FTP (без шифрования)" }).size(14),
+            row![
+                text("FTP server").width(160),
+                text_input("ftp.example.com", &draft.ftp_host)
+                    .on_input(Message::SettingsFtpHostChanged)
+                    .padding(input_pad).style(input_style.clone()).width(Length::Fill),
+            ].align_y(Alignment::Center),
+            row![
+                text("FTP port").width(160),
+                text_input("21", &draft.ftp_port)
+                    .on_input(Message::SettingsFtpPortChanged)
+                    .padding(input_pad).style(input_style.clone()).width(80),
+            ].align_y(Alignment::Center),
+            row![
+                text("FTP login").width(160),
+                text_input("", &draft.ftp_username)
+                    .on_input(Message::SettingsFtpUserChanged)
+                    .padding(input_pad).style(input_style.clone()).width(Length::Fill),
+            ].align_y(Alignment::Center),
+            row![
+                text("FTP password").width(160),
+                text_input("", &draft.ftp_password)
+                    .secure(true)
+                    .on_input(Message::SettingsFtpPasswordChanged)
+                    .padding(input_pad).style(input_style.clone()).width(Length::Fill),
+            ].align_y(Alignment::Center),
+            text("FTP-профиль сохраняется в системном хранилище паролей, а не в config.json.").size(11),
+
             // Настраиваемый цвет линий и узлов сетки.
             row![
                 text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
@@ -1456,9 +1471,9 @@ impl App {
             // Высота ограничена реальным размером окна, основная часть прокручивается.
             .height(Length::Fixed(
                 (if self.show_color_picker == Some(ColorPickerKind::GridColor) {
-                    690.0_f32
+                    900.0_f32
                 } else {
-                    480.0_f32
+                    740.0_f32
                 }).min((self.window_size.height - 64.0).max(240.0))
             ))
             .into()

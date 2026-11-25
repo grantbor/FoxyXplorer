@@ -32,15 +32,11 @@ pub fn load_palette() -> Vec<[u8; 3]> {
     default
 }
 
-/// Расширенная палитра 8×8, сгруппированная по семействам оттенков.
-/// Строки (по 8 цветов):
-/// 1) белый/жёлтый/оранжевый  2) красный/розовый/магента
-/// 3) персиковый/розовый/фиолетовый  4) синий
-/// 5) бирюзовый/зелёный  6) зелёный/жёлто-зелёный
-/// 7) коричневый/тёмно-красный  8) тёмно-коричневый/серый/чёрный
-const EXTENDED_PALETTE: [[u8; 3]; 64] = [
-    // 1. Белый → жёлтый → оранжевый
-    [255, 255, 255], // white
+/// Расширенная палитра: 60 цветов (6 строк по 10).
+/// Порядок оставшихся цветов из исходной палитры 8×8 сохранён.
+/// Белый, чёрный и бывшие позиции 4.5/4.6 в расширенной сетке исключены.
+const EXTENDED_PALETTE: [[u8; 3]; 60] = [
+    // 1. Светлые оттенки → жёлтый → оранжевый
     [255, 248, 220], // ivory
     [255, 235,   0], // yellow
     [255, 200,   0], // gold
@@ -74,8 +70,6 @@ const EXTENDED_PALETTE: [[u8; 3]; 64] = [
     [ 20,  50, 120], // dark blue
     [ 30,  50,  80], // dark slate
     [ 20,  30,  50], // very dark slate
-    [ 15,  20,  35], // almost-black blue
-    [  5,   5,  20], // midnight
     [ 30, 140, 220], // dodger blue
     [ 30, 170, 210], // sky blue
 
@@ -109,7 +103,7 @@ const EXTENDED_PALETTE: [[u8; 3]; 64] = [
     [ 90,  25,  55], // dark maroon
     [ 90,  15,  15], // very dark red
 
-    // 8. Тёмно-коричневый → серый → чёрный
+    // 8. Тёмно-коричневый → серый
     [ 50,  25,  15], // very dark brown
     [ 85,  50,  35], // dark reddish brown
     [130,  85,  65], // medium brown
@@ -117,9 +111,23 @@ const EXTENDED_PALETTE: [[u8; 3]; 64] = [
     [240, 180, 150], // light salmon
     [245, 210, 190], // very pale peach
     [190, 190, 190], // light gray
-    [  0,   0,   0], // black
 ];
 
 pub fn get_extended_palette() -> Vec<[u8; 3]> {
     EXTENDED_PALETTE.to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_extended_palette;
+
+    #[test]
+    fn expanded_palette_has_six_rows_of_ten_without_removed_colors() {
+        let colors = get_extended_palette();
+        assert_eq!(colors.len(), 60);
+        assert_eq!(colors.chunks(10).count(), 6);
+        for removed in [[255, 255, 255], [0, 0, 0], [15, 20, 35], [5, 5, 20]] {
+            assert!(!colors.contains(&removed), "unexpected color: {removed:?}");
+        }
+    }
 }
