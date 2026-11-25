@@ -219,7 +219,7 @@ impl App {
             }
 
             // --- UI (Верхняя панель) ---
-            Message::ToggleGrid | Message::ToggleLabels | Message::ToggleWiki | Message::CycleFormat
+            Message::ToggleGrid | Message::ToggleLabels | Message::ToggleWiki
             | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) 
             | Message::ModalDragStart | Message::SelectTool(_) 
             | Message::KeyPressed(_, _) | Message::KeyReleased(_) 
@@ -393,11 +393,8 @@ impl App {
         self.show_grid = sess.view.show_grid;
         self.show_labels = sess.view.show_labels;
         self.show_wiki = sess.view.show_wiki;
-        self.format = match sess.view.format_str.as_str() {
-            "DegMin" => CoordFormat::DegMin,
-            "DegMinSec" => CoordFormat::DegMinSec,
-            _ => CoordFormat::Decimal,
-        };
+        // Legacy sessions may contain DegMin/DegMinSec: always display Decimal.
+        self.format = CoordFormat::Decimal;
         
         if let Some(t) = &sess.theme {
             self.current_theme = match t.as_str() {
@@ -1447,14 +1444,6 @@ impl App {
                     self.show_wiki = !self.show_wiki;
                     self.wiki_cache.clear();
                 }
-            }
-            Message::CycleFormat => {
-                self.format = match self.format {
-                    CoordFormat::Decimal => CoordFormat::DegMin,
-                    CoordFormat::DegMin => CoordFormat::DegMinSec,
-                    CoordFormat::DegMinSec => CoordFormat::Decimal,
-                };
-                self.refresh_status();
             }
             Message::SearchTracksChanged(q) => {
                 self.search_tracks = q;

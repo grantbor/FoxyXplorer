@@ -53,11 +53,6 @@ impl App {
                 ),
                 t!("msg_0188")
             ),
-            with_tooltip(
-                self.btn_secondary(self.format_short_name()).on_press(Message::CycleFormat),
-                format!("{} {})", t!("msg_0206"), self.format_name())
-            ),
-
             Space::new().width(Length::Fill),
 
             with_tooltip(

@@ -230,7 +230,7 @@ pub fn parse_coords(input: &str, grid: Option<&Grid>, declination: f64) -> Optio
                 if parts.is_empty() { return None; }
                 
                 let node_name = parts[0];
-                if let Some(node) = g.nodes.iter().find(|n| n.name == node_name) {
+                if let Some(node) = g.find(node_name) {
                     if parts.len() == 1 {
                         return Some((node.lat, node.lon));
                     }
@@ -245,8 +245,12 @@ pub fn parse_coords(input: &str, grid: Option<&Grid>, declination: f64) -> Optio
         }
     }
 
+    // A Latin o/O is a keyboard-friendly alternative to the degree symbol.
+    // Apostrophes (including two single quotes for seconds) are handled below.
     let normalized = trimmed
         .replace(',', ".")
+        .replace('o', " ")
+        .replace('O', " ")
         .replace('°', " ")
         .replace('\'', " ")
         .replace('"', " ")
@@ -276,5 +280,66 @@ pub fn parse_coords(input: &str, grid: Option<&Grid>, declination: f64) -> Optio
             Some((lat, lon))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod coordinate_input_tests {
+    use super::*;
+    use grid::Node;
+
+    fn assert_pair(input: &str, lat: f64, lon: f64) {
+        let (actual_lat, actual_lon) = parse_coords(input, None, 0.0).unwrap();
+        assert!((actual_lat - lat).abs() < 1e-9, "latitude for {input}: {actual_lat}");
+        assert!((actual_lon - lon).abs() < 1e-9, "longitude for {input}: {actual_lon}");
+    }
+
+    #[test]
+    fn accepts_decimal_degrees_minutes_and_seconds() {
+        assert_pair("55.443019 82.123456", 55.443019, 82.123456);
+        assert_pair("55°26.5' 82°12.25'", 55.0 + 26.5 / 60.0, 82.0 + 12.25 / 60.0);
+        assert_pair("55°26'34.87\" 82°12'10.5\"",
+            55.0 + 26.0 / 60.0 + 34.87 / 3600.0,
+            82.0 + 12.0 / 60.0 + 10.5 / 3600.0);
+    }
+
+    #[test]
+    fn accepts_keyboard_friendly_degrees_and_double_apostrophes() {
+        let lat = 55.0 + 26.0 / 60.0 + 34.87 / 3600.0;
+        let lon = 82.0 + 12.0 / 60.0 + 10.5 / 3600.0;
+        assert_pair("55o26'34.87'' 82o12'10.5''", lat, lon);
+        assert_pair("55O26'34.87'' 82O12'10.5''", lat, lon);
+        assert_pair("55°26'34.87\" 82o12'10.5''", lat, lon);
+        assert_pair("-55o26.5' 82o12.25'", -(55.0 + 26.5 / 60.0), 82.0 + 12.25 / 60.0);
+    }
+
+    #[test]
+    fn preserves_grid_node_and_observer_inputs() {
+        let node = Node { name: "H12".into(), lat: 54.945816, lon: 83.084312 };
+        let grid = Grid { nodes: vec![node.clone()] };
+        for input in ["H12", "h12"] {
+            assert_eq!(parse_coords(input, Some(&grid), 8.0), Some((node.lat, node.lon)));
+        }
+        let expected = grid::locate_observer(&node, 120.0, 110.0, 8.0);
+        for input in ["H12 120 110", "h12 120 110"] {
+            let actual = parse_coords(input, Some(&grid), 8.0).unwrap();
+            assert!((actual.0 - expected.0).abs() < 1e-9);
+            assert!((actual.1 - expected.1).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn accepts_mixed_case_grid_node_names() {
+        let node = Node { name: "AB12".into(), lat: 54.945816, lon: 83.084312 };
+        let grid = Grid { nodes: vec![node.clone()] };
+        for input in ["AB12", "ab12", "Ab12", "aB12"] {
+            assert_eq!(parse_coords(input, Some(&grid), 0.0), Some((node.lat, node.lon)));
+        }
+        let expected = grid::locate_observer(&node, 120.0, 110.0, 8.0);
+        for input in ["AB12 120 110", "ab12 120 110", "Ab12 120 110", "aB12 120 110"] {
+            let actual = parse_coords(input, Some(&grid), 8.0).unwrap();
+            assert!((actual.0 - expected.0).abs() < 1e-9);
+            assert!((actual.1 - expected.1).abs() < 1e-9);
+        }
     }
 }

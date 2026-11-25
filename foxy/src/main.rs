@@ -357,7 +357,7 @@ fn copy_kit_grid_if_missing(root: &Path, source: &Path) -> Result<(), String> {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki, CycleFormat,
+    Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki,
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
@@ -512,11 +512,8 @@ pub(crate) struct DrawingTrack {
 
 // В src/main.rs
 pub(crate) fn build_session(app: &App) -> session::Session {
-    let format_str = match app.format {
-        CoordFormat::Decimal => "Decimal",
-        CoordFormat::DegMin => "DegMin",
-        CoordFormat::DegMinSec => "DegMinSec",
-    }.to_string();
+    // The display format is always decimal, including for saved sessions.
+    let format_str = "Decimal".to_string();
 
 
     
@@ -845,14 +842,6 @@ impl App {
             None => String::new(),
         }
     }
-    fn format_short_name(&self) -> &'static str {
-        match self.format {
-            CoordFormat::Decimal => "D",
-            CoordFormat::DegMin => "DM",
-            CoordFormat::DegMinSec => "DMS",
-        }
-    }
-
     fn new(initial_theme_kind: AppTheme) -> (App, Task<Message>) {
         let args: Vec<String> = std::env::args().collect();
         // --- Читаем пользовательский конфиг ---
@@ -922,9 +911,8 @@ impl App {
                 app.active = session.view.active.min(app.layers.len());
                 app.osm_cache.set_source(crate::BasemapSource::Osm);
                 app.show_grid = session.view.show_grid; app.show_labels = session.view.show_labels; app.show_wiki = session.view.show_wiki;
-                app.format = match session.view.format_str.as_str() {
-                    "DegMin" => CoordFormat::DegMin, "DegMinSec" => CoordFormat::DegMinSec, _ => CoordFormat::Decimal,
-                };
+                // Accept old sessions, but do not restore their former display format.
+                app.format = CoordFormat::Decimal;
                 if let Some(t) = &session.theme {
                     app.current_theme = match t.as_str() {
                         "light" => AppTheme::Light,
@@ -1227,14 +1215,6 @@ impl App {
             ));
         }
         Task::batch(tasks)
-    }
-
-    pub(crate) fn format_name(&self) -> &'static str {
-        match self.format {
-            CoordFormat::Decimal => "dd.dddddd",
-            CoordFormat::DegMin => "dd°mm.mmmm′",
-            CoordFormat::DegMinSec => "dd°mm′ss.ss″",
-        }
     }
 
     fn view(&self) -> Element<'_, Message> {
