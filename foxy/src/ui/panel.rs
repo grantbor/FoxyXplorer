@@ -380,8 +380,8 @@ impl App {
             Space::new().width(14.0),
             container(text(t!("msg_0083")).size(11)).width(Length::Fill),
             container(text(t!("msg_0102")).size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
-            container(text(if crate::i18n::current_lang() == "en" { "Date/Time" } else { "Дат/Вр" }).size(11))
-                .width(Length::Fixed(86.0)).align_x(Alignment::End),
+            container(text(if crate::i18n::current_lang() == "en" { "Date/Time" } else { "Дата/Время" }).size(11))
+                .width(Length::Fixed(100.0)).align_x(Alignment::End),
         ].spacing(4);
 
         let query = self.search_waypoints.to_lowercase();

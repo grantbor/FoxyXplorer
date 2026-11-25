@@ -272,6 +272,14 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
                     }
                 }
             }
+            // GPX grid-line segments are often straight in UTM, not Web
+            // Mercator. Their named waypoint nodes specify the actual
+            // crossings; make both drawn lines pass through these nodes.
+            // This changes only cached drawing geometry, never the GPX.
+            let grid_nodes: Vec<(f64, f64)> = g.nodes.iter()
+                .map(|node| merc_of(node.lon, node.lat))
+                .collect();
+            util::grid_geometry::align_grid_lines_to_nodes(&mut lines, &grid_nodes);
             best = Some((g, lines));
             best_source = Some(p.clone());
         }

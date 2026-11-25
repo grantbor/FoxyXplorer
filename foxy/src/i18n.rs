@@ -46,6 +46,12 @@ pub fn current_lang() -> &'static str {
     *LANG.read().unwrap()
 }
 
+/// Select a short inline ru/en translation, following the current UI language.
+/// This is useful for strings introduced by optional modules like FoxyUpload.
+pub fn tr(ru: &'static str, en: &'static str) -> &'static str {
+    if current_lang() == "en" { en } else { ru }
+}
+
 /// Перевод по ключу. Если ключа или языка нет — возвращает сам ключ.
 pub fn translate(key: &'static str) -> &'static str {
     let lang = *LANG.read().unwrap();

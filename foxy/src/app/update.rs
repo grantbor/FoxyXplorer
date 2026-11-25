@@ -24,6 +24,7 @@ use crate::util::geo::merc_of;
 use crate::util::geo::dist_to_segment;
 use crate::t;
 use crate::SettingsDraft;
+use crate::i18n::tr;
 
 fn is_space(key: &iced::keyboard::Key) -> bool {
     matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
@@ -33,7 +34,7 @@ fn is_space(key: &iced::keyboard::Key) -> bool {
 impl App {
     fn ftp_tracks_dir(&self) -> Result<PathBuf, String> {
         let kit = self.last_kit.as_ref().filter(|p| p.is_dir())
-            .ok_or_else(|| "Для FTP необходимо сначала открыть комплект".to_string())?;
+            .ok_or_else(|| tr("Для FTP необходимо сначала открыть комплект", "Open a kit before using FTP").to_string())?;
         let directory = kit.join("10-Tracks");
         std::fs::create_dir_all(&directory).map_err(|e| format!("{}: {e}", directory.display()))?;
         Ok(directory)
@@ -41,12 +42,12 @@ impl App {
 
     fn ftp_path_within_kit(&self, path: &std::path::Path) -> Result<PathBuf, String> {
         let directory = self.ftp_tracks_dir()?;
-        let target = path.parent().ok_or("Не выбрана папка WPT")?;
+        let target = path.parent().ok_or(tr("Не выбрана папка WPT", "No WPT folder selected"))?;
         if target.canonicalize().map_err(|e| e.to_string())? != directory.canonicalize().map_err(|e| e.to_string())? {
-            return Err("Для отправки по FTP выберите WPT из папки комплекта 10-Tracks".into());
+            return Err(tr("Для отправки по FTP выберите WPT из папки комплекта 10-Tracks", "Select a WPT file from the kit's 10-Tracks folder for FTP upload").into());
         }
         if !path.extension().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("wpt")) {
-            return Err("Для FTP нужен файл .wpt".into());
+            return Err(tr("Для FTP нужен файл .wpt", "FTP requires a .wpt file").into());
         }
         Ok(path.to_path_buf())
     }
@@ -62,10 +63,10 @@ impl App {
                     let name = if track.props.description.trim().is_empty() { &track.name } else { &track.props.description };
                     let safe = crate::foxyupload::safe_filename(name);
                     let path = directory.join(format!("{safe}.plt"));
-                    if !used.insert(path.clone()) { return Err(format!("У выделенных треков совпадают имена: {safe}")); }
+                    if !used.insert(path.clone()) { return Err(format!("{}: {safe}", tr("У выделенных треков совпадают имена", "Selected tracks have duplicate names"))); }
                     planned.push((track, path));
                 }
-                if planned.is_empty() { return Err("Нет выбранных треков".into()); }
+                if planned.is_empty() { return Err(tr("Нет выбранных треков", "No tracks selected").into()); }
                 let mut paths = Vec::new();
                 for (t, path) in planned { crate::io::save_plt(t, &path)?; paths.push(path); }
                 Ok(paths)
@@ -75,9 +76,9 @@ impl App {
                 let selected: Vec<_> = self.waypoints.iter()
                     .filter(|w| self.selection.waypoints.contains(&w.id))
                     .map(|w| w.as_ref()).collect();
-                if selected.is_empty() { return Err("Нет выбранных путевых точек".into()); }
+                if selected.is_empty() { return Err(tr("Нет выбранных путевых точек", "No waypoints selected").into()); }
                 if matches!(kind, crate::FtpKind::WaypointsAppend(_)) {
-                    if !path.is_file() { return Err("Исходный WPT для добавления не найден".into()); }
+                    if !path.is_file() { return Err(tr("Исходный WPT для добавления не найден", "Existing WPT file for append not found").into()); }
                     let mut next_id = self.next_id;
                     let old = crate::io::load_user_file(&path, &mut next_id)?;
                     let mut all = old.waypoints;
@@ -109,12 +110,12 @@ impl App {
     fn update_ftp(&mut self, message: Message) -> Task<Message> {
         // Guard entry points as well as buttons: no FTP job can start while disabled.
         if !self.ftp_enabled && !matches!(&message, Message::FtpFinished(_) | Message::FtpClose) {
-            self.status = "FoxyUpload отключен в настройках".into();
+            self.status = tr("FoxyUpload отключен в настройках", "FoxyUpload is disabled in Settings").into();
             return Task::none();
         }
         match message {
             Message::FtpTracks => {
-                if self.selection.tracks.is_empty() { self.status = "Выберите треки".into(); return Task::none(); }
+                if self.selection.tracks.is_empty() { self.status = tr("Выберите треки", "Select tracks").into(); return Task::none(); }
                 if let Err(err) = self.ftp_tracks_dir() { self.status = err; return Task::none(); }
                 self.modal = Some(Modal::FtpConfirm { kind: crate::FtpKind::Tracks, folder: self.ftp_remote_folder.clone() });
             }
@@ -124,18 +125,20 @@ impl App {
             }
             Message::FtpNewDialog => {
                 let directory = match self.ftp_tracks_dir() { Ok(d) => d, Err(e) => { self.status = e; return Task::none(); } };
-                if self.selection.waypoints.is_empty() { self.status = "Выберите точки".into(); return Task::none(); }
+                if self.selection.waypoints.is_empty() { self.status = tr("Выберите точки", "Select waypoints").into(); return Task::none(); }
                 self.show_wp_ftp_menu = false;
                 let filename = format!("Waypoints_{}.wpt", date_offset(0).replace('-', ""));
                 let dialog = rfd::AsyncFileDialog::new().set_directory(&directory)
+                    .set_title(tr("Сохранить WPT для FTP", "Save WPT for FTP upload"))
                     .set_file_name(&filename).add_filter("OziExplorer Waypoints", &["wpt"]);
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::FtpNewPicked);
             }
             Message::FtpAppendDialog => {
                 let directory = match self.ftp_tracks_dir() { Ok(d) => d, Err(e) => { self.status = e; return Task::none(); } };
-                if self.selection.waypoints.is_empty() { self.status = "Выберите точки".into(); return Task::none(); }
+                if self.selection.waypoints.is_empty() { self.status = tr("Выберите точки", "Select waypoints").into(); return Task::none(); }
                 self.show_wp_ftp_menu = false;
                 let dialog = rfd::AsyncFileDialog::new().set_directory(&directory)
+                    .set_title(tr("Выбрать WPT для дополнения и отправки", "Select WPT to append and upload"))
                     .add_filter("OziExplorer Waypoints", &["wpt"]);
                 return Task::perform(async move { dialog.pick_file().await.map(|h| h.path().to_path_buf()) }, Message::FtpAppendPicked);
             }
@@ -160,13 +163,13 @@ impl App {
                 if let Err(e) = crate::foxyupload::validate_folder(&folder) { self.status = e; return Task::none(); }
                 let profile = match crate::foxyupload::load_profile() {
                     Ok(Some(profile)) => profile,
-                    Ok(None) => { self.status = "FTP не настроен: откройте Настройки".into(); return Task::none(); }
+                    Ok(None) => { self.status = tr("FTP не настроен: откройте Настройки", "FTP is not configured: open Settings").into(); return Task::none(); }
                     Err(e) => { self.status = e; return Task::none(); }
                 };
                 // Critical: local save / append happens ONCE before the network job.
                 let files = match self.ftp_prepare(&kind) {
                     Ok(files) => files,
-                    Err(e) => { self.status = format!("Сохранение для FTP: {e}"); return Task::none(); }
+                    Err(e) => { self.status = format!("{}: {e}", tr("Сохранение для FTP", "Saving for FTP")); return Task::none(); }
                 };
                 let plan = crate::foxyupload::Plan {
                     profile, remote_folder: folder.clone(), grid: self.ftp_grid_file(), files,
@@ -179,7 +182,7 @@ impl App {
                         match tokio::task::spawn_blocking(move || crate::foxyupload::upload_batch(plan)).await {
                             Ok(report) => report,
                             Err(e) => crate::foxyupload::Report {
-                                failures: vec![crate::foxyupload::FailedFile { file: PathBuf::from("FTP"), error: format!("Ошибка сетевой задачи: {e}") }],
+                                failures: vec![crate::foxyupload::FailedFile { file: PathBuf::from("FTP"), error: format!("{}: {e}", tr("Ошибка сетевой задачи", "Network task error")) }],
                                 ..Default::default()
                             }
                         }
@@ -187,9 +190,14 @@ impl App {
                 );
             }
             Message::FtpFinished(report) => {
-                self.status = if report.failures.is_empty() {
-                    format!("FTP: передано {} файлов", report.uploaded)
-                } else { format!("FTP: передано {}, ошибок {} — требуется вмешательство", report.uploaded, report.failures.len()) };
+                self.status = match (crate::i18n::current_lang(), report.failures.is_empty()) {
+                    ("en", true) => format!("FTP: {} files uploaded", report.uploaded),
+                    ("en", false) => format!("FTP: {} uploaded, {} errors — manual intervention required",
+                                            report.uploaded, report.failures.len()),
+                    (_, true) => format!("FTP: передано {} файлов", report.uploaded),
+                    (_, false) => format!("FTP: передано {}, ошибок {} — требуется вмешательство",
+                                          report.uploaded, report.failures.len()),
+                };
                 self.modal = Some(Modal::FtpResult(report));
             }
             Message::FtpClose => {
@@ -1758,7 +1766,7 @@ impl App {
                                 } else { draft.ftp_password.clone() };
                                 let port = match draft.ftp_port.parse::<u16>() {
                                     Ok(p) if p != 0 => p,
-                                    _ => { self.status = "Неверный FTP-порт".into(); return Task::none(); }
+                                    _ => { self.status = tr("Неверный FTP-порт", "Invalid FTP port").into(); return Task::none(); }
                                 };
                                 let profile = crate::foxyupload::Profile {
                                     host: draft.ftp_host.trim().to_string(), port,
