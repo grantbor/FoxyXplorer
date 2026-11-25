@@ -167,7 +167,7 @@ impl App {
             Space::new().width(16.0),
             container(text(t!("msg_0083")).size(11)).width(Length::Fill),
             container(text(t!("msg_0084")).size(11)).width(Length::Fixed(50.0)).align_x(Alignment::End),
-            container(text(t!("msg_0085")).size(11)).width(Length::Fixed(70.0)).align_x(Alignment::End),
+            container(text(t!("msg_0085")).size(11)).width(Length::Fixed(60.0)).align_x(Alignment::End),
         ].spacing(4);
 
         let query = self.search_tracks.to_lowercase();
@@ -210,8 +210,8 @@ impl App {
                         ],
                     ))
                 ).width(Length::Fill).clip(true),
-                container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
-                container(text(dist).size(12)).width(Length::Fixed(70.0)).align_x(Alignment::End),
+                container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(30.0)).align_x(Alignment::End),
+                container(text(dist).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
             ].spacing(4).align_y(Alignment::Center);
 
             list = list.push(r);
@@ -379,7 +379,7 @@ impl App {
             Space::new().width(24.0),
             Space::new().width(14.0),
             container(text(t!("msg_0083")).size(11)).width(Length::Fill),
-            container(text(t!("msg_0102")).size(11)).width(Length::Fixed(120.0)).align_x(Alignment::End),
+            container(text(t!("msg_0102")).size(11)).width(Length::Fixed(100.0)).align_x(Alignment::End),
             container(text(if crate::i18n::current_lang() == "en" { "Date/Time" } else { "Дата/Время" }).size(11))
                 .width(Length::Fixed(100.0)).align_x(Alignment::End),
         ].spacing(4);
@@ -426,7 +426,7 @@ impl App {
                         ],
                     ))
                 ).width(Length::Fill).clip(true),
-                container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(120.0)).align_x(Alignment::End),
+                container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(80.0)).align_x(Alignment::End),
                 container(column![
                     text(date).size(11).font(iced::Font::MONOSPACE),
                     text(time).size(11).font(iced::Font::MONOSPACE),

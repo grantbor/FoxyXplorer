@@ -6,6 +6,7 @@ mod canvas;
 mod domain;
 mod io;
 mod osm;
+mod wiki;
 mod session;
 mod ui;
 mod util;
@@ -147,7 +148,7 @@ pub(crate) struct SettingsDraft {
     pub ftp_password: String,
 }
 
-pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<String>), String> {
+pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<wiki::WikiPoint>, Vec<String>), String> {
     let mut notes = Vec::new();
 
     let mut map_dirs: Vec<PathBuf> = Vec::new();
@@ -291,13 +292,18 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
         ));
     }
 
+    let mut wiki_points = Vec::new();
     if let Some(source) = best_source {
+        match wiki::load_for_grid(&source) {
+            Ok(points) => wiki_points = points,
+            Err(e) => notes.push(format!("Wiki-WPT: {e}")),
+        }
         if let Err(e) = copy_kit_grid_if_missing(root, &source) {
             // Copying is secondary: failure must not prevent the kit from opening.
             notes.push(format!("Не удалось скопировать сетку в 10-Tracks: {e}"));
         }
     }
-    Ok((layers, best, notes))
+    Ok((layers, best, wiki_points, notes))
 }
 
 // Keep the original grid GPX alongside the kit tracks, without overwriting
@@ -351,7 +357,7 @@ fn copy_kit_grid_if_missing(root: &Path, source: &Path) -> Result<(), String> {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    Layer(usize), ToggleGrid, ToggleLabels, CycleFormat,
+    Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki, CycleFormat,
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
@@ -528,6 +534,7 @@ pub(crate) fn build_session(app: &App) -> session::Session {
             active: app.active,
             show_grid: app.show_grid,
             show_labels: app.show_labels,
+            show_wiki: app.show_wiki,
             format_str,
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
@@ -553,6 +560,8 @@ pub(crate) struct App {
     pub(crate) grid: Option<grid::Grid>,
     pub(crate) lines: Vec<Vec<(f64, f64)>>,
     pub(crate) show_grid: bool,
+    pub(crate) wiki_points: Vec<wiki::WikiPoint>,
+    pub(crate) show_wiki: bool,
     pub(crate) grid_color: [u8; 3],
     pub(crate) drop_service: Arc<foxydrop::DropService>,
     pub(crate) drop_phase: foxydrop::Phase,
@@ -571,6 +580,7 @@ pub(crate) struct App {
     pub(crate) scale: f64,
     pub(crate) canvas_cache: Cache,
     pub(crate) grid_cache: Cache,
+    pub(crate) wiki_cache: Cache,
     pub(crate) osm_canvas_cache: Cache,
     pub(crate) tracks_cache: Cache,
     pub(crate) tile_handles: RefCell<HashMap<(usize, usize, u32, u32), Option<ImageHandle>>>,
@@ -863,7 +873,7 @@ impl App {
         if !force_osm {
             if let Some(session) = session::load_session() {
                 let mut app = App {
-                    layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
+                    layers: Vec::new(), active: 0, grid: None, lines: Vec::new(), wiki_points: Vec::new(), show_wiki: true,
                     show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
                     drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(if session.foxydrop_folder.is_empty() { &cfg.drop_folder } else { &session.foxydrop_folder }))),
                     drop_phase: foxydrop::Phase::Stopped,
@@ -873,7 +883,7 @@ impl App {
                     drop_error: None,
                     drop_restart_after_stop: false,
                     cx: 0.0, cy: 0.0, scale: 1.0,
-                    canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(),
+                    canvas_cache: Cache::default(), grid_cache: Cache::default(), wiki_cache: Cache::default(), osm_canvas_cache: Cache::default(),
                     tracks_cache: Cache::default(),
                     tile_handles: RefCell::new(HashMap::new()), dragging: false, middle_panning: false, cursor: None, map_cursor_inside: false,
                     status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
@@ -911,7 +921,7 @@ impl App {
                 // Локальные карты (active < layers.len()) сохраняются как были.
                 app.active = session.view.active.min(app.layers.len());
                 app.osm_cache.set_source(crate::BasemapSource::Osm);
-                app.show_grid = session.view.show_grid; app.show_labels = session.view.show_labels;
+                app.show_grid = session.view.show_grid; app.show_labels = session.view.show_labels; app.show_wiki = session.view.show_wiki;
                 app.format = match session.view.format_str.as_str() {
                     "DegMin" => CoordFormat::DegMin, "DegMinSec" => CoordFormat::DegMinSec, _ => CoordFormat::Decimal,
                 };
@@ -930,7 +940,7 @@ impl App {
         }
 
         let mut app = App {
-            layers: Vec::new(), active: 0, grid: None, lines: Vec::new(),
+            layers: Vec::new(), active: 0, grid: None, lines: Vec::new(), wiki_points: Vec::new(), show_wiki: true,
             show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
             drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(&cfg.drop_folder))),
             drop_phase: foxydrop::Phase::Stopped,
@@ -940,7 +950,7 @@ impl App {
             drop_error: None,
             drop_restart_after_stop: false,
             cx: 0.0, cy: 0.0, scale: 1.0,
-            canvas_cache: Cache::default(), grid_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
+            canvas_cache: Cache::default(), grid_cache: Cache::default(), wiki_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
             tile_handles: RefCell::new(HashMap::new()), dragging: false, middle_panning: false, cursor: None, map_cursor_inside: false,
             status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
             osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
@@ -1029,16 +1039,17 @@ impl App {
         self.status = s;
     }
 
-    pub(crate) fn apply_kit(&mut self, result: Result<(Vec<Layer>, Option<GridData>, Vec<String>), String>) -> bool {
+    pub(crate) fn apply_kit(&mut self, result: Result<(Vec<Layer>, Option<GridData>, Vec<wiki::WikiPoint>, Vec<String>), String>) -> bool {
         self.undo_stack.clear();
         self.redo_stack.clear();
         match result {
-            Ok((layers, gd, notes)) => {
+            Ok((layers, gd, wiki_points, notes)) => {
                 let n_layers = layers.len();
                 let n_gpx = gd.as_ref().map_or(0, |(g, _)| g.nodes.len());
                 self.layers = layers;
                 self.grid = None;
                 self.lines.clear();
+                self.wiki_points = wiki_points;
                 if let Some((g, lines)) = gd {
                     self.grid = Some(g);
                     self.lines = lines;
@@ -1060,7 +1071,7 @@ impl App {
                     }
                 }
                 self.tile_handles.borrow_mut().clear();
-                self.canvas_cache.clear(); self.grid_cache.clear(); self.osm_canvas_cache.clear(); self.tracks_cache.clear();
+                self.canvas_cache.clear(); self.grid_cache.clear(); self.wiki_cache.clear(); self.osm_canvas_cache.clear(); self.tracks_cache.clear();
                 true
             }
             Err(e) => {
@@ -1469,6 +1480,7 @@ impl App {
         let map_canvas = Canvas::new(canvas::MapProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let tracks_canvas = Canvas::new(canvas::TrackProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let grid_canvas = Canvas::new(canvas::GridProgram { app: self }).width(Length::Fill).height(Length::Fill);
+        let wiki_canvas = Canvas::new(canvas::WikiProgram { app: self }).width(Length::Fill).height(Length::Fill);
 
         // Custom tool cursors are rendered as 24x24 SVGs. iced::mouse::Interaction
         // does not support custom SVG cursors. Each icon has its own hotspot,
@@ -1501,7 +1513,7 @@ impl App {
             && self.cursor.is_some_and(|p| p.x >= 56.0)
             && cursor_icon.is_some();
 
-        let canvases = stack![map_canvas, tracks_canvas, grid_canvas];
+        let canvases = stack![map_canvas, wiki_canvas, tracks_canvas, grid_canvas];
         let contents: Element<'_, Message> = if show_tool_cursor {
             let (index, hotspot_x, hotspot_y) = cursor_icon.unwrap();
             let p = self.cursor.unwrap();

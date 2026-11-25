@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use crate::domain::{Track, Waypoint};
 
+fn default_show_wiki() -> bool { true }
+
 #[derive(Serialize, Deserialize)]
 pub struct SessionView {
     pub cx: f64,
@@ -10,6 +12,8 @@ pub struct SessionView {
     pub active: usize,
     pub show_grid: bool,
     pub show_labels: bool,
+    #[serde(default = "default_show_wiki")]
+    pub show_wiki: bool,
     pub format_str: String,
     pub window_size: Option<(f32, f32)>,
     pub window_pos: Option<(f32, f32)>,

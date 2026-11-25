@@ -1,8 +1,7 @@
 use iced::widget::canvas::{self, Geometry, Path as CanvasPath};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
+use iced::{Color, Point, Rectangle, Renderer, Theme};
 use crate::util::geo::merc_of;
 use crate::{App, Message};
-use iced::advanced::text::{Paragraph, Text, LineHeight, Shaping};
 
 pub struct TrackProgram<'a> {
     pub app: &'a App,
@@ -248,56 +247,10 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                 let (mx, my) = merc_of(wp.lon, wp.lat);
                 let pt = to_screen(mx, my);
                 
-                type Para = <iced::Renderer as iced::advanced::text::Renderer>::Paragraph;
-
-                let paragraph = Para::with_text(Text {
-                    content: &wp.name,
-                    bounds: iced::Size::INFINITE,
-                    size: iced::Pixels(14.0),
-                    line_height: LineHeight::default(),
-                    font: iced::Font::default(),
-                    shaping: Shaping::Basic,
-                    align_x: iced::widget::text::Alignment::Left,
-                    align_y: iced::alignment::Vertical::Top,
-                    wrapping: iced::advanced::text::Wrapping::None,
-                });
-                let text_w = paragraph.min_bounds().width;
-
-                let padding_h = 8.0;
-                let box_w = (text_w + 2.0 * padding_h).max(40.0);
-                let box_h = 24.0;
-                let box_x = pt.x - box_w / 2.0;
-                let box_y = pt.y - 40.0;
-
-                frame.stroke(&CanvasPath::line(Point::new(pt.x, box_y + box_h), pt), canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5));
-
-                let bg_color = Color::from_rgb8(wp.bg_color[0], wp.bg_color[1], wp.bg_color[2]);
-                frame.fill_rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h), bg_color);
-
-                let is_wp_selected = app.selection.waypoints.contains(&wp.id);
-                let border_color = if is_wp_selected { Color::from_rgb8(0x2a, 0x7f, 0xff) } else { Color::BLACK };
-                let border_width = if is_wp_selected { 2.5 } else { 1.5 };
-                
-                let border = CanvasPath::rectangle(Point::new(box_x, box_y), Size::new(box_w, box_h));
-                frame.stroke(&border, canvas::Stroke::default().with_color(border_color).with_width(border_width));
-
-                let fg_color = Color::from_rgb8(wp.text_color[0], wp.text_color[1], wp.text_color[2]);
-                frame.fill_text(canvas::Text {
-                    content: wp.name.clone(),
-                    position: Point::new(box_x + box_w / 2.0, box_y + box_h / 2.0),
-                    color: fg_color,
-                    size: iced::Pixels(14.0),
-                    align_x: iced::widget::text::Alignment::Center,
-                    align_y: iced::alignment::Vertical::Center,
-                    ..Default::default()
-                });
-
-                let circle = CanvasPath::circle(pt, 5.0);
-                frame.fill(&circle, Color::WHITE);
-                frame.stroke(&circle, canvas::Stroke::default().with_color(Color::BLACK).with_width(1.5));
-
-                let dot = CanvasPath::circle(pt, 2.0);
-                frame.fill(&dot, Color::BLACK);
+                super::waypoint_label::draw_waypoint_label(
+                    frame, pt, &wp.name, wp.bg_color, wp.text_color,
+                    app.selection.waypoints.contains(&wp.id),
+                );
             }
 
             // ==========================================

@@ -33,6 +33,20 @@ impl App {
                 if self.show_labels { t!("msg_0186") } else { t!("msg_0187") }
             ),
             with_tooltip(
+                self.icon_toggle_button(
+                    lucide_iced::bytes::MAP_PIN,
+                    self.show_wiki && !self.wiki_points.is_empty(),
+                    Message::ToggleWiki,
+                ),
+                if self.wiki_points.is_empty() {
+                    if crate::i18n::current_lang() == "en" { "No Wiki-WPT in kit" } else { "Wiki-WPT не найден в комплекте" }
+                } else if self.show_wiki {
+                    if crate::i18n::current_lang() == "en" { "Hide Wiki points" } else { "Скрыть точки Wiki" }
+                } else {
+                    if crate::i18n::current_lang() == "en" { "Show Wiki points" } else { "Показать точки Wiki" }
+                }
+            ),
+            with_tooltip(
                 self.icon_action_button(
                     lucide_iced::bytes::FULLSCREEN,
                     Message::Fit,

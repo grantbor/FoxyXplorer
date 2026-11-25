@@ -219,7 +219,7 @@ impl App {
             }
 
             // --- UI (Верхняя панель) ---
-            Message::ToggleGrid | Message::ToggleLabels | Message::CycleFormat 
+            Message::ToggleGrid | Message::ToggleLabels | Message::ToggleWiki | Message::CycleFormat
             | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) 
             | Message::ModalDragStart | Message::SelectTool(_) 
             | Message::KeyPressed(_, _) | Message::KeyReleased(_) 
@@ -381,6 +381,7 @@ impl App {
             crate::config::load().drop_folder
         } else { sess.foxydrop_folder.clone() };
         self.drop_service.set_directory(PathBuf::from(dir));
+        self.wiki_points.clear();
         if let Some(kit) = &self.last_kit {
             self.apply_kit(crate::load_kit(kit));
         }
@@ -391,6 +392,7 @@ impl App {
         self.osm_cache.set_source(crate::BasemapSource::Osm);
         self.show_grid = sess.view.show_grid;
         self.show_labels = sess.view.show_labels;
+        self.show_wiki = sess.view.show_wiki;
         self.format = match sess.view.format_str.as_str() {
             "DegMin" => CoordFormat::DegMin,
             "DegMinSec" => CoordFormat::DegMinSec,
@@ -410,7 +412,7 @@ impl App {
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.canvas_cache.clear();
-        self.grid_cache.clear();
+        self.grid_cache.clear(); self.wiki_cache.clear();
         self.osm_canvas_cache.clear();
         self.tracks_cache.clear();
         self.status = format!(
@@ -950,7 +952,7 @@ impl App {
                 if self.middle_panning {
                     self.middle_panning = false;
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                     self.maybe_update_declination(true);
@@ -1033,7 +1035,7 @@ impl App {
                         self.cx -= (p.x - prev.x) as f64 * self.scale;
                         self.cy += (p.y - prev.y) as f64 * self.scale;
                         self.canvas_cache.clear();
-                        self.grid_cache.clear();
+                        self.grid_cache.clear(); self.wiki_cache.clear();
                         self.osm_canvas_cache.clear();
                         self.tracks_cache.clear();
                     }
@@ -1100,7 +1102,7 @@ impl App {
                 if self.dragging {
                     self.dragging = false;
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                     self.maybe_update_declination(true);
@@ -1130,7 +1132,7 @@ impl App {
                 self.cx = mx - ox * self.scale;
                 self.cy = my + oy * self.scale;
                 self.canvas_cache.clear();
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
                 self.maybe_update_declination(false); 
@@ -1150,7 +1152,7 @@ impl App {
 
                 if did_fit {
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear(); 
                     self.maybe_update_declination(true); 
@@ -1316,7 +1318,7 @@ impl App {
                             self.active_tool = t;
                             self.dragging = false;
                             self.canvas_cache.clear();
-                            self.grid_cache.clear();
+                            self.grid_cache.clear(); self.wiki_cache.clear();
                             self.osm_canvas_cache.clear();
                             self.tracks_cache.clear();
                             return Task::none();
@@ -1434,11 +1436,17 @@ impl App {
             }
             Message::ToggleGrid => {
                 self.show_grid = !self.show_grid;
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
             }
             Message::ToggleLabels => {
                 self.show_labels = !self.show_labels;
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
+            }
+            Message::ToggleWiki => {
+                if !self.wiki_points.is_empty() {
+                    self.show_wiki = !self.show_wiki;
+                    self.wiki_cache.clear();
+                }
             }
             Message::CycleFormat => {
                 self.format = match self.format {
@@ -1491,7 +1499,7 @@ impl App {
                 self.dragging = false;
                 self.modal = None;
                 self.canvas_cache.clear();
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
             }
@@ -1582,6 +1590,7 @@ impl App {
                 self.active = 0;
                 self.grid = None;
                 self.lines.clear();
+                self.wiki_points.clear();
                 self.tracks.clear();
                 self.waypoints.clear();
                 self.selection = Selection::default();
@@ -1632,7 +1641,7 @@ impl App {
                 
                 // --- Кэши ---
                 self.canvas_cache.clear();
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
                 self.osm_cache.set_source(crate::BasemapSource::Osm);
@@ -1686,7 +1695,7 @@ impl App {
 
                 // Кэши надо сбросить — цвета линий/подписей на канвасах завязаны на тему.
                 self.canvas_cache.clear();
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
             }
@@ -1742,7 +1751,7 @@ impl App {
                     self.ui_theme = draft.original_ui_theme.clone();
                     self.theme = crate::theme_for(&self.ui_theme, self.current_theme);
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                 }
@@ -1911,7 +1920,7 @@ impl App {
                     self.ui_theme = theme;
                     self.theme = crate::theme_for(&self.ui_theme, self.current_theme);
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                 }
@@ -1920,7 +1929,7 @@ impl App {
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     draft.grid_color = color;
                     self.grid_color = color;
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.show_color_picker = None;
                 }
             }
@@ -1997,7 +2006,7 @@ impl App {
                         self.osm_cache.set_source(src);
                     }
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                     self.refresh_status();
@@ -2346,7 +2355,7 @@ impl App {
                     self.cy = (min_y + max_y) / 2.0;
 
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                     self.status = format!("Fit: {} {:.2} {}", t!("msg_0215"),  self.scale, t!("msg_0216"));
@@ -2747,7 +2756,7 @@ impl App {
                     self.waypoint_crosshair = Some((w.lon, w.lat));
                     
                     self.canvas_cache.clear();
-                    self.grid_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
                     self.osm_canvas_cache.clear();
                     self.tracks_cache.clear();
                     self.maybe_update_declination(true);
@@ -3412,7 +3421,7 @@ impl App {
                 self.theme = theme;
 
                 self.canvas_cache.clear();
-                self.grid_cache.clear();
+                self.grid_cache.clear(); self.wiki_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
             }
@@ -3604,7 +3613,7 @@ impl App {
                         self.cx = cx;
                         self.cy = cy;
                         self.canvas_cache.clear();
-                        self.grid_cache.clear();
+                        self.grid_cache.clear(); self.wiki_cache.clear();
                         self.osm_canvas_cache.clear();
                         self.tracks_cache.clear();
                     }
