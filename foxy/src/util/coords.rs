@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::{Datelike, Duration, Local, NaiveDate};
 use crate::domain::TrackProps;
 use grid::Grid;
 
@@ -169,24 +169,44 @@ mod named_track_tests {
     }
 }
 
+/// Return the current year and ordinal day in the computer's local timezone.
+/// Resolve the clock on every call, rather than at application startup.
 pub fn today() -> (i32, u16) {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0);
-    let (y, m, d, ..) = geoio::time::parts(secs);
-    let ordinal = geoio::time::days_from_civil(y, m, d) - geoio::time::days_from_civil(y, 1, 1) + 1;
-    (y as i32, ordinal as u16)
+    let date = Local::now().date_naive();
+    (date.year(), date.ordinal() as u16)
+}
+
+/// Work with calendar dates, not 24-hour intervals: "yesterday" should
+/// remain yesterday even across a daylight-saving time transition.
+fn date_offset_from(date: NaiveDate, days: i64) -> String {
+    (date + Duration::days(days)).format("%Y-%m-%d").to_string()
 }
 
 pub fn date_offset(days: i64) -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-        + days * 86400;
-    let (y, m, d, ..) = geoio::time::parts(secs as f64);
-    format!("{:04}-{:02}-{:02}", y, m, d)
+    date_offset_from(Local::now().date_naive(), days)
+}
+
+#[cfg(test)]
+mod local_date_tests {
+    use super::*;
+    use chrono::{FixedOffset, TimeZone, Utc};
+
+    #[test]
+    fn yesterday_crosses_year_and_leap_day_correctly() {
+        assert_eq!(date_offset_from(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), -1), "2025-12-31");
+        assert_eq!(date_offset_from(NaiveDate::from_ymd_opt(2024, 3, 1).unwrap(), -1), "2024-02-29");
+        assert_eq!(date_offset_from(NaiveDate::from_ymd_opt(2026, 11, 25).unwrap(), 0), "2026-11-25");
+    }
+
+    #[test]
+    fn local_today_can_differ_from_utc_today() {
+        // 02:00 on Nov 25 in UTC+7 is still Nov 24 in UTC.
+        let local = FixedOffset::east_opt(7 * 3600).unwrap()
+            .with_ymd_and_hms(2026, 11, 25, 2, 0, 0).single().unwrap();
+        assert_eq!(local.with_timezone(&Utc).date_naive().to_string(), "2026-11-24");
+        assert_eq!(date_offset_from(local.date_naive(), 0), "2026-11-25");
+        assert_eq!(date_offset_from(local.date_naive(), -1), "2026-11-24");
+    }
 }
 
 pub fn build_template(d: &TrackProps) -> String {
