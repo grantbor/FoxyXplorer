@@ -1524,7 +1524,7 @@ impl App {
 
             separator(),
             ftp_settings,
-
+            separator(),
             // Настраиваемый цвет линий и узлов сетки.
             row![
                 text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
