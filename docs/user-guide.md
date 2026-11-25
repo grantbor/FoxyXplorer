@@ -1,3 +1,7 @@
+**<span style="color:#e64340">Внимание! Некоторые функции последних версий еще не описаны. WIP</span>**
+
+
+
 <img title="" src="screenshots/Main_Window_01.jpg" alt="" width="" />
 
 Главное окно FoxyXplorer
