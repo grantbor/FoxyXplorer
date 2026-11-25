@@ -1544,7 +1544,7 @@ fn main() -> iced::Result {
     
     #[cfg(target_os = "linux")]
     let platform_specific = PlatformSpecific {
-        application_id: "foxy".to_string(),
+        application_id: "foxyxplorer".to_string(),
         ..Default::default()
     };
     #[cfg(not(target_os = "linux"))]
