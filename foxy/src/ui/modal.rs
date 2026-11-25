@@ -500,6 +500,64 @@ impl App {
         let mut category_names = vec![empty_category.to_string()];
         category_names.extend(categories.iter().map(|c| c.name.clone()));
 
+        // The waypoint's original file (same read-only field as Track Properties).
+        let file_path: Option<&'a std::path::Path> = match &draft.source {
+            domain::FileSource::File { path, .. } => Some(path.as_path()),
+            domain::FileSource::New => None,
+        };
+        let file_name: &'a str = file_path
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or(t!("msg_0134"));
+
+        let file_field: Element<'a, Message> = if let Some(path) = file_path {
+            container(
+                tooltip(
+                    text_input("", file_name)
+                        .padding(crate::ui::styles::input_padding())
+                        .width(Length::Fill)
+                        .style(|theme: &Theme, _status| {
+                            let palette = theme.extended_palette();
+                            iced::widget::text_input::Style {
+                                background: palette.background.weak.color.into(),
+                                border: iced::Border {
+                                    color: palette.background.strong.color,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                icon: palette.background.weak.text,
+                                placeholder: palette.background.weak.text,
+                                value: palette.background.weak.text,
+                                selection: palette.primary.weak.color,
+                            }
+                        }),
+                    container(text(path.display().to_string()))
+                        .padding([4, 8])
+                        .style(|theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                text_color: Some(palette.background.weak.text),
+                                border: iced::Border {
+                                    color: palette.background.strong.color,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            }
+                        }),
+                    iced::widget::tooltip::Position::Bottom,
+                )
+            )
+            .width(Length::Fill)
+            .into()
+        } else {
+            container(text(file_name).size(14))
+                .padding([6, 8])
+                .width(Length::Fill)
+                .into()
+        };
+
         let make_color_btn = |c: [u8; 3], selected: bool, msg: Message| -> Element<'a, Message> {
             button(text("")).width(24).height(24)
                 .style(move |_: &Theme, _| button::Style {
@@ -574,6 +632,10 @@ impl App {
                     .on_input(Message::DraftWpNameChanged).width(250)
                     .padding(input_pad).style(input_style.clone())
             ],
+            row![
+                text(t!("msg_0140")).width(100),
+                file_field,
+            ].align_y(Alignment::Center),
             row![
                 text(t!("msg_0153")).width(100), 
                 text_input(t!("msg_0154"), draft.description.as_deref().unwrap_or(""))
