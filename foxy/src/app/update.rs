@@ -1326,6 +1326,43 @@ impl App {
         }
     }
 
+    /// Delete selected tracks and waypoints as one undoable operation.
+    /// Do not invoke the two sidebar button handlers here: each pushes its
+    /// own Undo state and clears the other kind of selection.
+    fn delete_selected_map_objects(&mut self) {
+        let has_tracks = self.tracks.iter()
+            .any(|track| self.selection.tracks.contains(&track.id));
+        let has_waypoints = self.waypoints.iter()
+            .any(|wp| self.selection.waypoints.contains(&wp.id));
+        if !has_tracks && !has_waypoints { return; }
+
+        let label = match (has_tracks, has_waypoints) {
+            (true, true) => tr("Удаление треков и точек", "Delete tracks and waypoints"),
+            (true, false) => t!("msg_0044"),
+            (false, true) => t!("msg_0056"),
+            (false, false) => unreachable!(),
+        };
+        self.push_undo(label);
+
+        let track_ids = std::mem::take(&mut self.selection.tracks);
+        let waypoint_ids = std::mem::take(&mut self.selection.waypoints);
+        self.tracks.retain(|t| !track_ids.contains(&t.id));
+        self.waypoints.retain(|w| !waypoint_ids.contains(&w.id));
+        self.selection.points.retain(|(id, _, _)| !track_ids.contains(id));
+
+        // A subsequent Shift-click must not use an anchor that was deleted.
+        if has_tracks {
+            self.last_track_clicked = None;
+            self.last_point_clicked = None;
+            self.pending_track_scroll = None;
+        }
+        if has_waypoints {
+            self.last_waypoint_clicked = None;
+            self.pending_waypoint_scroll = None;
+        }
+        self.tracks_cache.clear();
+    }
+
     fn update_ui(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::KeyPressed(key, modifiers) => {
@@ -1431,13 +1468,22 @@ impl App {
                         return Task::none();
                     }
 
-                    // 3. Удаление точек (только если активен SelectPoints)
-                    if self.active_tool == crate::Tool::SelectPoints && !self.selection.points.is_empty() {
-                        if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) 
-                            | iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) = key {
-                            self.update_tracks(Message::DeleteSelectedPoints);
-                            return Task::none();
+                    // 3. Delete/Backspace. Track-point editing keeps priority;
+                    // otherwise delete selected map objects (even when selected
+                    // from the sidebar while the Pan tool is active).
+                    if matches!(
+                        &key,
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete)
+                            | iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace)
+                    ) && self.context_menu.is_none() {
+                        if self.active_tool == crate::Tool::SelectPoints {
+                            if !self.selection.points.is_empty() {
+                                self.update_tracks(Message::DeleteSelectedPoints);
+                            }
+                        } else if self.drawing_track.is_none() {
+                            self.delete_selected_map_objects();
                         }
+                        return Task::none();
                     }
                 }
 
