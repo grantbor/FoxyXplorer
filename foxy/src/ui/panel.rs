@@ -171,7 +171,7 @@ impl App {
         ].spacing(4);
 
         let query = self.search_tracks.to_lowercase();
-        let mut list = column![].spacing(2).padding([0.0, 12.0]);
+        let mut list = column![].spacing(crate::SIDEBAR_ROW_SPACING).padding([0.0, 12.0]);
 
         for t in &self.tracks {
             if !query.is_empty() && !t.name.to_lowercase().contains(&query) { continue; }
@@ -212,7 +212,8 @@ impl App {
                 ).width(Length::Fill).clip(true),
                 container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(30.0)).align_x(Alignment::End),
                 container(text(dist).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
-            ].spacing(4).align_y(Alignment::Center);
+            ].spacing(4).align_y(Alignment::Center)
+                .height(Length::Fixed(crate::SIDEBAR_ROW_HEIGHT));
 
             list = list.push(r);
         }
@@ -349,7 +350,9 @@ impl App {
             header,
             container(top_bar).padding(2),
             container(cols).padding(2),
-            container(scrollable(list).height(Length::FillPortion(1))).padding(2),
+            container(scrollable(list)
+                .id(crate::TRACKS_SIDEBAR_SCROLL_ID)
+                .height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
         ]
         .spacing(4)
@@ -385,7 +388,7 @@ impl App {
         ].spacing(4);
 
         let query = self.search_waypoints.to_lowercase();
-        let mut list = column![].spacing(2).padding([0.0, 12.0]);
+        let mut list = column![].spacing(crate::SIDEBAR_ROW_SPACING).padding([0.0, 12.0]);
 
         for w in &self.waypoints {
             if !query.is_empty() && !w.name.to_lowercase().contains(&query) { continue; }
@@ -432,7 +435,8 @@ impl App {
                     text(time).size(11).font(iced::Font::MONOSPACE),
                 ].spacing(0).align_x(Alignment::End))
                     .width(Length::Fixed(86.0)).align_x(Alignment::End),
-            ].spacing(4).align_y(Alignment::Center);
+            ].spacing(4).align_y(Alignment::Center)
+                .height(Length::Fixed(crate::SIDEBAR_ROW_HEIGHT));
 
             list = list.push(r);
         }
@@ -567,7 +571,9 @@ impl App {
             header,
             container(top_bar).padding(2),
             container(cols).padding(2),
-            container(scrollable(list).height(Length::FillPortion(1))).padding(2),
+            container(scrollable(list)
+                .id(crate::WAYPOINTS_SIDEBAR_SCROLL_ID)
+                .height(Length::FillPortion(1))).padding(2),
             container(bottom_bar).padding(2),
         ]
         .spacing(4)

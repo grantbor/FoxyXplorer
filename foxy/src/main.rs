@@ -123,6 +123,12 @@ pub(crate) const TRACK_LIST_ROW_SPACING: f32 = 1.0;
 pub(crate) const TRACK_LIST_VIEW_HEIGHT: f32 = 400.0;
 pub(crate) const TRACK_LIST_SCROLL_ID: &str = "track-list-points";
 
+// Fixed row sizes allow deterministic scrolling in both sidebar lists.
+pub(crate) const SIDEBAR_ROW_HEIGHT: f32 = 32.0;
+pub(crate) const SIDEBAR_ROW_SPACING: f32 = 2.0;
+pub(crate) const TRACKS_SIDEBAR_SCROLL_ID: &str = "sidebar-tracks";
+pub(crate) const WAYPOINTS_SIDEBAR_SCROLL_ID: &str = "sidebar-waypoints";
+
 pub(crate) struct TrackListState {
     pub track_id: u64,
     pub rows: Vec<TrackRowData>,
@@ -615,6 +621,9 @@ pub(crate) struct App {
     pub(crate) resizing_panel: bool,
     pub(crate) waypoint_backup: Option<domain::Waypoint>,
     pub(crate) last_waypoint_click: Option<(u64, std::time::Instant)>,
+    // Transient scroll targets from Select Objects on the map; not saved to the session.
+    pub(crate) pending_track_scroll: Option<u64>,
+    pub(crate) pending_waypoint_scroll: Option<u64>,
     pub(crate) show_track_save_menu: bool,
     pub(crate) show_wp_save_menu: bool,
     pub(crate) show_wp_ftp_menu: bool,
@@ -889,6 +898,7 @@ impl App {
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
                     right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
+                    pending_track_scroll: None, pending_waypoint_scroll: None,
                     show_track_save_menu: false, show_wp_save_menu: false, show_wp_ftp_menu: false,
                     theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
                     modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,
@@ -951,6 +961,7 @@ impl App {
             palette: load_palette(), modal: None, track_backup: None, last_track_click: None, show_color_picker: None,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
+                    pending_track_scroll: None, pending_waypoint_scroll: None,
             show_track_save_menu: false, show_wp_save_menu: false, show_wp_ftp_menu: false,
             theme, simplify_tolerance: cfg.simplify_tolerance, undo_stack: Vec::new(), redo_stack: Vec::new(),
             modal_drag_offset: Point::new(0.0, 0.0), modal_dragging: false, modal_drag_start_cursor: None,

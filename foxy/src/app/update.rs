@@ -342,9 +342,63 @@ impl App {
             }
         }
 
-        self.request_osm_tiles()
+        // Only newly targeted map objects produce scroll operations.
+        // Deselecting with Ctrl or clearing a selection never moves the list.
+        let track_target = self.pending_track_scroll.take();
+        let waypoint_target = self.pending_waypoint_scroll.take();
+        if track_target.is_none() && waypoint_target.is_none() {
+            return self.request_osm_tiles();
+        }
+        let mut tasks = vec![self.request_osm_tiles()];
+        if let Some(id) = track_target {
+            if let Some(task) = self.reveal_track_in_sidebar(id) { tasks.push(task); }
+        }
+        if let Some(id) = waypoint_target {
+            if let Some(task) = self.reveal_waypoint_in_sidebar(id) { tasks.push(task); }
+        }
+        Task::batch(tasks)
     }
-    
+
+    // If a search hides the clicked map object, clear only that filter.
+    // The index is calculated from the actually rendered sidebar rows.
+    fn reveal_track_in_sidebar(&mut self, id: u64) -> Option<Task<Message>> {
+        let track = self.tracks.iter().find(|t| t.id == id)?;
+        let query = self.search_tracks.to_lowercase();
+        if !track.name.to_lowercase().contains(&query) {
+            self.search_tracks.clear();
+        }
+        let query = self.search_tracks.to_lowercase();
+        let row = self.tracks.iter()
+            .filter(|t| t.name.to_lowercase().contains(&query))
+            .position(|t| t.id == id)?;
+        Some(iced::widget::operation::scroll_to(
+            crate::TRACKS_SIDEBAR_SCROLL_ID,
+            iced::widget::operation::AbsoluteOffset {
+                x: None,
+                y: Some(row as f32 * (crate::SIDEBAR_ROW_HEIGHT + crate::SIDEBAR_ROW_SPACING)),
+            },
+        ))
+    }
+
+    fn reveal_waypoint_in_sidebar(&mut self, id: u64) -> Option<Task<Message>> {
+        let waypoint = self.waypoints.iter().find(|w| w.id == id)?;
+        let query = self.search_waypoints.to_lowercase();
+        if !waypoint.name.to_lowercase().contains(&query) {
+            self.search_waypoints.clear();
+        }
+        let query = self.search_waypoints.to_lowercase();
+        let row = self.waypoints.iter()
+            .filter(|w| w.name.to_lowercase().contains(&query))
+            .position(|w| w.id == id)?;
+        Some(iced::widget::operation::scroll_to(
+            crate::WAYPOINTS_SIDEBAR_SCROLL_ID,
+            iced::widget::operation::AbsoluteOffset {
+                x: None,
+                y: Some(row as f32 * (crate::SIDEBAR_ROW_HEIGHT + crate::SIDEBAR_ROW_SPACING)),
+            },
+        ))
+    }
+
     fn perform_undo(&mut self) {
         if let Some(prev) = self.undo_stack.pop() {
             self.redo_stack.push(UndoState {
@@ -608,9 +662,13 @@ impl App {
                 self.selection.waypoints.clear();
             }
             if ctrl {
-                if !self.selection.waypoints.remove(&id) { self.selection.waypoints.insert(id); }
+                if !self.selection.waypoints.remove(&id) {
+                    self.selection.waypoints.insert(id);
+                    self.pending_waypoint_scroll = Some(id);
+                }
             } else {
                 self.selection.waypoints.insert(id);
+                self.pending_waypoint_scroll = Some(id);
             }
             self.point_is_dragging = true;
         } else if let Some(track_id) = self.hit_test_track_at(p, 15.0) {
@@ -620,9 +678,13 @@ impl App {
                 self.selection.points.clear();
             }
             if ctrl {
-                if !self.selection.tracks.remove(&track_id) { self.selection.tracks.insert(track_id); }
+                if !self.selection.tracks.remove(&track_id) {
+                    self.selection.tracks.insert(track_id);
+                    self.pending_track_scroll = Some(track_id);
+                }
             } else {
                 self.selection.tracks.insert(track_id);
+                self.pending_track_scroll = Some(track_id);
             }
             self.point_is_dragging = true;
         } else {
@@ -762,6 +824,10 @@ impl App {
             let hw = sz.width as f64 / 2.0;
             let hh = sz.height as f64 / 2.0;
 
+            // A rectangle reveals only object types that it actually hit.
+            let mut found_waypoint = false;
+            let mut found_track = false;
+
             // Выделяем waypoints
             for wp in &self.waypoints {
                 if !wp.visible { continue; }
@@ -770,6 +836,7 @@ impl App {
                 let sy = (hh - (my - self.cy) / self.scale) as f32;
                 if sx >= x_min && sx <= x_max && sy >= y_min && sy <= y_max {
                     self.selection.waypoints.insert(wp.id);
+                    found_waypoint = true;
                 }
             }
 
@@ -793,7 +860,20 @@ impl App {
                 }
                 if fully_inside && has_pts {
                     self.selection.tracks.insert(t.id);
+                    found_track = true;
                 }
+            }
+
+            // First selected item in sidebar order, never HashSet iteration order.
+            if found_waypoint {
+                self.pending_waypoint_scroll = self.waypoints.iter()
+                    .find(|w| self.selection.waypoints.contains(&w.id))
+                    .map(|w| w.id);
+            }
+            if found_track {
+                self.pending_track_scroll = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| t.id);
             }
         }
         self.rubber_band_start = None;
