@@ -39,11 +39,11 @@ impl App {
                     Message::ToggleWiki,
                 ),
                 if self.wiki_points.is_empty() {
-                    if crate::i18n::current_lang() == "en" { "No Wiki-WPT in kit" } else { "Wiki-WPT не найден в комплекте" }
+                    t!("msg_0243")
                 } else if self.show_wiki {
-                    if crate::i18n::current_lang() == "en" { "Hide Wiki points" } else { "Скрыть точки Wiki" }
+                    t!("msg_0244")
                 } else {
-                    if crate::i18n::current_lang() == "en" { "Show Wiki points" } else { "Показать точки Wiki" }
+                    t!("msg_0245")
                 }
             ),
             with_tooltip(

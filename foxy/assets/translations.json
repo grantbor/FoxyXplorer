@@ -289,7 +289,7 @@
   },
   "msg_0073": {
     "ru": "Копировать координаты",
-    "en": "Copy coorinates into cliboard"
+    "en": "Copy coordinates"
   },
   "msg_0074": {
     "ru": "Свойства",
@@ -620,8 +620,8 @@
     "en": "Coordinates:"
   },
   "msg_0156": {
-    "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' | Узел (A1) | Узел + азимут + метры (A1 120 110)",
-    "en": "Formats: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' | Grid node (A1) | Node + azimuth + meters (A1 120 110)"
+    "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' (° = o) | Узел (A1) | Узел + азимут + метры (A1 120 110)",
+    "en": "Formats: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' (° = o) | Grid node (A1) | Node + azimuth + meters (A1 120 110)"
   },
   "msg_0157": {
     "ru": "Высота (м):",
@@ -821,7 +821,7 @@
   },
   "msg_0206": {
     "ru": "Формат координат (сейчас",
-    "en": "Cooridnate format (now"
+    "en": "Coordidnate format (now"
   },
   "msg_0207": {
     "ru": "Список точек",
@@ -936,8 +936,8 @@
     "en": "segments"
   }, 
   "msg_0235": {
-    "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss''",
-    "en": "Formats: dd.dddddd | dd°mm.mmmm'| dd°mm'ss.ss''"
+    "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' (° = o)",
+    "en": "Formats: dd.dddddd | dd°mm.mmmm'| dd°mm'ss.ss'' (° = o)"
   },    
   "msg_0236": {
     "ru": "Старовая локация:",
@@ -966,5 +966,57 @@
   "msg_0242": {
     "ru": "FoxyDrop: сервер остановлен",
     "en": "FoxyDrop: Server Down"
+  },
+  "msg_0243": {
+    "ru": "Wiki-WPT не найден в комплекте",
+    "en": "No Wiki-WPT in kit"
+  },
+  "msg_0244": {
+    "ru": "Скрыть точки Wiki",
+    "en": "Hide Wiki points"
+  },
+  "msg_0245": {
+    "ru": "Показать точки Wiki",
+    "en": "Show Wiki points"
+  },
+  "msg_0246": {
+    "ru": "Добавить на карту",
+    "en": "Add to map"
+  },
+  "msg_0247": {
+    "ru": "Добавить точку на карту",
+    "en": "Add waypoint to map"
+  },
+  "msg_0248": {
+    "ru": "У GPX-сетки нет родительской папки",
+    "en": "Grid GPX has no parent directory"
+  },
+  "msg_0249": {
+    "ru": "Отменено",
+    "en": "Undone"
+  },
+  "msg_0250": {
+    "ru": "Повторено",
+    "en": "Redone"
+  },
+  "msg_0251": {
+    "ru": "Не удалось скопировать сетку в 10-Tracks",
+    "en": "Could not copy grid to 10-Tracks"
+  },
+  "msg_0252": {
+    "ru": "У сетки нет имени файла",
+    "en": "Grid source has no filename"
+  },
+  "msg_0253": {
+    "ru": "треков:",
+    "en": "tracks:"
+  },
+  "msg_0254": {
+    "ru": "точек:",
+    "en": "waypoints:"
+  },
+  "msg_0255": {
+    "ru": "выделено",
+    "en": "selected"
   }
 }

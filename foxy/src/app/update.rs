@@ -357,7 +357,7 @@ impl App {
             self.waypoints = prev.waypoints;
             self.next_id = prev.next_id;
             self.tracks_cache.clear();
-            self.status = format!("Отменено: {}", prev.label);
+            self.status = format!("{}: {}", t!("msg_0249"), prev.label);
         }
     }
 
@@ -373,7 +373,7 @@ impl App {
             self.waypoints = next.waypoints;
             self.next_id = next.next_id;
             self.tracks_cache.clear();
-            self.status = format!("Повторено: {}", next.label);
+            self.status = format!("{}: {}", t!("msg_0250"), next.label);
         }
     }
     
@@ -2844,7 +2844,7 @@ impl App {
             Message::AddNamedWaypoint(name, lon, lat) => {
                 // Copy a grid node or Wiki-WPT into the editable waypoint list.
                 // Do not modify the original grid or the informational Wiki layer.
-                self.push_undo("Добавить точку на карту");
+                self.push_undo(t!("msg_0247"));
                 let id = self.next_id;
                 self.next_id += 1;
                 self.waypoints.push(Arc::new(new_user_waypoint(id, name, lon, lat)));

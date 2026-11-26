@@ -300,7 +300,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
         }
         if let Err(e) = copy_kit_grid_if_missing(root, &source) {
             // Copying is secondary: failure must not prevent the kit from opening.
-            notes.push(format!("Не удалось скопировать сетку в 10-Tracks: {e}"));
+            notes.push(format!("{}: {e}", t!("msg_0251")));
         }
     }
     Ok((layers, best, wiki_points, notes))
@@ -332,7 +332,7 @@ fn copy_kit_grid_if_missing(root: &Path, source: &Path) -> Result<(), String> {
 
     std::fs::create_dir_all(&tracks_dir)
         .map_err(|e| format!("{}: {e}", tracks_dir.display()))?;
-    let name = source.file_name().ok_or_else(|| "У сетки нет имени файла".to_string())?;
+    let name = source.file_name().ok_or_else(|| t!("msg_0252").to_string())?;
     let destination = tracks_dir.join(name);
     let mut input = std::fs::File::open(source)
         .map_err(|e| format!("{}: {e}", source.display()))?;
@@ -1236,7 +1236,22 @@ impl App {
                 .unwrap_or_else(|| "-".into()),
         };
         
-        let info = format!("{} {:.2}° (WMM2025)  |  {} {:.2} {}  |  {} {}", t!("msg_0214"), self.declination, t!("msg_0215"), self.scale, t!("msg_0216"), t!("msg_0217"), name
+        // Count only objects that still exist in the current session. This avoids
+        // reporting stale selection IDs after an object has been removed.
+        let selected_tracks = self.tracks.iter()
+            .filter(|track| self.selection.tracks.contains(&track.id))
+            .count();
+        let selected_waypoints = self.waypoints.iter()
+            .filter(|waypoint| self.selection.waypoints.contains(&waypoint.id))
+            .count();
+
+        let info = format!(
+            "{} {:.2}° (WMM2025)  |  {} {:.2} {}  |  {} {}  |  {} {} ({} {})  |  {} {} ({} {})",
+            t!("msg_0214"), self.declination,
+            t!("msg_0215"), self.scale, t!("msg_0216"),
+            t!("msg_0217"), name,
+            t!("msg_0253"), self.tracks.len(), t!("msg_0255"), selected_tracks,
+            t!("msg_0254"), self.waypoints.len(), t!("msg_0255"), selected_waypoints,
         );
 
         // ---- Базовый интерфейс ----

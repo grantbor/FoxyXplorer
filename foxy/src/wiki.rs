@@ -28,7 +28,7 @@ fn candidate_paths(grid_gpx: &Path) -> Result<Vec<PathBuf>, String> {
         return Ok(Vec::new());
     }
 
-    let parent = grid_gpx.parent().ok_or("У GPX-сетки нет родительской папки")?;
+    let parent = grid_gpx.parent().ok_or(crate::t!("msg_0248"))?;
     let entries = std::fs::read_dir(parent)
         .map_err(|e| format!("{}: {e}", parent.display()))?;
     let grid_prefix = format!("{}_wiki_", stem.to_lowercase());

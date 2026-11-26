@@ -30,11 +30,7 @@ fn grid_node_hit_test(click: Point, pt: Point, name: &str, show_label: bool) -> 
 }
 
 fn reference_point_menu(name: &str, lat: f64, lon: f64) -> Vec<crate::ContextMenuItem> {
-    let add_label = if crate::i18n::current_lang() == "en" {
-        "Add to map"
-    } else {
-        "Добавить на карту"
-    };
+    let add_label = t!("msg_0246");
     vec![
         crate::ContextMenuItem::Label(name.to_string()),
         crate::ContextMenuItem::Action(
