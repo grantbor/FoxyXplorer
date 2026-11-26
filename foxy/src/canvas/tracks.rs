@@ -450,9 +450,9 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                         if mag_az >= 360.0 { mag_az -= 360.0; }
 
                         let text = if dist_m >= 1000.0 {
-                            format!("{:.2} км, {:.0}°", dist_m / 1000.0, mag_az)
+                            format!("{:.2} {}, {:.0}°", dist_m / 1000.0, crate::t!("msg_0259"), mag_az)
                         } else {
-                            format!("{:.0} м, {:.0}°", dist_m, mag_az)
+                            format!("{:.0} {}, {:.0}°", dist_m, crate::t!("msg_0258"), mag_az)
                         };
 
                         let mid_x = (sp1.x + sp2.x) / 2.0;
@@ -483,8 +483,23 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     }
                 }
 
-                // Площадь
+                // The two-line summary appears only after the third click.
+                // Length is the open polyline (no closing segment); area is
+                // calculated from the closed polygon as before.
                 if app.ruler_points.len() >= 3 {
+                    let total_m: f64 = pts.windows(2)
+                        .map(|pair| {
+                            let (lon1, lat1) = pair[0];
+                            let (lon2, lat2) = pair[1];
+                            crate::domain::haversine_m(lat1, lon1, lat2, lon2)
+                        })
+                        .sum();
+                    let length_text = if total_m > 1000.0 {
+                        format!("{} {:.1} {}", crate::t!("msg_0256"), total_m / 1000.0, crate::t!("msg_0259"))
+                    } else {
+                        format!("{} {:.0} {}", crate::t!("msg_0256"), total_m, crate::t!("msg_0258"))
+                    };
+
                     let n = pts.len();
                     let lat_c = pts.iter().map(|p| p.1).sum::<f64>() / n as f64;
                     let kx = 111320.0 * lat_c.to_radians().cos();
@@ -500,19 +515,19 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     area_m2 = (area_m2 / 2.0).abs();
                     
                     let area_text = if area_m2 >= 1_000_000.0 {
-                        format!("Площадь: {:.2} км²", area_m2 / 1_000_000.0)
+                        format!("{} {:.2} {}", crate::t!("msg_0257"), area_m2 / 1_000_000.0, crate::t!("msg_0262"))
                     } else if area_m2 >= 10_000.0 {
-                        format!("Площадь: {:.2} га", area_m2 / 10_000.0)
+                        format!("{} {:.2} {}", crate::t!("msg_0257"), area_m2 / 10_000.0, crate::t!("msg_0260"))
                     } else {
-                        format!("Площадь: {:.0} м²", area_m2)
+                        format!("{} {:.0} {}", crate::t!("msg_0257"), area_m2, crate::t!("msg_0261"))
                     };
 
                     let cx = sum_sx / (screen_pts.len() as f32 - 1.0);
                     let cy = sum_sy / (screen_pts.len() as f32 - 1.0);
                     
                     let font_size = 18.0;
-                    let box_h = 28.0;
-                    let box_w = area_text.chars().count() as f32 * 9.0 + 16.0;
+                    let box_h = 56.0;
+                    let box_w = length_text.chars().count().max(area_text.chars().count()) as f32 * 9.0 + 16.0;
                     
                     let bg_rect = Rectangle {
                         x: cx - box_w / 2.0,
@@ -525,15 +540,17 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     let border = CanvasPath::rectangle(bg_rect.position(), bg_rect.size());
                     frame.stroke(&border, canvas::Stroke::default().with_color(Color::WHITE).with_width(2.0));
 
-                    frame.fill_text(canvas::Text {
-                        content: area_text,
-                        position: Point::new(cx, cy),
-                        color: Color::WHITE,
-                        size: iced::Pixels(font_size),
-                        align_x: iced::widget::text::Alignment::Center,
-                        align_y: iced::alignment::Vertical::Center,
-                        ..Default::default()
-                    });
+                    for (content, y) in [(length_text, cy - 13.0), (area_text, cy + 13.0)] {
+                        frame.fill_text(canvas::Text {
+                            content,
+                            position: Point::new(cx, y),
+                            color: Color::WHITE,
+                            size: iced::Pixels(font_size),
+                            align_x: iced::widget::text::Alignment::Center,
+                            align_y: iced::alignment::Vertical::Center,
+                            ..Default::default()
+                        });
+                    }
                 }
             }
 
