@@ -33,16 +33,16 @@ impl DropService {
     }
 
     pub async fn start(&self, ip: Ipv4Addr, preferred_port: u16) -> Result<SocketAddr, String> {
-        if self.is_running() { return Err("FoxyDrop уже запущен".into()); }
+        if self.is_running() { return Err(crate::t!("msg_0409").into()); }
         let folder = self.directory.read().map_err(|e| e.to_string())?.clone();
-        if !folder.is_dir() { return Err(format!("Не найдена папка загрузки: {}", folder.display())); }
+        if !folder.is_dir() { return Err(crate::tf!("msg_0410", folder = folder.display())); }
         // Проверяем право записи до открытия сокета.
         let probe = folder.join(format!(".foxydrop-check-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default().as_nanos()));
         let file = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&probe)
-            .await.map_err(|e| format!("Нет доступа для записи в папку: {e}"))?;
+            .await.map_err(|e| crate::tf!("msg_0411", error = e))?;
         drop(file);
         let _ = tokio::fs::remove_file(probe).await;
 
@@ -51,9 +51,9 @@ impl DropService {
             Ok(listener) => listener,
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 TcpListener::bind(SocketAddr::new(IpAddr::V4(ip), 0)).await
-                    .map_err(|e| format!("Невозможно открыть порт: {e}"))?
+                    .map_err(|e| crate::tf!("msg_0412", error = e))?
             }
-            Err(e) => return Err(format!("Невозможно запустить FoxyDrop: {e}")),
+            Err(e) => return Err(crate::tf!("msg_0413", error = e)),
         };
         let address = listener.local_addr().map_err(|e| e.to_string())?;
         let state = Arc::new(UploadState {
@@ -61,7 +61,7 @@ impl DropService {
             permits: Arc::new(Semaphore::new(2)),
         });
         let router = Router::new()
-            .route("/", get(|| async { Html(super::page::INDEX) }))
+            .route("/", get(|| async { Html(super::page::render()) }))
             .route("/upload", post(upload::handle))
             .layer(DefaultBodyLimit::max(upload::MAX_SIZE as usize + 1024 * 1024))
             .with_state(state);

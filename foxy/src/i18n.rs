@@ -46,12 +46,6 @@ pub fn current_lang() -> &'static str {
     *LANG.read().unwrap()
 }
 
-/// Select a short inline ru/en translation, following the current UI language.
-/// This is useful for strings introduced by optional modules like FoxyUpload.
-pub fn tr(ru: &'static str, en: &'static str) -> &'static str {
-    if current_lang() == "en" { en } else { ru }
-}
-
 /// Перевод по ключу. Если ключа или языка нет — возвращает сам ключ.
 pub fn translate(key: &'static str) -> &'static str {
     let lang = *LANG.read().unwrap();
@@ -60,6 +54,16 @@ pub fn translate(key: &'static str) -> &'static str {
         .and_then(|m| m.get(lang))
         .copied()
         .unwrap_or(key)
+}
+
+/// Format a localized template by replacing its named {placeholders}.
+/// Each language can use its own word order and punctuation.
+pub fn interpolate(key: &'static str, vars: &[(&str, String)]) -> String {
+    let mut result = translate(key).to_string();
+    for (name, value) in vars {
+        result = result.replace(&format!("{{{name}}}"), value);
+    }
+    result
 }
 
 /// Декодирует escape-последовательности: \n, \t, \r, \\, \", \', \0, \xNN, \u{NNNN}.
@@ -116,4 +120,41 @@ macro_rules! t {
     ($key:literal) => {
         $crate::i18n::translate($key)  // БЕЗ .to_string()
     };
+}
+
+/// Interpolate a translation with named arguments: tf!("msg_NNNN", count = n).
+#[macro_export]
+macro_rules! tf {
+    ($key:literal $(, $name:ident = $value:expr)* $(,)?) => {{
+        $crate::i18n::interpolate($key, &[
+            $((stringify!($name), ($value).to_string()),)*
+        ])
+    }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_translation_keys_have_both_languages() {
+        for (key, languages) in TRANSLATIONS.iter() {
+            for lang in ["ru", "en"] {
+                assert!(languages.get(lang).is_some_and(|text| !text.is_empty()),
+                    "missing {lang} translation for {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn interpolated_strings_resolve_named_parameters() {
+        let result = interpolate("msg_0374", &[
+            ("tracks", "10".into()),
+            ("waypoints", "24".into()),
+        ]);
+        assert!(result.contains("10"));
+        assert!(result.contains("24"));
+        assert!(!result.contains("{tracks}"));
+        assert!(!result.contains("{waypoints}"));
+    }
 }

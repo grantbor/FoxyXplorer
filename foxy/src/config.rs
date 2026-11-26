@@ -58,7 +58,7 @@ pub fn load() -> Config {
     let p = path();
     match fs::read_to_string(&p) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
-            eprintln!("config.json повреждён ({e}), использую дефолты");
+            eprintln!("{}: {e}", crate::t!("msg_0407"));
             Config::default()
         }),
         Err(_) => Config::default(),

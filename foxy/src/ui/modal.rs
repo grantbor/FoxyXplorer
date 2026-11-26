@@ -17,8 +17,7 @@ fn format_date_time(unix: Option<f64>) -> (String, String) {
         
         // Добавлено ключевое слово `let` и явная типизация
         let months: [&str; 12] = [
-            "янв", "фев", "мар", "апр", "май", "июн", 
-            "июл", "авг", "сен", "окт", "ноя", "дек"
+            crate::t!("msg_0339"), crate::t!("msg_0340"), crate::t!("msg_0341"), crate::t!("msg_0342"), crate::t!("msg_0343"), crate::t!("msg_0344"), crate::t!("msg_0345"), crate::t!("msg_0346"), crate::t!("msg_0347"), crate::t!("msg_0348"), crate::t!("msg_0349"), crate::t!("msg_0350")
         ];
         
         // .copied() превращает Option<&&str> в Option<&str>, 
@@ -41,7 +40,7 @@ impl App {
         &'a self,
         state: &'a crate::TrackListState,
     ) -> Element<'a, Message> {
-        let track_name = self.tracks.iter().find(|t| t.id == state.track_id).map(|t| t.name.as_str()).unwrap_or("Unknown");
+        let track_name = self.tracks.iter().find(|t| t.id == state.track_id).map(|t| t.name.as_str()).unwrap_or(crate::t!("msg_0420"));
         
         let header = container(
             row![
@@ -492,7 +491,7 @@ impl App {
             bg_colors.push([0, 0, 0]);
         }
         let categories = crate::util::waypoint_categories::all();
-        let empty_category = if crate::i18n::current_lang() == "en" { "(None)" } else { "(Без категории)" };
+        let empty_category = crate::t!("msg_0351");
         let category_selected = draft.category_code.as_ref()
             .and_then(|code| categories.iter().find(|c| &c.code == code))
             .map(|c| c.name.clone())
@@ -663,14 +662,14 @@ impl App {
                     .padding(input_pad).style(input_style.clone()),
             ],
             row![
-                text(if crate::i18n::current_lang() == "en" { "Category" } else { "Категория" }).width(100),
+                text(crate::t!("msg_0352")).width(100),
                 pick_list(category_names, Some(category_selected), Message::DraftWpCategoryChanged)
                     .width(Length::Fixed(290.0))
                     .padding(crate::ui::styles::button_padding())
                     .style(crate::ui::styles::pick_list),
             ].align_y(Alignment::Center),
             row![
-                text(if crate::i18n::current_lang() == "en" { "Azimuth" } else { "Азимут" }).width(100),
+                text(crate::t!("msg_0353")).width(100),
                 text_input("0–359", &draft.azimuth.map(|v| v.to_string()).unwrap_or_default())
                     .on_input(Message::DraftWpAzimuthChanged)
                     .width(Length::Fixed(90.0))
@@ -1073,28 +1072,21 @@ impl App {
     pub(crate) fn view_foxydrop_modal<'a>(&'a self) -> Element<'a, Message> {
         use crate::foxydrop::Phase;
 
-        let en = crate::i18n::current_lang() == "en";
-
-        // Локализация подписей
-        let tr = |ru: &'static str, en_text: &'static str| -> &'static str {
-            if en { en_text } else { ru }
-        };
-
         let status: Element<'a, Message> = match self.drop_phase {
-            Phase::Stopped => text(tr("Сервер остановлен", "Server Down"))
+            Phase::Stopped => text(crate::t!("msg_0312"))
                 .size(18)
                 .color(Color::from_rgb8(180, 75, 65))
                 .into(),
 
-            Phase::Starting => text(tr("Запуск сервера...", "Starting..."))
+            Phase::Starting => text(crate::t!("msg_0313"))
                 .size(18)
                 .into(),
 
-            Phase::Stopping => text(tr("Остановка сервера...", "Stopping..."))
+            Phase::Stopping => text(crate::t!("msg_0314"))
                 .size(18)
                 .into(),
 
-            Phase::Running => text(tr("Сервер запущен", "Server Running"))
+            Phase::Running => text(crate::t!("msg_0315"))
                 .size(18)
                 .color(Color::from_rgb8(45, 175, 96))
                 .into(),
@@ -1106,51 +1098,9 @@ impl App {
 
         // Сообщения об ошибках
         if let Some(error) = &self.drop_error {
-            let error_text = if en {
-                let translations = [
-                    (
-                        "Не найден IPv4-адрес локальной сети",
-                        "No local IPv4 address found",
-                    ),
-                    (
-                        "Сервер неожиданно остановился",
-                        "The server stopped unexpectedly",
-                    ),
-                    (
-                        "FoxyDrop уже запущен",
-                        "FoxyDrop is already running",
-                    ),
-                    (
-                        "Не найдена папка загрузки: ",
-                        "Upload folder not found: ",
-                    ),
-                    (
-                        "Нет доступа для записи в папку: ",
-                        "Upload folder is not writable: ",
-                    ),
-                    (
-                        "Невозможно открыть порт: ",
-                        "Could not open port: ",
-                    ),
-                    (
-                        "Невозможно запустить FoxyDrop: ",
-                        "Could not start FoxyDrop: ",
-                    ),
-                ];
-
-                translations
-                    .iter()
-                    .find_map(|(ru, english)| {
-                        error.strip_prefix(ru)
-                            .map(|rest| format!("{english}{rest}"))
-                    })
-                    .unwrap_or_else(|| error.clone())
-            } else {
-                error.clone()
-            };
-
+            // Errors are localized at their source using translations.json.
             body = body.push(
-                text(error_text)
+                text(error.as_str())
                     .size(13)
                     .color(Color::from_rgb8(200, 70, 60))
             );
@@ -1175,7 +1125,7 @@ impl App {
                     row![
                         text(url).size(15),
                         self.btn_secondary(
-                            tr("Копировать", "Copy")
+                            crate::t!("msg_0316")
                         )
                         .on_press(Message::FoxyDropCopyUrl),
                     ]
@@ -1212,14 +1162,11 @@ impl App {
             .to_string();
 
         let folder_text = if current_dir.is_empty() {
-            tr(
-                "Выберите папку в настройках",
-                "Choose a folder in Settings"
-            ).to_string()
+            crate::t!("msg_0317").to_string()
         } else {
             format!(
                 "{}: {}",
-                tr("Папка", "Folder"),
+                crate::t!("msg_0318"),
                 current_dir
             )
         };
@@ -1229,12 +1176,12 @@ impl App {
         // Запуск и остановка
         if self.drop_phase == Phase::Stopped {
             body = body.push(
-                self.btn(tr("Запустить", "Start"))
+                self.btn(crate::t!("msg_0319"))
                     .on_press(Message::FoxyDropStart)
             );
         } else if self.drop_phase == Phase::Running {
             body = body.push(
-                self.btn_secondary(tr("Остановить", "Stop"))
+                self.btn_secondary(crate::t!("msg_0320"))
                     .on_press(Message::FoxyDropStop)
             );
         }
@@ -1354,57 +1301,45 @@ impl App {
         let ftp_settings: Element<'a, Message> = if draft.ftp_enabled {
             column![
                 checkbox(true)
-                    .label(if crate::i18n::current_lang() == "en" {
-                        "FoxyUpload - FTP (unencrypted)"
-                    } else {
-                        "FoxyUpload - FTP (без шифрования)"
-                    })
+                    .label(crate::t!("msg_0354"))
                     .on_toggle(Message::SettingsFtpEnabledChanged),
                 row![
-                    text("FTP server").width(160),
+                    text(crate::t!("msg_0357")).width(160),
                     text_input("ftp.example.com", &draft.ftp_host)
                         .on_input(Message::SettingsFtpHostChanged)
                         .padding(input_pad).style(input_style.clone()).width(Length::Fill),
                 ].align_y(Alignment::Center),
                 row![
-                    text("FTP port").width(160),
+                    text(crate::t!("msg_0358")).width(160),
                     text_input("21", &draft.ftp_port)
                         .on_input(Message::SettingsFtpPortChanged)
                         .padding(input_pad).style(input_style.clone()).width(80),
                 ].align_y(Alignment::Center),
                 row![
-                    text("FTP login").width(160),
+                    text(crate::t!("msg_0359")).width(160),
                     text_input("", &draft.ftp_username)
                         .on_input(Message::SettingsFtpUserChanged)
                         .padding(input_pad).style(input_style.clone()).width(Length::Fill),
                 ].align_y(Alignment::Center),
                 row![
-                    text("FTP password").width(160),
+                    text(crate::t!("msg_0360")).width(160),
                     text_input("", &draft.ftp_password)
                         .secure(true)
                         .on_input(Message::SettingsFtpPasswordChanged)
                         .padding(input_pad).style(input_style.clone()).width(Length::Fill),
                 ].align_y(Alignment::Center),
-                text(if crate::i18n::current_lang() == "en" {
-                    "The FTP profile is stored in the system credential store, not config.json."
-                } else {
-                    "FTP-профиль сохраняется в системном хранилище паролей, а не в config.json."
-                }).size(11),
+                text(crate::t!("msg_0355")).size(11),
             ].spacing(12).into()
         } else {
             checkbox(false)
-                .label(if crate::i18n::current_lang() == "en" {
-                    "FoxyUpload disabled"
-                } else {
-                    "FoxyUpload отключен"
-                })
+                .label(crate::t!("msg_0356"))
                 .on_toggle(Message::SettingsFtpEnabledChanged)
                 .into()
         };
 
         let current_lang_label = match draft.lang.as_str() {
-            "en" => "English",
-            _ => "Русский",
+            "en" => crate::t!("msg_0365"),
+            _ => crate::t!("msg_0364"),
         };
 
         // Подсветка: зелёная рамка если координаты валидны, обычная если нет
@@ -1470,7 +1405,7 @@ impl App {
             row![
                 text(t!("msg_0237")).width(160),
                 pick_list(
-                    ["Русский", "English"],
+                    [crate::t!("msg_0364"), crate::t!("msg_0365")],
                     Some(current_lang_label),
                     |label: &str| Message::SettingsLangChanged(label.to_string())
                 ).padding(pick_pad).style(pick_style.clone()),
@@ -1479,7 +1414,7 @@ impl App {
             // Допуск упрощения
             // Глобальная тема: встроенные варианты iced::Theme.
         row![
-            text(if crate::i18n::current_lang() == "en" { "Theme" } else { "Тема" }).width(160),
+            text(crate::t!("msg_0361")).width(160),
             pick_list(
                 crate::THEME_FAMILY_LABELS.to_vec(),
                 Some(crate::theme_family_name(&draft.ui_theme)),
@@ -1499,7 +1434,7 @@ impl App {
 
             separator(),
             row![
-                text(if crate::i18n::current_lang() == "en" { "FoxyDrop folder" } else { "Папка FoxyDrop" }).width(160),
+                text(crate::t!("msg_0362")).width(160),
                 text_input("", &draft.drop_folder)
                     .width(Length::Fill)
                     .padding(input_pad)
@@ -1527,7 +1462,7 @@ impl App {
             separator(),
             // Настраиваемый цвет линий и узлов сетки.
             row![
-                text(if crate::i18n::current_lang() == "en" { "Grid color" } else { "Цвет сетки" }).width(160),
+                text(crate::t!("msg_0363")).width(160),
                 grid_color_row,
             ].align_y(Alignment::Center).spacing(6),
             grid_color_picker,

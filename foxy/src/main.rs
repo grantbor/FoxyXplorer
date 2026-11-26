@@ -202,7 +202,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
             Err(e) => { notes.push(format!("{stem}: {e}")); continue; }
         };
         if !map.projection.to_lowercase().contains("mercator") {
-            notes.push(format!("{stem}: проекция «{}» пока не поддерживается", map.projection));
+            notes.push(crate::tf!("msg_0397", stem = stem, projection = map.projection));
             continue;
         }
         let georef = match map.georef() {
@@ -217,7 +217,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
             Err(e) => { notes.push(format!("{stem}: {} — {e}", map.image_file)); continue; }
         };
         if ozf.levels.is_empty() {
-            notes.push(format!("{stem}: пустой список уровней в {}", map.image_file));
+            notes.push(crate::tf!("msg_0398", stem = stem, file = map.image_file));
             continue;
         }
         let bw = ozf.levels.iter().map(|l| l.width).max().unwrap_or(1) as f64;
@@ -292,10 +292,7 @@ pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec
         }
     }
     if best.is_none() {
-        notes.push(format!(
-            "сетка (GPX с именованными точками) не найдена в: {}",
-            data_dirs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
-        ));
+        notes.push(crate::tf!("msg_0399", directories = data_dirs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")));
     }
 
     let mut wiki_points = Vec::new();
@@ -1032,7 +1029,7 @@ impl App {
         
         if let Some(g) = &self.grid {
             if let Some(n) = g.nearest(lat, lon, self.declination) {
-                s += &format!("   |   {} {}: {:.0} м, {}  {:.0}°", t!("msg_0209"), n.node.name, n.distance_m, t!("msg_0210"), n.magnetic_azimuth);
+                s += &format!("   |   {} {}: {:.0} {}, {}  {:.0}°", t!("msg_0209"), n.node.name, n.distance_m, t!("msg_0258"), t!("msg_0210"), n.magnetic_azimuth);
             }
         }
         
@@ -1560,7 +1557,7 @@ fn main() -> iced::Result {
     let icon = match load_icon_from_svg(ICON_SVG, 256) {
         Ok(icon) => Some(icon),
         Err(e) => {
-            eprintln!("Не удалось загрузить иконку окна: {e}");
+            eprintln!("{}: {e}", crate::t!("msg_0400"));
             None
         }
     };

@@ -24,7 +24,6 @@ use crate::util::geo::merc_of;
 use crate::util::geo::dist_to_segment;
 use crate::t;
 use crate::SettingsDraft;
-use crate::i18n::tr;
 
 fn is_space(key: &iced::keyboard::Key) -> bool {
     matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
@@ -56,7 +55,7 @@ fn new_user_waypoint(id: u64, name: String, lon: f64, lat: f64) -> domain::Waypo
 impl App {
     fn ftp_tracks_dir(&self) -> Result<PathBuf, String> {
         let kit = self.last_kit.as_ref().filter(|p| p.is_dir())
-            .ok_or_else(|| tr("Для FTP необходимо сначала открыть комплект", "Open a kit before using FTP").to_string())?;
+            .ok_or_else(|| crate::t!("msg_0321").to_string())?;
         let directory = kit.join("10-Tracks");
         std::fs::create_dir_all(&directory).map_err(|e| format!("{}: {e}", directory.display()))?;
         Ok(directory)
@@ -64,12 +63,12 @@ impl App {
 
     fn ftp_path_within_kit(&self, path: &std::path::Path) -> Result<PathBuf, String> {
         let directory = self.ftp_tracks_dir()?;
-        let target = path.parent().ok_or(tr("Не выбрана папка WPT", "No WPT folder selected"))?;
+        let target = path.parent().ok_or(crate::t!("msg_0322"))?;
         if target.canonicalize().map_err(|e| e.to_string())? != directory.canonicalize().map_err(|e| e.to_string())? {
-            return Err(tr("Для отправки по FTP выберите WPT из папки комплекта 10-Tracks", "Select a WPT file from the kit's 10-Tracks folder for FTP upload").into());
+            return Err(crate::t!("msg_0323").into());
         }
         if !path.extension().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("wpt")) {
-            return Err(tr("Для FTP нужен файл .wpt", "FTP requires a .wpt file").into());
+            return Err(crate::t!("msg_0324").into());
         }
         Ok(path.to_path_buf())
     }
@@ -85,10 +84,10 @@ impl App {
                     let name = if track.props.description.trim().is_empty() { &track.name } else { &track.props.description };
                     let safe = crate::foxyupload::safe_filename(name);
                     let path = directory.join(format!("{safe}.plt"));
-                    if !used.insert(path.clone()) { return Err(format!("{}: {safe}", tr("У выделенных треков совпадают имена", "Selected tracks have duplicate names"))); }
+                    if !used.insert(path.clone()) { return Err(format!("{}: {safe}", crate::t!("msg_0325"))); }
                     planned.push((track, path));
                 }
-                if planned.is_empty() { return Err(tr("Нет выбранных треков", "No tracks selected").into()); }
+                if planned.is_empty() { return Err(crate::t!("msg_0326").into()); }
                 let mut paths = Vec::new();
                 for (t, path) in planned { crate::io::save_plt(t, &path)?; paths.push(path); }
                 Ok(paths)
@@ -98,9 +97,9 @@ impl App {
                 let selected: Vec<_> = self.waypoints.iter()
                     .filter(|w| self.selection.waypoints.contains(&w.id))
                     .map(|w| w.as_ref()).collect();
-                if selected.is_empty() { return Err(tr("Нет выбранных путевых точек", "No waypoints selected").into()); }
+                if selected.is_empty() { return Err(crate::t!("msg_0327").into()); }
                 if matches!(kind, crate::FtpKind::WaypointsAppend(_)) {
-                    if !path.is_file() { return Err(tr("Исходный WPT для добавления не найден", "Existing WPT file for append not found").into()); }
+                    if !path.is_file() { return Err(crate::t!("msg_0328").into()); }
                     let mut next_id = self.next_id;
                     let old = crate::io::load_user_file(&path, &mut next_id)?;
                     let mut all = old.waypoints;
@@ -132,12 +131,12 @@ impl App {
     fn update_ftp(&mut self, message: Message) -> Task<Message> {
         // Guard entry points as well as buttons: no FTP job can start while disabled.
         if !self.ftp_enabled && !matches!(&message, Message::FtpFinished(_) | Message::FtpClose) {
-            self.status = tr("FoxyUpload отключен в настройках", "FoxyUpload is disabled in Settings").into();
+            self.status = crate::t!("msg_0329").into();
             return Task::none();
         }
         match message {
             Message::FtpTracks => {
-                if self.selection.tracks.is_empty() { self.status = tr("Выберите треки", "Select tracks").into(); return Task::none(); }
+                if self.selection.tracks.is_empty() { self.status = crate::t!("msg_0330").into(); return Task::none(); }
                 if let Err(err) = self.ftp_tracks_dir() { self.status = err; return Task::none(); }
                 self.modal = Some(Modal::FtpConfirm { kind: crate::FtpKind::Tracks, folder: self.ftp_remote_folder.clone() });
             }
@@ -147,21 +146,21 @@ impl App {
             }
             Message::FtpNewDialog => {
                 let directory = match self.ftp_tracks_dir() { Ok(d) => d, Err(e) => { self.status = e; return Task::none(); } };
-                if self.selection.waypoints.is_empty() { self.status = tr("Выберите точки", "Select waypoints").into(); return Task::none(); }
+                if self.selection.waypoints.is_empty() { self.status = crate::t!("msg_0331").into(); return Task::none(); }
                 self.show_wp_ftp_menu = false;
                 let filename = format!("Waypoints_{}.wpt", date_offset(0).replace('-', ""));
                 let dialog = rfd::AsyncFileDialog::new().set_directory(&directory)
-                    .set_title(tr("Сохранить WPT для FTP", "Save WPT for FTP upload"))
-                    .set_file_name(&filename).add_filter("OziExplorer Waypoints", &["wpt"]);
+                    .set_title(crate::t!("msg_0332"))
+                    .set_file_name(&filename).add_filter(crate::t!("msg_0422"), &["wpt"]);
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::FtpNewPicked);
             }
             Message::FtpAppendDialog => {
                 let directory = match self.ftp_tracks_dir() { Ok(d) => d, Err(e) => { self.status = e; return Task::none(); } };
-                if self.selection.waypoints.is_empty() { self.status = tr("Выберите точки", "Select waypoints").into(); return Task::none(); }
+                if self.selection.waypoints.is_empty() { self.status = crate::t!("msg_0331").into(); return Task::none(); }
                 self.show_wp_ftp_menu = false;
                 let dialog = rfd::AsyncFileDialog::new().set_directory(&directory)
-                    .set_title(tr("Выбрать WPT для дополнения и отправки", "Select WPT to append and upload"))
-                    .add_filter("OziExplorer Waypoints", &["wpt"]);
+                    .set_title(crate::t!("msg_0333"))
+                    .add_filter(crate::t!("msg_0422"), &["wpt"]);
                 return Task::perform(async move { dialog.pick_file().await.map(|h| h.path().to_path_buf()) }, Message::FtpAppendPicked);
             }
             Message::FtpNewPicked(Some(path)) => {
@@ -170,7 +169,7 @@ impl App {
             }
             Message::FtpAppendPicked(Some(path)) => {
                 let path = match self.ftp_path_within_kit(&path) { Ok(p) => p, Err(e) => { self.status = e; return Task::none(); } };
-                if !path.is_file() { self.status = format!("WPT не найден: {}", path.display()); return Task::none(); }
+                if !path.is_file() { self.status = crate::tf!("msg_0381", path = path.display()); return Task::none(); }
                 self.modal = Some(Modal::FtpConfirm { kind: crate::FtpKind::WaypointsAppend(path), folder: self.ftp_remote_folder.clone() });
             }
             Message::FtpNewPicked(None) | Message::FtpAppendPicked(None) => {}
@@ -185,13 +184,13 @@ impl App {
                 if let Err(e) = crate::foxyupload::validate_folder(&folder) { self.status = e; return Task::none(); }
                 let profile = match crate::foxyupload::load_profile() {
                     Ok(Some(profile)) => profile,
-                    Ok(None) => { self.status = tr("FTP не настроен: откройте Настройки", "FTP is not configured: open Settings").into(); return Task::none(); }
+                    Ok(None) => { self.status = crate::t!("msg_0334").into(); return Task::none(); }
                     Err(e) => { self.status = e; return Task::none(); }
                 };
                 // Critical: local save / append happens ONCE before the network job.
                 let files = match self.ftp_prepare(&kind) {
                     Ok(files) => files,
-                    Err(e) => { self.status = format!("{}: {e}", tr("Сохранение для FTP", "Saving for FTP")); return Task::none(); }
+                    Err(e) => { self.status = format!("{}: {e}", crate::t!("msg_0335")); return Task::none(); }
                 };
                 let plan = crate::foxyupload::Plan {
                     profile, remote_folder: folder.clone(), grid: self.ftp_grid_file(), files,
@@ -204,7 +203,7 @@ impl App {
                         match tokio::task::spawn_blocking(move || crate::foxyupload::upload_batch(plan)).await {
                             Ok(report) => report,
                             Err(e) => crate::foxyupload::Report {
-                                failures: vec![crate::foxyupload::FailedFile { file: PathBuf::from("FTP"), error: format!("{}: {e}", tr("Ошибка сетевой задачи", "Network task error")) }],
+                                failures: vec![crate::foxyupload::FailedFile { file: PathBuf::from("FTP"), error: format!("{}: {e}", crate::t!("msg_0336")) }],
                                 ..Default::default()
                             }
                         }
@@ -212,13 +211,10 @@ impl App {
                 );
             }
             Message::FtpFinished(report) => {
-                self.status = match (crate::i18n::current_lang(), report.failures.is_empty()) {
-                    ("en", true) => format!("FTP: {} files uploaded", report.uploaded),
-                    ("en", false) => format!("FTP: {} uploaded, {} errors — manual intervention required",
-                                            report.uploaded, report.failures.len()),
-                    (_, true) => format!("FTP: передано {} файлов", report.uploaded),
-                    (_, false) => format!("FTP: передано {}, ошибок {} — требуется вмешательство",
-                                          report.uploaded, report.failures.len()),
+                self.status = if report.failures.is_empty() {
+                    crate::tf!("msg_0372", uploaded = report.uploaded)
+                } else {
+                    crate::tf!("msg_0373", uploaded = report.uploaded, errors = report.failures.len())
                 };
                 self.modal = Some(Modal::FtpResult(report));
             }
@@ -489,10 +485,7 @@ impl App {
         self.grid_cache.clear(); self.wiki_cache.clear();
         self.osm_canvas_cache.clear();
         self.tracks_cache.clear();
-        self.status = format!(
-            "Сессия загружена ({} треков, {} точек)",
-            self.tracks.len(), self.waypoints.len()
-        );
+        self.status = crate::tf!("msg_0374", tracks = self.tracks.len(), waypoints = self.waypoints.len());
         self.maybe_update_declination(true);
     }
     
@@ -565,7 +558,7 @@ impl App {
 
         let new_wp = domain::Waypoint {
             id: self.next_id,
-            name: format!("Новая точка {}", self.next_id),
+            name: crate::tf!("msg_0375", id = self.next_id),
             lon, lat,
             ele: None, time: None, symbol: None, description: None,
             visible: true,
@@ -919,7 +912,7 @@ impl App {
                     t_m.segments.push(domain::TrackSegment { points: simplified });
                 }
                 domain::recompute_track_stats(t_m);
-                self.status = format!("Freehand: добавлено {after} точек (упрощено {before} → {after})");
+                self.status = crate::tf!("msg_0377", before = before, after = after);
             }
         } else {
             let new_name = format!("Track{}", self.next_id);
@@ -945,7 +938,7 @@ impl App {
             self.selection.tracks.clear();
             self.selection.tracks.insert(new_id);
 
-            self.status = format!("Freehand: создан трек (упрощено {before} → {after})");
+            self.status = crate::tf!("msg_0378", before = before, after = after);
         }
         
         self.tracks_cache.clear();
@@ -981,7 +974,7 @@ impl App {
                     t_m.segments.push(domain::TrackSegment { points: new_pts });
                 }
                 domain::recompute_track_stats(t_m);
-                self.status = format!("Добавлено {} точек к треку", dt.points.len());
+                self.status = crate::tf!("msg_0379", count = dt.points.len());
             }
         } else {
             let new_name = format!("Track{}", self.next_id);
@@ -1008,7 +1001,7 @@ impl App {
             self.selection.tracks.clear();
             self.selection.tracks.insert(new_id);
 
-            self.status = format!("Создан новый трек ({} точек)", dt.points.len());
+            self.status = crate::tf!("msg_0380", count = dt.points.len());
         }
         
         self.tracks_cache.clear();
@@ -1304,7 +1297,7 @@ impl App {
             self.drop_selected_ip = self.drop_ips.first().copied();
         }
         let Some(ip) = self.drop_selected_ip else {
-            self.drop_error = Some("Не найден IPv4-адрес локальной сети".into());
+            self.drop_error = Some(crate::t!("msg_0382").into());
             return Task::none();
         };
         self.drop_phase = crate::foxydrop::Phase::Starting;
@@ -1337,7 +1330,7 @@ impl App {
         if !has_tracks && !has_waypoints { return; }
 
         let label = match (has_tracks, has_waypoints) {
-            (true, true) => tr("Удаление треков и точек", "Delete tracks and waypoints"),
+            (true, true) => crate::t!("msg_0337"),
             (true, false) => t!("msg_0044"),
             (false, true) => t!("msg_0056"),
             (false, false) => unreachable!(),
@@ -1644,7 +1637,7 @@ impl App {
             Message::SaveSessionAs => {
                 let dialog = rfd::AsyncFileDialog::new()
                     .set_file_name("session.foxy")
-                    .add_filter("Foxy Session", &["foxy"]);
+                    .add_filter(crate::t!("msg_0423"), &["foxy"]);
                 return Task::perform(
                     async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
                     Message::SaveSessionAsPicked,
@@ -1669,7 +1662,7 @@ impl App {
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
-                            .add_filter("Foxy Session", &["foxy", "json"])
+                            .add_filter(crate::t!("msg_0423"), &["foxy", "json"])
                             .pick_file().await
                             .map(|h| h.path().to_path_buf())
                     },
@@ -1682,7 +1675,7 @@ impl App {
                     async {
                         rfd::AsyncFileDialog::new()
                             .set_file_name("session.foxy")
-                            .add_filter("Foxy Session", &["foxy"])
+                            .add_filter(crate::t!("msg_0423"), &["foxy"])
                             .save_file().await
                             .map(|h| h.path().to_path_buf())
                     },
@@ -1697,7 +1690,7 @@ impl App {
                 return Task::perform(
                     async {
                         rfd::AsyncFileDialog::new()
-                            .add_filter("Foxy Session", &["foxy", "json"])
+                            .add_filter(crate::t!("msg_0423"), &["foxy", "json"])
                             .pick_file().await
                             .map(|h| h.path().to_path_buf())
                     },
@@ -1913,7 +1906,7 @@ impl App {
                                 } else { draft.ftp_password.clone() };
                                 let port = match draft.ftp_port.parse::<u16>() {
                                     Ok(p) if p != 0 => p,
-                                    _ => { self.status = tr("Неверный FTP-порт", "Invalid FTP port").into(); return Task::none(); }
+                                    _ => { self.status = crate::t!("msg_0338").into(); return Task::none(); }
                                 };
                                 let profile = crate::foxyupload::Profile {
                                     host: draft.ftp_host.trim().to_string(), port,
@@ -1952,17 +1945,17 @@ impl App {
                                     self.grid_cache.clear();
                                     self.show_color_picker = None;
                                     crate::i18n::set_lang(Box::leak(new_cfg.lang.clone().into_boxed_str()));
-                                    self.status = "Настройки сохранены".into();
+                                    self.status = crate::t!("msg_0385").into();
                                     self.modal = None;
                                     save_session(self);
                                 }
                                 Err(e) => {
-                                    self.status = format!("Ошибка сохранения: {e}");
+                                    self.status = crate::tf!("msg_0388", error = e);
                                 }
                             }
                         }
                         _ => {
-                            self.status = "Некорректные координаты".into();
+                            self.status = crate::t!("msg_0386").into();
                         }
                     }
                 }
@@ -1981,9 +1974,11 @@ impl App {
             }
             Message::SettingsLangChanged(label) => {
                 // label приходит как "Русский" / "English" — конвертируем в код
-                let code = match label.as_str() {
-                    "English" => "en".to_string(),
-                    _ => "ru".to_string(),
+                // The language autonym is defined in translations.json.
+                let code = if label == crate::t!("msg_0365") {
+                    "en".to_string()
+                } else {
+                    "ru".to_string()
                 };
                 if let Some(Modal::Settings { draft }) = &mut self.modal {
                     draft.lang = code;
@@ -2106,7 +2101,7 @@ impl App {
             Message::FoxyDropStopped => {
                 self.drop_phase = crate::foxydrop::Phase::Stopped;
                 self.drop_address = None;
-                self.status = "FoxyDrop остановлен".into();
+                self.status = crate::t!("msg_0384").into();
                 if self.drop_restart_after_stop {
                     self.drop_restart_after_stop = false;
                     return self.start_foxydrop();
@@ -2123,7 +2118,7 @@ impl App {
                     let _ = self.drop_service.stop();
                     self.drop_phase = crate::foxydrop::Phase::Stopped;
                     self.drop_address = None;
-                    self.drop_error = Some("Сервер неожиданно остановился".into());
+                    self.drop_error = Some(crate::t!("msg_0383").into());
                 }
             }
             _ => {}
@@ -2539,7 +2534,7 @@ impl App {
                 let part1: Vec<_> = all_points[..=global_idx].to_vec();
                 let part2: Vec<_> = all_points[global_idx..].to_vec();
 
-                let new_name = format!("{}_Сегмент2", track.name);
+                let new_name = crate::tf!("msg_0387", name = track.name);
                 let new_color = track.color;
                 let new_props = track.props.clone();
 
@@ -2953,7 +2948,7 @@ impl App {
             }
             Message::AddWaypointAt(lon, lat) => {
                 let new_wp = new_user_waypoint(
-                    self.next_id, format!("Новая точка{}", self.next_id), lon, lat,
+                    self.next_id, crate::tf!("msg_0376", id = self.next_id), lon, lat,
                 );
                 self.next_id += 1;
                 self.push_undo(t!("msg_0058"));
@@ -3078,10 +3073,7 @@ impl App {
                             self.modal = None;
                             self.tracks_cache.clear();
 
-                            self.status = format!(
-                                "Создана точка проекции ({} м, {:.0}°)",
-                                dist, az
-                            );
+                            self.status = crate::tf!("msg_0408", distance = dist, azimuth = format!("{az:.0}"));
                         }
                     } else {
                         self.status = t!("msg_0063").into();
@@ -3205,7 +3197,7 @@ impl App {
 
             let dialog = self.save_dialog_with_dir(
                 &format!("{}.plt", name),
-                "OziExplorer Track",
+                crate::t!("msg_0421"),
                 &["plt"],
             );
                 return Task::perform(async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) }, Message::SaveTracksPltPicked);
@@ -3219,9 +3211,9 @@ impl App {
                     .filter(|w| self.selection.waypoints.contains(&w.id))
                     .map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
-                    self.status = format!("Ошибка: {e}");
+                    self.status = crate::tf!("msg_0389", error = e);
                 } else {
-                    self.status = format!("Сохранено в {}", path.display());
+                    self.status = crate::tf!("msg_0390", path = path.display());
                     // remember_save_dir НЕ вызывать
                 }
             }
@@ -3248,9 +3240,9 @@ impl App {
                 let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()) .collect();
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
-                    self.status = format!("Ошибка: {e}");
+                    self.status = crate::tf!("msg_0389", error = e);
                 } else {
-                    self.status = format!("Сохранено в {}", path.display());
+                    self.status = crate::tf!("msg_0390", path = path.display());
                 }
             }
             Message::SaveTracksGpxPicked(None) => {}
@@ -3276,9 +3268,9 @@ impl App {
                 let sel_tracks: Vec<_> = self.tracks.iter().filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()).collect();
                 let sel_wps: Vec<_> = self.waypoints.iter().filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
-                    self.status = format!("Ошибка: {e}");
+                    self.status = crate::tf!("msg_0389", error = e);
                 } else {
-                    self.status = format!("Сохранено в {}", path.display());
+                    self.status = crate::tf!("msg_0390", path = path.display());
                 }
             }
             Message::SaveTracksMsPicked(None) => {}
@@ -3307,9 +3299,9 @@ impl App {
                     .filter(|w| self.selection.waypoints.contains(&w.id))
                     .map(|w| w.as_ref()).collect();
                 if let Err(e) = io::save_any(&sel_tracks, &sel_wps, &path) {
-                    self.status = format!("Ошибка: {e}");
+                    self.status = crate::tf!("msg_0389", error = e);
                 } else {
-                    self.status = format!("Сохранено в {}", path.display());
+                    self.status = crate::tf!("msg_0390", path = path.display());
                 }
             }
             Message::SaveTracksKmlPicked(None) => {}
@@ -3320,7 +3312,7 @@ impl App {
 
                 let mut dialog = rfd::AsyncFileDialog::new()
                     .set_file_name(&default_name)
-                    .add_filter("OziExplorer Waypoints", &["wpt"]);
+                    .add_filter(crate::t!("msg_0422"), &["wpt"]);
                 if let Some(kit) = &self.last_kit {
                     let dir = kit.join("10-Tracks");
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
@@ -3338,15 +3330,15 @@ impl App {
                     .collect();
             
                 if let Err(e) = io::save_any(&[], &sel_wps, &path) {
-                    self.status = format!("Ошибка: {e}");
+                    self.status = crate::tf!("msg_0389", error = e);
                 } else {
-                    self.status = format!("Сохранено в {}", path.display());
+                    self.status = crate::tf!("msg_0390", path = path.display());
                 }
             }            
 
             Message::SaveWaypointsWptAppend => {
                 let mut dialog = rfd::AsyncFileDialog::new()
-                    .add_filter("OziExplorer Waypoints", &["wpt"]);
+                    .add_filter(crate::t!("msg_0422"), &["wpt"]);
                 if let Some(kit) = &self.last_kit {
                     let dir = kit.join("10-Tracks");
                     if dir.is_dir() { dialog = dialog.set_directory(&dir); } else { dialog = dialog.set_directory(kit); }
@@ -3370,9 +3362,9 @@ impl App {
                 }
                 let refs: Vec<_> = all_wps.iter().collect();
                 if let Err(e) = io::save_any(&[], &refs, &path) {
-                    self.status = format!("Ошибка: {e}");
+                    self.status = crate::tf!("msg_0389", error = e);
                 } else {
-                    self.status = format!("Добавлено в {}", path.display());
+                    self.status = crate::tf!("msg_0391", path = path.display());
                 }
             }
             Message::SaveWaypointsWptAppendPicked(None) => {}
@@ -3382,7 +3374,7 @@ impl App {
                     let default_name = format!("{}.plt", draft.description);
                     let mut dialog = rfd::AsyncFileDialog::new()
                         .set_file_name(&default_name)
-                        .add_filter("OziExplorer Track", &["plt"]);
+                        .add_filter(crate::t!("msg_0421"), &["plt"]);
 
                     if let Some(kit) = &self.last_kit {
                         let tracks_dir = kit.join("10-Tracks");
@@ -3416,11 +3408,11 @@ impl App {
 
                 match save_result {
                     Err(e) => {
-                        self.status = format!("Ошибка сохранения: {e}");
+                        self.status = crate::tf!("msg_0388", error = e);
                     }
                     Ok(_) => {
                         self.push_undo(t!("msg_0065"));
-                        self.status = format!("Сохранено в {}", path.display());
+                        self.status = crate::tf!("msg_0390", path = path.display());
                         // remember_save_dir НЕ вызывать
                         if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == track_id) {
                             let t_m = Arc::make_mut(t_mut);
@@ -3509,14 +3501,14 @@ impl App {
                         Ok(content) => {
                             self.tracks.extend(content.tracks.into_iter().map(Arc::new));
                             self.waypoints.extend(content.waypoints.into_iter().map(Arc::new));
-                            let mut s = format!("Загружено: {}", path.file_name().unwrap_or_default().to_string_lossy());
+                            let mut s = crate::tf!("msg_0393", file = path.file_name().unwrap_or_default().to_string_lossy());
                             if !content.notes.is_empty() {
-                                s += &format!(" (предупреждения: {})", content.notes.join("; "));
+                                s += &crate::tf!("msg_0394", notes = content.notes.join("; "));
                             }
                             self.status = s;
                         }
                         Err(e) => {
-                            self.status = format!("Ошибка загрузки: {e}");
+                            self.status = crate::tf!("msg_0392", error = e);
                         }
                     }
                 }
@@ -3855,9 +3847,9 @@ impl App {
                 self.tracks_cache.clear();
 
                 self.status = if dedup {
-                    format!("Сшито, дубликат удалён (Δ{:.1} м)", dist)
+                    crate::tf!("msg_0395", distance = format!("{dist:.1}"))
                 } else {
-                    format!("Сшито с новым ребром (Δ{:.1} м)", dist)
+                    crate::tf!("msg_0396", distance = format!("{dist:.1}"))
                 };
             }
             Message::SelectPointsOutsideGrid => {

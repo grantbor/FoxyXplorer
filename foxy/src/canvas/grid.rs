@@ -37,11 +37,11 @@ fn draw_scale_bar(
     let bar_w = (distance_m / ground_m_per_px) as f32;
 
     let label = if distance_m >= 1000.0 {
-        format!("{:.0} км", distance_m / 1000.0)
+        format!("{:.0} {}", distance_m / 1000.0, crate::t!("msg_0259"))
     } else if distance_m >= 1.0 {
-        format!("{:.0} м", distance_m)
+        format!("{:.0} {}", distance_m, crate::t!("msg_0258"))
     } else {
-        format!("{:.0} см", distance_m * 100.0)
+        format!("{:.0} {}", distance_m * 100.0, crate::t!("msg_0371"))
     };
 
     let margin = 16.0;

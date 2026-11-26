@@ -186,9 +186,9 @@ impl App {
                 });
 
             let dist = if t.cached_distance_m >= 1000.0 {
-                format!("{:.1}км", t.cached_distance_m / 1000.0)
+                format!("{:.1}{}", t.cached_distance_m / 1000.0, crate::t!("msg_0259"))
             } else {
-                format!("{:.0}м", t.cached_distance_m)
+                format!("{:.0}{}", t.cached_distance_m, crate::t!("msg_0258"))
             };
 
             let track_id = t.id;
@@ -290,7 +290,7 @@ impl App {
                     if has_tracks && self.last_kit.is_some() {
                         self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpTracks)
                     } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
-                    "Отправить выбранные PLT по FTP"
+                    crate::t!("msg_0367")
                 )
             } else { Space::new().width(Length::Fixed(0.0)).into() },
             Space::new().width(Length::Fill),
@@ -383,7 +383,7 @@ impl App {
             Space::new().width(14.0),
             container(text(t!("msg_0083")).size(11)).width(Length::Fill),
             container(text(t!("msg_0102")).size(11)).width(Length::Fixed(100.0)).align_x(Alignment::End),
-            container(text(if crate::i18n::current_lang() == "en" { "Date/Time" } else { "Дата/Время" }).size(11))
+            container(text(crate::t!("msg_0366")).size(11))
                 .width(Length::Fixed(100.0)).align_x(Alignment::End),
         ].spacing(4);
 
@@ -497,7 +497,7 @@ impl App {
                     if has_wps && self.last_kit.is_some() {
                         self.icon_button(lucide_iced::bytes::CLOUD_UPLOAD, Message::FtpWaypointNew)
                     } else { self.icon_button_disabled(lucide_iced::bytes::CLOUD_UPLOAD) },
-                    "FTP: выбрать WPT / WPT+"
+                    crate::t!("msg_0368")
                 )
             } else { Space::new().width(Length::Fixed(0.0)).into() },
             Space::new().width(Length::Fill),
@@ -560,8 +560,8 @@ impl App {
         ].spacing(4).align_y(Alignment::Center);
 
         let row_ftp = row![
-            with_tooltip(self.btn_secondary("WPT").on_press(Message::FtpNewDialog), "Создать WPT, затем отправить"),
-            with_tooltip(self.btn_secondary("WPT+").on_press(Message::FtpAppendDialog), "Добавить в WPT, затем отправить"),
+            with_tooltip(self.btn_secondary("WPT").on_press(Message::FtpNewDialog), crate::t!("msg_0369")),
+            with_tooltip(self.btn_secondary("WPT+").on_press(Message::FtpAppendDialog), crate::t!("msg_0370")),
             Space::new().width(Length::Fill),
             self.icon_button(lucide_iced::bytes::X, Message::FtpWaypointNew),
         ].spacing(4).align_y(Alignment::Center);

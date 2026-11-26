@@ -62,34 +62,34 @@ async fn persist_file(tmp: &Path, dir: &Path, stem: &str, ext: &str) -> std::io:
             Err(e) => return Err(e),
         }
     }
-    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Слишком много совпадающих имён"))
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, crate::t!("msg_0414")))
 }
 
 pub async fn handle(State(state): State<Arc<UploadState>>, mut multipart: Multipart) -> Reply {
     let _permit = match Arc::clone(&state.permits).try_acquire_owned() {
         Ok(p) => p,
-        Err(_) => return reply(StatusCode::TOO_MANY_REQUESTS, "Сбой загрузки"),
+        Err(_) => return reply(StatusCode::TOO_MANY_REQUESTS, crate::t!("msg_0415")),
     };
     let mut field = match multipart.next_field().await {
         Ok(Some(f)) => f,
-        _ => return reply(StatusCode::BAD_REQUEST, "Сбой загрузки"),
+        _ => return reply(StatusCode::BAD_REQUEST, crate::t!("msg_0415")),
     };
     let (stem, ext) = match field.file_name().and_then(safe_name) {
         Some(parts) => parts,
-        None => return reply(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Неподдерживаемый тип"),
+        None => return reply(StatusCode::UNSUPPORTED_MEDIA_TYPE, crate::t!("msg_0416")),
     };
     let dir = match state.directory.read() {
         Ok(g) => g.clone(),
-        Err(_) => return reply(StatusCode::INTERNAL_SERVER_ERROR, "Сбой загрузки"),
+        Err(_) => return reply(StatusCode::INTERNAL_SERVER_ERROR, crate::t!("msg_0415")),
     };
-    if !dir.is_dir() { return reply(StatusCode::INTERNAL_SERVER_ERROR, "Сбой загрузки"); }
+    if !dir.is_dir() { return reply(StatusCode::INTERNAL_SERVER_ERROR, crate::t!("msg_0415")); }
 
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let id = UPLOAD_ID.fetch_add(1, Ordering::Relaxed);
     let temp_path = dir.join(format!(".foxydrop-{}-{nonce}-{id}.part", std::process::id()));
     let mut out = match OpenOptions::new().write(true).create_new(true).open(&temp_path).await {
         Ok(f) => f,
-        Err(_) => return reply(StatusCode::INTERNAL_SERVER_ERROR, "Сбой загрузки"),
+        Err(_) => return reply(StatusCode::INTERNAL_SERVER_ERROR, crate::t!("msg_0415")),
     };
     let tempfile = TempFile(temp_path);
     let mut received: u64 = 0;
@@ -98,19 +98,19 @@ pub async fn handle(State(state): State<Arc<UploadState>>, mut multipart: Multip
             Ok(Some(data)) => {
                 received = received.saturating_add(data.len() as u64);
                 if received > MAX_SIZE || out.write_all(&data).await.is_err() {
-                    return reply(StatusCode::PAYLOAD_TOO_LARGE, "Сбой загрузки");
+                    return reply(StatusCode::PAYLOAD_TOO_LARGE, crate::t!("msg_0415"));
                 }
             }
             Ok(None) => break,
-            Err(_) => return reply(StatusCode::BAD_REQUEST, "Сбой загрузки"),
+            Err(_) => return reply(StatusCode::BAD_REQUEST, crate::t!("msg_0415")),
         }
     }
-    if out.flush().await.is_err() { return reply(StatusCode::INTERNAL_SERVER_ERROR, "Сбой загрузки"); }
+    if out.flush().await.is_err() { return reply(StatusCode::INTERNAL_SERVER_ERROR, crate::t!("msg_0415")); }
     drop(out);
     if persist_file(&tempfile.0, &dir, &stem, &ext).await.is_err() {
-        return reply(StatusCode::INTERNAL_SERVER_ERROR, "Сбой загрузки");
+        return reply(StatusCode::INTERNAL_SERVER_ERROR, crate::t!("msg_0415"));
     }
-    reply(StatusCode::OK, "Успешно загружено")
+    reply(StatusCode::OK, crate::t!("msg_0417"))
 }
 
 #[cfg(test)]

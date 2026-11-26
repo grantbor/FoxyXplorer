@@ -794,7 +794,7 @@
   "msg_0199": {
     "ru": "Линейка (R)",
     "en": "Rules (R)"
-   },
+  },
   "msg_0200": {
     "ru": "Широта",
     "en": "Latitude"
@@ -922,47 +922,47 @@
   "msg_0231": {
     "ru": "Треки упрощены (допуск",
     "en": "Tracks simplified:"
-  },    
+  },
   "msg_0232": {
     "ru": "Объединено треков:",
     "en": "Tracks joined:"
-  },    
+  },
   "msg_0233": {
     "ru": "Разделено на",
     "en": "Divided by"
-  },    
+  },
   "msg_0234": {
     "ru": "сегментов",
     "en": "segments"
-  }, 
+  },
   "msg_0235": {
     "ru": "Форматы: dd.dddddd | dd°mm.mmmm' | dd°mm'ss.ss'' (° = o)",
     "en": "Formats: dd.dddddd | dd°mm.mmmm'| dd°mm'ss.ss'' (° = o)"
-  },    
+  },
   "msg_0236": {
     "ru": "Старовая локация:",
     "en": "Starting location:"
-  },    
+  },
   "msg_0237": {
     "ru": "Язык приложения:",
     "en": "App language:"
-  },    
+  },
   "msg_0238": {
     "ru": "Допуск упрощения:",
     "en": "Simplify tolerance:"
-  },    
+  },
   "msg_0239": {
     "ru": "FoxyDrop: сервер запущен",
     "en": "FoxyDrop: Server Running"
-  },    
+  },
   "msg_0240": {
     "ru": "FoxyDrop: запуск сервера...",
     "en": "FoxyDrop: Starting"
-  },    
+  },
   "msg_0241": {
     "ru": "FoxyDrop: остановка сервера...",
     "en": "FoxyDrop: Stopping"
-  },    
+  },
   "msg_0242": {
     "ru": "FoxyDrop: сервер остановлен",
     "en": "FoxyDrop: Server Down"
@@ -1046,5 +1046,649 @@
   "msg_0262": {
     "ru": "км²",
     "en": "km²"
+  },
+  "msg_0263": {
+    "ru": "Заполните FTP-сервер, порт, логин и пароль",
+    "en": "Enter FTP host, port, username and password"
+  },
+  "msg_0264": {
+    "ru": "Недопустимый символ в параметрах FTP",
+    "en": "Invalid character in FTP settings"
+  },
+  "msg_0265": {
+    "ru": "Укажите имя FTP-сервера без ftp:// и без порта (порт — отдельно)",
+    "en": "Enter the FTP host without ftp:// or port (port is a separate field)"
+  },
+  "msg_0266": {
+    "ru": "Хранилище паролей недоступно",
+    "en": "Credential store unavailable"
+  },
+  "msg_0267": {
+    "ru": "Повреждён FTP-профиль",
+    "en": "FTP profile is corrupted"
+  },
+  "msg_0268": {
+    "ru": "Не удалось прочитать FTP-профиль",
+    "en": "Could not read FTP profile"
+  },
+  "msg_0269": {
+    "ru": "Не удалось сохранить FTP-профиль",
+    "en": "Could not save FTP profile"
+  },
+  "msg_0270": {
+    "ru": "Укажите простое имя папки FTP (без /, \\ и управляющих символов)",
+    "en": "Enter a simple FTP folder name (no /, \\ or control characters)"
+  },
+  "msg_0271": {
+    "ru": "Нет доступных адресов FTP",
+    "en": "No FTP addresses available"
+  },
+  "msg_0272": {
+    "ru": "Подключение",
+    "en": "Connection"
+  },
+  "msg_0273": {
+    "ru": "Приветствие FTP",
+    "en": "FTP greeting"
+  },
+  "msg_0274": {
+    "ru": "Авторизация",
+    "en": "Authentication"
+  },
+  "msg_0275": {
+    "ru": "Неверный логин или пароль FTP",
+    "en": "Invalid FTP username or password"
+  },
+  "msg_0276": {
+    "ru": "Бинарный режим",
+    "en": "Binary mode"
+  },
+  "msg_0277": {
+    "ru": "Папка FTP",
+    "en": "FTP folder"
+  },
+  "msg_0278": {
+    "ru": "Ответ FTP",
+    "en": "FTP response"
+  },
+  "msg_0279": {
+    "ru": "FTP закрыл соединение",
+    "en": "FTP closed the connection"
+  },
+  "msg_0280": {
+    "ru": "Слишком длинный ответ FTP",
+    "en": "FTP response too long"
+  },
+  "msg_0281": {
+    "ru": "ответ FTP",
+    "en": "FTP reply"
+  },
+  "msg_0282": {
+    "ru": "Команда FTP",
+    "en": "FTP command"
+  },
+  "msg_0283": {
+    "ru": "FTP-сервер не поддерживает SIZE; существующую сетку нельзя безопасно проверить",
+    "en": "FTP server does not support SIZE; cannot safely check the existing grid"
+  },
+  "msg_0284": {
+    "ru": "Проверка сетки",
+    "en": "Grid check"
+  },
+  "msg_0285": {
+    "ru": "Некорректный EPSV",
+    "en": "Invalid EPSV response"
+  },
+  "msg_0286": {
+    "ru": "Некорректный порт EPSV",
+    "en": "Invalid EPSV port"
+  },
+  "msg_0287": {
+    "ru": "Некорректный PASV",
+    "en": "Invalid PASV response"
+  },
+  "msg_0288": {
+    "ru": "Некорректный адрес PASV",
+    "en": "Invalid PASV address"
+  },
+  "msg_0289": {
+    "ru": "Недопустимое имя файла",
+    "en": "Invalid filename"
+  },
+  "msg_0290": {
+    "ru": "Недопустимое имя FTP-файла",
+    "en": "Invalid FTP filename"
+  },
+  "msg_0291": {
+    "ru": "Передача",
+    "en": "Transfer"
+  },
+  "msg_0292": {
+    "ru": "Завершение передачи",
+    "en": "Finishing transfer"
+  },
+  "msg_0293": {
+    "ru": "Завершение",
+    "en": "Finish"
+  },
+  "msg_0294": {
+    "ru": "размер",
+    "en": "size"
+  },
+  "msg_0295": {
+    "ru": "вместо",
+    "en": "instead of"
+  },
+  "msg_0296": {
+    "ru": "Имя сетки не UTF-8",
+    "en": "Grid filename is not UTF-8"
+  },
+  "msg_0297": {
+    "ru": "Новый WPT",
+    "en": "New WPT"
+  },
+  "msg_0298": {
+    "ru": "Локальная папка: 10-Tracks",
+    "en": "Local folder: 10-Tracks"
+  },
+  "msg_0299": {
+    "ru": "Папка FTP:",
+    "en": "FTP folder:"
+  },
+  "msg_0300": {
+    "ru": "Имя папки на сервере",
+    "en": "Folder name on server"
+  },
+  "msg_0301": {
+    "ru": "Сетка загружается, только если её нет на сервере. Одноимённые PLT/WPT будут удалены и заменены.",
+    "en": "The grid is uploaded only if absent on the server. Existing PLT/WPT files with matching names will be deleted and replaced."
+  },
+  "msg_0302": {
+    "ru": "FTP без шифрования: пароль и файлы передаются открытым текстом.",
+    "en": "Unencrypted FTP: passwords and files are sent in plain text."
+  },
+  "msg_0303": {
+    "ru": "Сохранить и отправить",
+    "en": "Save and upload"
+  },
+  "msg_0304": {
+    "ru": "Файлы сохранены локально. Выполняется FTP-загрузка (до 5 попыток на файл)…",
+    "en": "Files saved locally. Uploading via FTP (up to 5 attempts per file)…"
+  },
+  "msg_0305": {
+    "ru": "Дождитесь итогового сообщения перед повторной отправкой.",
+    "en": "Wait for the final result before uploading again."
+  },
+  "msg_0306": {
+    "ru": "Загружено файлов",
+    "en": "Files uploaded"
+  },
+  "msg_0307": {
+    "ru": "Существующая сетка на сервере не изменена.",
+    "en": "Existing server grid was left unchanged."
+  },
+  "msg_0308": {
+    "ru": "Передача завершена успешно.",
+    "en": "Upload completed successfully."
+  },
+  "msg_0309": {
+    "ru": "Не удалось передать",
+    "en": "Failed to upload"
+  },
+  "msg_0310": {
+    "ru": "Требуется вмешательство пользователя.",
+    "en": "Manual intervention is required."
+  },
+  "msg_0311": {
+    "ru": "Файлы остались в 10-Tracks. Загрузите их вручную после устранения ошибки.",
+    "en": "The files remain in 10-Tracks. Upload them manually after resolving the problem."
+  },
+  "msg_0312": {
+    "ru": "Сервер остановлен",
+    "en": "Server Down"
+  },
+  "msg_0313": {
+    "ru": "Запуск сервера...",
+    "en": "Starting..."
+  },
+  "msg_0314": {
+    "ru": "Остановка сервера...",
+    "en": "Stopping..."
+  },
+  "msg_0315": {
+    "ru": "Сервер запущен",
+    "en": "Server Running"
+  },
+  "msg_0316": {
+    "ru": "Копировать",
+    "en": "Copy"
+  },
+  "msg_0317": {
+    "ru": "Выберите папку в настройках",
+    "en": "Choose a folder in Settings"
+  },
+  "msg_0318": {
+    "ru": "Папка",
+    "en": "Folder"
+  },
+  "msg_0319": {
+    "ru": "Запустить",
+    "en": "Start"
+  },
+  "msg_0320": {
+    "ru": "Остановить",
+    "en": "Stop"
+  },
+  "msg_0321": {
+    "ru": "Для FTP необходимо сначала открыть комплект",
+    "en": "Open a kit before using FTP"
+  },
+  "msg_0322": {
+    "ru": "Не выбрана папка WPT",
+    "en": "No WPT folder selected"
+  },
+  "msg_0323": {
+    "ru": "Для отправки по FTP выберите WPT из папки комплекта 10-Tracks",
+    "en": "Select a WPT file from the kit's 10-Tracks folder for FTP upload"
+  },
+  "msg_0324": {
+    "ru": "Для FTP нужен файл .wpt",
+    "en": "FTP requires a .wpt file"
+  },
+  "msg_0325": {
+    "ru": "У выделенных треков совпадают имена",
+    "en": "Selected tracks have duplicate names"
+  },
+  "msg_0326": {
+    "ru": "Нет выбранных треков",
+    "en": "No tracks selected"
+  },
+  "msg_0327": {
+    "ru": "Нет выбранных путевых точек",
+    "en": "No waypoints selected"
+  },
+  "msg_0328": {
+    "ru": "Исходный WPT для добавления не найден",
+    "en": "Existing WPT file for append not found"
+  },
+  "msg_0329": {
+    "ru": "FoxyUpload отключен в настройках",
+    "en": "FoxyUpload is disabled in Settings"
+  },
+  "msg_0330": {
+    "ru": "Выберите треки",
+    "en": "Select tracks"
+  },
+  "msg_0331": {
+    "ru": "Выберите точки",
+    "en": "Select waypoints"
+  },
+  "msg_0332": {
+    "ru": "Сохранить WPT для FTP",
+    "en": "Save WPT for FTP upload"
+  },
+  "msg_0333": {
+    "ru": "Выбрать WPT для дополнения и отправки",
+    "en": "Select WPT to append and upload"
+  },
+  "msg_0334": {
+    "ru": "FTP не настроен: откройте Настройки",
+    "en": "FTP is not configured: open Settings"
+  },
+  "msg_0335": {
+    "ru": "Сохранение для FTP",
+    "en": "Saving for FTP"
+  },
+  "msg_0336": {
+    "ru": "Ошибка сетевой задачи",
+    "en": "Network task error"
+  },
+  "msg_0337": {
+    "ru": "Удаление треков и точек",
+    "en": "Delete tracks and waypoints"
+  },
+  "msg_0338": {
+    "ru": "Неверный FTP-порт",
+    "en": "Invalid FTP port"
+  },
+  "msg_0339": {
+    "ru": "янв",
+    "en": "Jan"
+  },
+  "msg_0340": {
+    "ru": "фев",
+    "en": "Feb"
+  },
+  "msg_0341": {
+    "ru": "мар",
+    "en": "Mar"
+  },
+  "msg_0342": {
+    "ru": "апр",
+    "en": "Apr"
+  },
+  "msg_0343": {
+    "ru": "май",
+    "en": "May"
+  },
+  "msg_0344": {
+    "ru": "июн",
+    "en": "Jun"
+  },
+  "msg_0345": {
+    "ru": "июл",
+    "en": "Jul"
+  },
+  "msg_0346": {
+    "ru": "авг",
+    "en": "Aug"
+  },
+  "msg_0347": {
+    "ru": "сен",
+    "en": "Sep"
+  },
+  "msg_0348": {
+    "ru": "окт",
+    "en": "Oct"
+  },
+  "msg_0349": {
+    "ru": "ноя",
+    "en": "Nov"
+  },
+  "msg_0350": {
+    "ru": "дек",
+    "en": "Dec"
+  },
+  "msg_0351": {
+    "ru": "(Без категории)",
+    "en": "(None)"
+  },
+  "msg_0352": {
+    "ru": "Категория",
+    "en": "Category"
+  },
+  "msg_0353": {
+    "ru": "Азимут",
+    "en": "Azimuth"
+  },
+  "msg_0354": {
+    "ru": "FoxyUpload - FTP (без шифрования)",
+    "en": "FoxyUpload - FTP (unencrypted)"
+  },
+  "msg_0355": {
+    "ru": "FTP-профиль сохраняется в системном хранилище паролей, а не в config.json.",
+    "en": "The FTP profile is stored in the system credential store, not config.json."
+  },
+  "msg_0356": {
+    "ru": "FoxyUpload отключен",
+    "en": "FoxyUpload disabled"
+  },
+  "msg_0357": {
+    "ru": "FTP-сервер",
+    "en": "FTP server"
+  },
+  "msg_0358": {
+    "ru": "FTP-порт",
+    "en": "FTP port"
+  },
+  "msg_0359": {
+    "ru": "FTP-логин",
+    "en": "FTP login"
+  },
+  "msg_0360": {
+    "ru": "FTP-пароль",
+    "en": "FTP password"
+  },
+  "msg_0361": {
+    "ru": "Тема",
+    "en": "Theme"
+  },
+  "msg_0362": {
+    "ru": "Папка FoxyDrop",
+    "en": "FoxyDrop folder"
+  },
+  "msg_0363": {
+    "ru": "Цвет сетки",
+    "en": "Grid color"
+  },
+  "msg_0364": {
+    "ru": "Русский",
+    "en": "Русский"
+  },
+  "msg_0365": {
+    "ru": "English",
+    "en": "English"
+  },
+  "msg_0366": {
+    "ru": "Дата/Время",
+    "en": "Date/Time"
+  },
+  "msg_0367": {
+    "ru": "Отправить выбранные PLT по FTP",
+    "en": "Upload selected PLT files via FTP"
+  },
+  "msg_0368": {
+    "ru": "FTP: выбрать WPT / WPT+",
+    "en": "FTP: choose WPT / WPT+"
+  },
+  "msg_0369": {
+    "ru": "Создать WPT, затем отправить",
+    "en": "Create WPT, then upload"
+  },
+  "msg_0370": {
+    "ru": "Добавить в WPT, затем отправить",
+    "en": "Append to WPT, then upload"
+  },
+  "msg_0371": {
+    "ru": "см",
+    "en": "cm"
+  },
+  "msg_0372": {
+    "ru": "FTP: передано {uploaded} файлов",
+    "en": "FTP: {uploaded} files uploaded"
+  },
+  "msg_0373": {
+    "ru": "FTP: передано {uploaded}, ошибок {errors} — требуется вмешательство",
+    "en": "FTP: {uploaded} uploaded, {errors} errors — manual intervention required"
+  },
+  "msg_0374": {
+    "ru": "Сессия загружена ({tracks} треков, {waypoints} точек)",
+    "en": "Session loaded ({tracks} tracks, {waypoints} waypoints)"
+  },
+  "msg_0375": {
+    "ru": "Новая точка {id}",
+    "en": "New waypoint {id}"
+  },
+  "msg_0376": {
+    "ru": "Новая точка{id}",
+    "en": "New waypoint{id}"
+  },
+  "msg_0377": {
+    "ru": "Freehand: добавлено {after} точек (упрощено {before} → {after})",
+    "en": "Freehand: added {after} points (simplified {before} → {after})"
+  },
+  "msg_0378": {
+    "ru": "Freehand: создан трек (упрощено {before} → {after})",
+    "en": "Freehand: track created (simplified {before} → {after})"
+  },
+  "msg_0379": {
+    "ru": "Добавлено {count} точек к треку",
+    "en": "Added {count} points to track"
+  },
+  "msg_0380": {
+    "ru": "Создан новый трек ({count} точек)",
+    "en": "New track created ({count} points)"
+  },
+  "msg_0381": {
+    "ru": "WPT не найден: {path}",
+    "en": "WPT not found: {path}"
+  },
+  "msg_0382": {
+    "ru": "Не найден IPv4-адрес локальной сети",
+    "en": "No local IPv4 address found"
+  },
+  "msg_0383": {
+    "ru": "Сервер неожиданно остановился",
+    "en": "The server stopped unexpectedly"
+  },
+  "msg_0384": {
+    "ru": "FoxyDrop остановлен",
+    "en": "FoxyDrop stopped"
+  },
+  "msg_0385": {
+    "ru": "Настройки сохранены",
+    "en": "Settings saved"
+  },
+  "msg_0386": {
+    "ru": "Некорректные координаты",
+    "en": "Invalid coordinates"
+  },
+  "msg_0387": {
+    "ru": "{name}_Сегмент2",
+    "en": "{name}_Segment2"
+  },
+  "msg_0388": {
+    "ru": "Ошибка сохранения: {error}",
+    "en": "Save error: {error}"
+  },
+  "msg_0389": {
+    "ru": "Ошибка: {error}",
+    "en": "Error: {error}"
+  },
+  "msg_0390": {
+    "ru": "Сохранено в {path}",
+    "en": "Saved to {path}"
+  },
+  "msg_0391": {
+    "ru": "Добавлено в {path}",
+    "en": "Appended to {path}"
+  },
+  "msg_0392": {
+    "ru": "Ошибка загрузки: {error}",
+    "en": "Load error: {error}"
+  },
+  "msg_0393": {
+    "ru": "Загружено: {file}",
+    "en": "Loaded: {file}"
+  },
+  "msg_0394": {
+    "ru": " (предупреждения: {notes})",
+    "en": " (warnings: {notes})"
+  },
+  "msg_0395": {
+    "ru": "Сшито, дубликат удалён (Δ{distance} м)",
+    "en": "Stitched, duplicate removed (Δ{distance} m)"
+  },
+  "msg_0396": {
+    "ru": "Сшито с новым ребром (Δ{distance} м)",
+    "en": "Stitched with new edge (Δ{distance} m)"
+  },
+  "msg_0397": {
+    "ru": "{stem}: проекция «{projection}» пока не поддерживается",
+    "en": "{stem}: projection '{projection}' is not supported yet"
+  },
+  "msg_0398": {
+    "ru": "{stem}: пустой список уровней в {file}",
+    "en": "{stem}: empty level list in {file}"
+  },
+  "msg_0399": {
+    "ru": "сетка (GPX с именованными точками) не найдена в: {directories}",
+    "en": "Grid (GPX with named waypoints) not found in: {directories}"
+  },
+  "msg_0400": {
+    "ru": "Не удалось загрузить иконку окна",
+    "en": "Could not load window icon"
+  },
+  "msg_0401": {
+    "ru": "{error} (не удалось за {attempts} попыток или ошибка постоянная)",
+    "en": "{error} (failed after up to {attempts} attempts or permanent error)"
+  },
+  "msg_0402": {
+    "ru": "формат не поддерживается: {path}",
+    "en": "Unsupported file format: {path}"
+  },
+  "msg_0403": {
+    "ru": "Количество строк WPT не совпадает с количеством точек",
+    "en": "WPT row count does not match waypoint count"
+  },
+  "msg_0404": {
+    "ru": "Неподдерживаемый код категории WPT: {category}",
+    "en": "Unsupported WPT category code: {category}"
+  },
+  "msg_0405": {
+    "ru": "В результате экспорта WPT ожидалось {expected} точек, получено {actual}",
+    "en": "WPT export expected {expected} waypoints, got {actual}"
+  },
+  "msg_0406": {
+    "ru": "Формат {format} не поддерживается для сохранения",
+    "en": "Format {format} is not supported for saving"
+  },
+  "msg_0407": {
+    "ru": "config.json повреждён, использую значения по умолчанию",
+    "en": "config.json is corrupted; using defaults"
+  },
+  "msg_0408": {
+    "ru": "Создана точка проекции ({distance} м, {azimuth}°)",
+    "en": "Projection waypoint created ({distance} m, {azimuth}°"
+  },
+  "msg_0409": {
+    "ru": "FoxyDrop уже запущен",
+    "en": "FoxyDrop is already running"
+  },
+  "msg_0410": {
+    "ru": "Не найдена папка загрузки: {folder}",
+    "en": "Upload folder not found: {folder}"
+  },
+  "msg_0411": {
+    "ru": "Нет доступа для записи в папку: {error}",
+    "en": "Upload folder is not writable: {error}"
+  },
+  "msg_0412": {
+    "ru": "Невозможно открыть порт: {error}",
+    "en": "Could not open port: {error}"
+  },
+  "msg_0413": {
+    "ru": "Невозможно запустить FoxyDrop: {error}",
+    "en": "Could not start FoxyDrop: {error}"
+  },
+  "msg_0414": {
+    "ru": "Слишком много совпадающих имён",
+    "en": "Too many matching filenames"
+  },
+  "msg_0415": {
+    "ru": "Сбой загрузки",
+    "en": "Upload failed"
+  },
+  "msg_0416": {
+    "ru": "Неподдерживаемый тип",
+    "en": "Unsupported file type"
+  },
+  "msg_0417": {
+    "ru": "Успешно загружено",
+    "en": "Uploaded successfully"
+  },
+  "msg_0418": {
+    "ru": "Загрузить файл",
+    "en": "Upload file"
+  },
+  "msg_0419": {
+    "ru": "Загрузка…",
+    "en": "Uploading…"
+  },
+  "msg_0420": {
+    "ru": "Неизвестно",
+    "en": "Unknown"
+  },
+  "msg_0421": {
+    "ru": "Треки OziExplorer",
+    "en": "OziExplorer Tracks"
+  },
+  "msg_0422": {
+    "ru": "Точки OziExplorer",
+    "en": "OziExplorer Waypoints"
+  },
+  "msg_0423": {
+    "ru": "Сессия Foxy",
+    "en": "Foxy Session"
   }
 }

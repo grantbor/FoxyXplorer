@@ -318,9 +318,9 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                                     if mag_az >= 360.0 { mag_az -= 360.0; }
 
                                     let text = if dist_m >= 1000.0 {
-                                        format!("{:.2} км, {:.0}°", dist_m / 1000.0, mag_az)
+                                        format!("{:.2} {}, {:.0}°", dist_m / 1000.0, crate::t!("msg_0259"), mag_az)
                                     } else {
-                                        format!("{:.0} м, {:.0}°", dist_m, mag_az)
+                                        format!("{:.0} {}, {:.0}°", dist_m, crate::t!("msg_0258"), mag_az)
                                     };
 
                                     let mid_x = (sp1.x + sp2.x) / 2.0;
@@ -360,9 +360,9 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                             }
 
                             let len_text = if total_m >= 1000.0 {
-                                format!("Длина: {:.2} км", total_m / 1000.0)
+                                format!("{} {:.2} {}", crate::t!("msg_0256"), total_m / 1000.0, crate::t!("msg_0259"))
                             } else {
-                                format!("Длина: {:.0} м", total_m)
+                                format!("{} {:.0} {}", crate::t!("msg_0256"), total_m, crate::t!("msg_0258"))
                             };
 
                             let font_size = 18.0;

@@ -101,7 +101,7 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
         "ms" => (false, geoio::ms::read(&bytes)),
         "wpt" => (false, geoio::wpt::read(&bytes)),
         "kml" => (false, geoio::kml::read(&bytes)),
-        _ => return Err(format!("формат не поддерживается: {}", path.display())),
+        _ => return Err(crate::tf!("msg_0402", path = path.display())),
     };
     
     let gd = data.map_err(|e| format!("{}: {e}", path.display()))?;
@@ -448,7 +448,7 @@ fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, St
             output.extend_from_slice(raw_line);
             continue;
         }
-        let waypoint = waypoints.get(count).ok_or("Количество строк WPT не совпадает с количеством точек")?;
+        let waypoint = waypoints.get(count).ok_or(crate::t!("msg_0403"))?;
         // Standard WPT field 25 holds the timezone offset in minutes.
         // If geoio omitted category/azimuth columns, insert them before field 25.
         if fields.len() < 25 {
@@ -458,7 +458,7 @@ fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, St
         }
         let category = waypoint.category_code.as_deref().unwrap_or("");
         if !category.is_ascii() || category.contains(',') || category.contains('\r') || category.contains('\n') {
-            return Err(format!("Неподдерживаемый код категории WPT: {category}"));
+            return Err(crate::tf!("msg_0404", category = category));
         }
         fields[22] = category.as_bytes().to_vec();
         fields[23] = waypoint.azimuth.map(|v| format!(":{v}").into_bytes()).unwrap_or_default();
@@ -482,7 +482,7 @@ fn add_wpt_extras(bytes: Vec<u8>, waypoints: &[&Waypoint]) -> Result<Vec<u8>, St
         count += 1;
     }
     if count != waypoints.len() {
-        return Err(format!("В результате экспорта WPT ожидалось {} точек, получено {count}", waypoints.len()));
+        return Err(crate::tf!("msg_0405", expected = waypoints.len(), actual = count));
     }
     Ok(output)
 }
@@ -707,6 +707,6 @@ pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
         },
         "ms" => save_ms(tracks, waypoints, path),
         "kml" => save_kml(tracks, waypoints, path),
-        _ => Err(format!("Формат {} не поддерживается для сохранения", ext)),
+        _ => Err(crate::tf!("msg_0406", format = ext)),
     }
 }
