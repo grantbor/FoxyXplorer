@@ -994,6 +994,43 @@ impl App {
             }
         };
 
+        // The release check is started only on request, never at application startup.
+        let check_button = self.btn_secondary(t!("msg_0424"));
+        let check_button = if matches!(&self.update_check, crate::update_check::Status::Checking) {
+            check_button
+        } else {
+            check_button.on_press(Message::CheckForUpdates)
+        };
+        let mut check_area = column![check_button]
+            .spacing(8)
+            .align_x(Alignment::Center);
+        match &self.update_check {
+            crate::update_check::Status::NotChecked => {}
+            crate::update_check::Status::Checking => {
+                check_area = check_area.push(text(t!("msg_0425")).size(13));
+            }
+            crate::update_check::Status::UpToDate => {
+                check_area = check_area.push(text(t!("msg_0426")).size(13));
+            }
+            crate::update_check::Status::Available(version) => {
+                check_area = check_area.push(
+                    text(crate::tf!("msg_0427", version = version)).size(13)
+                );
+                check_area = check_area.push(
+                    button(text(t!("msg_0428")).size(14))
+                        .padding(0)
+                        .style(link_style)
+                        .on_press(Message::OpenUrl(crate::update_check::RELEASES_URL.to_owned()))
+                );
+            }
+            crate::update_check::Status::NoReleases => {
+                check_area = check_area.push(text(t!("msg_0429")).size(13));
+            }
+            crate::update_check::Status::Failed => {
+                check_area = check_area.push(text(t!("msg_0430")).size(13));
+            }
+        }
+
         // Собираем правую колонку (Текст)
         let right_column = column![
             text(format!("FoxyXplorer v{}", version)).size(24),
@@ -1017,6 +1054,8 @@ impl App {
             ]
             .spacing(20)
             .align_y(Alignment::Center),
+            separator(),
+            check_area,
         ]
         .spacing(16)
         .width(Length::Fill)

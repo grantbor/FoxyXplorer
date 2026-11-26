@@ -7,6 +7,7 @@ mod domain;
 mod io;
 mod osm;
 mod wiki;
+mod update_check;
 mod session;
 mod ui;
 mod util;
@@ -441,6 +442,8 @@ pub(crate) enum Message {
     AutoSaveTick,
     OpenAbout,
     CloseAbout,
+    CheckForUpdates,
+    UpdateCheckFinished(Result<Option<String>, ()>),
     OpenUrl(String),
     OpenSettings,
     CloseSettings,
@@ -609,6 +612,7 @@ pub(crate) struct App {
     pub(crate) last_save_dir: Option<PathBuf>,
     pub(crate) palette: Vec<[u8; 3]>,
     pub(crate) modal: Option<Modal>,
+    pub(crate) update_check: update_check::Status,
     pub(crate) track_backup: Option<domain::Track>, 
     pub(crate) last_track_click: Option<(u64, std::time::Instant)>,
     pub(crate) show_color_picker: Option<ColorPickerKind>,
@@ -890,7 +894,7 @@ impl App {
                     ftp_enabled: cfg.ftp_enabled, ftp_remote_folder: session.ftp_remote_folder.clone(), last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
                     last_track_clicked: None, last_waypoint_clicked: None,
                     search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
-                    palette: load_palette(), modal: None, track_backup: None, last_track_click: None, 
+                    palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_backup: None, last_track_click: None,
                     show_color_picker: None,
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
@@ -955,7 +959,7 @@ impl App {
             ftp_enabled: cfg.ftp_enabled, ftp_remote_folder: String::new(), last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None, last_waypoint_clicked: None,
             search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
-            palette: load_palette(), modal: None, track_backup: None, last_track_click: None, show_color_picker: None,
+            palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_backup: None, last_track_click: None, show_color_picker: None,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
                     pending_track_scroll: None, pending_waypoint_scroll: None,

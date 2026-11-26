@@ -248,7 +248,8 @@ impl App {
             | Message::ConfirmClearAll | Message::ExecuteClearAll | Message::CancelClearAll | Message::GlobalCursorMoved(_) 
             | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
             | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme 
-            | Message::OpenAbout | Message::CloseAbout 
+            | Message::OpenAbout | Message::CloseAbout
+            | Message::CheckForUpdates | Message::UpdateCheckFinished(_)
             | Message::OpenSettings | Message::CloseSettings | Message::ApplySettings
             | Message::SettingsCoordChanged(_)
             | Message::SettingsLangChanged(_) | Message::SettingsToleranceChanged(_)
@@ -1837,6 +1838,31 @@ impl App {
             Message::CloseAbout => {
                 self.modal_drag_offset = Point::ORIGIN;
                 self.modal = None;
+            }
+            Message::CheckForUpdates => {
+                if !matches!(&self.modal, Some(Modal::About))
+                    || matches!(&self.update_check, crate::update_check::Status::Checking)
+                {
+                    return Task::none();
+                }
+                self.update_check = crate::update_check::Status::Checking;
+                return Task::perform(
+                    crate::update_check::fetch_latest_release(),
+                    Message::UpdateCheckFinished,
+                );
+            }
+            Message::UpdateCheckFinished(result) => {
+                self.update_check = match result {
+                    Ok(Some(tag)) => {
+                        match crate::update_check::is_newer(&tag, env!("CARGO_PKG_VERSION")) {
+                            Some(true) => crate::update_check::Status::Available(tag),
+                            Some(false) => crate::update_check::Status::UpToDate,
+                            None => crate::update_check::Status::Failed,
+                        }
+                    }
+                    Ok(None) => crate::update_check::Status::NoReleases,
+                    Err(()) => crate::update_check::Status::Failed,
+                };
             }
             Message::OpenUrl(url) => {
                 let _ = open::that(&url);

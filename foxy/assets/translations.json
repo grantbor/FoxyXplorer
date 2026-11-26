@@ -1690,5 +1690,33 @@
   "msg_0423": {
     "ru": "Сессия Foxy",
     "en": "Foxy Session"
+  },
+  "msg_0424": {
+    "ru": "Проверить обновление",
+    "en": "Check for updates"
+  },
+  "msg_0425": {
+    "ru": "Проверка обновлений…",
+    "en": "Checking for updates…"
+  },
+  "msg_0426": {
+    "ru": "Обновлений нет",
+    "en": "No updates available"
+  },
+  "msg_0427": {
+    "ru": "Доступна новая версия: {version}",
+    "en": "New version available: {version}"
+  },
+  "msg_0428": {
+    "ru": "Скачать обновление",
+    "en": "Download update"
+  },
+  "msg_0429": {
+    "ru": "Опубликованных релизов пока нет",
+    "en": "No published releases yet"
+  },
+  "msg_0430": {
+    "ru": "Не удалось проверить обновления. Проверьте соединение с GitHub.",
+    "en": "Could not check for updates. Check your connection to GitHub."
   }
 }
