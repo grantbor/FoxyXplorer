@@ -3856,16 +3856,24 @@ impl App {
                 self.capture_marquee_alt();
             }
             Message::DemTick => {
-                // The elapsed timer is based on Instant, not a count of ticks;
-                // receiving an event early can never shorten the full second.
+                // The first deadline reads only local DEM data (300 ms).
+                // Missing blocks may trigger HTTP only at the 1 s deadline.
                 let current = self.current_dem_view();
                 self.dem.sync(current);
-                if let Some((generation, view)) = self.dem.begin_if_ready(Instant::now()) {
-                    let client = self.osm_client.clone();
-                    return Task::perform(
-                        async move { crate::dem::load_and_render(view, client).await },
-                        move |result| Message::DemRendered(generation, result),
-                    );
+                if let Some((generation, view, mode)) = self.dem.begin_if_ready(Instant::now()) {
+                    return match mode {
+                        crate::dem::LoadMode::CacheOnly => Task::perform(
+                            async move { crate::dem::load_and_render_cached(view).await },
+                            move |result| Message::DemRendered(generation, result),
+                        ),
+                        crate::dem::LoadMode::Network => {
+                            let client = self.osm_client.clone();
+                            Task::perform(
+                                async move { crate::dem::load_and_render(view, client).await.map(Some) },
+                                move |result| Message::DemRendered(generation, result),
+                            )
+                        }
+                    };
                 }
             }
             Message::DemRendered(generation, result) => {

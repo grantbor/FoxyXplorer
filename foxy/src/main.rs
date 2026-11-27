@@ -388,7 +388,7 @@ pub(crate) enum Message {
     SidebarDragFinish,
     SidebarDragCancel,
     Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki, ToggleDem,
-    DemTick, DemRendered(u64, Result<Arc<dem::Rendered>, String>),
+    DemTick, DemRendered(u64, Result<Option<Arc<dem::Rendered>>, String>),
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
@@ -1255,7 +1255,7 @@ impl App {
             subs.push(iced::time::every(std::time::Duration::from_millis(100))
                 .map(|_| Message::StatusNoticeTick));
         }
-        // A 100 ms timer is active ONLY during the 1 s inactivity countdown.
+        // A 100 ms timer runs only during the cache/online debounce windows.
         // Once DEM has rendered (or failed), it consumes no periodic UI ticks.
         if self.dem.wants_tick() {
             subs.push(iced::time::every(std::time::Duration::from_millis(100))
