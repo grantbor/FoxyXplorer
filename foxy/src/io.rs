@@ -100,7 +100,7 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
         "plt" => (false, geoio::plt::read(&bytes)),
         "ms" => (false, geoio::ms::read(&bytes)),
         "wpt" => (false, geoio::wpt::read(&bytes)),
-        "kml" => (false, geoio::kml::read(&bytes)),
+        "kml" | "klm" => (false, geoio::kml::read(&bytes)),
         _ => return Err(crate::tf!("msg_0402", path = path.display())),
     };
     

@@ -2,7 +2,7 @@ use iced::widget::{
     column, container, mouse_area, row, scrollable, text, text_input, Space, stack,
 };
 use iced::{Alignment, Color, Element, Length};
-use crate::{App, Message, ContextMenuItem};
+use crate::{App, Message, ContextMenuItem, SidebarKind};
 use crate::ui::controls::with_tooltip;
 use crate::t;
 
@@ -29,6 +29,67 @@ fn waypoint_panel_date_time(w: &crate::domain::Waypoint) -> (String, String) {
         format!("{year:04}-{month:02}-{day:02}"),
         format!("{hour:02}:{minute:02}"),
     )
+}
+
+// A passive label lets the mouse gesture decide between a click and a drag.
+// A button would also emit SelectTrack/SelectWaypoint after a drag release.
+fn sidebar_name_label(label: &str, selected: bool) -> Element<'_, Message> {
+    container(text(label.to_owned())
+        .wrapping(iced::widget::text::Wrapping::None)
+        .size(14))
+        .width(Length::Fill)
+        .padding([4, 8])
+        .style(move |theme: &iced::Theme| {
+            let palette = theme.extended_palette();
+            container::Style {
+                background: selected.then(|| palette.primary.weak.color.into()),
+                text_color: Some(if selected {
+                    palette.primary.weak.text
+                } else {
+                    palette.background.base.text
+                }),
+                border: iced::Border { radius: 4.0.into(), ..Default::default() },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
+// The existing 2 px gap between rows is the drop target. Never draw over
+// a row's name, and never change row heights while dragging.
+fn sidebar_drop_gap(from: usize, to: usize) -> Option<usize> {
+    if from == to { return None; }
+    // move_to_index removes the source first. In the original list, its final
+    // position is after the hovered row when moving down, before it otherwise.
+    Some(if from < to { to + 1 } else { to })
+}
+
+// Which row should own hover events in a gap? A gap before the dragged row
+// or directly after it would be a no-op and deliberately has no target.
+fn sidebar_gap_target(source: usize, gap: usize, count: usize) -> Option<usize> {
+    let target = if source < gap { gap.checked_sub(1)? } else { gap };
+    (target < count && target != source).then_some(target)
+}
+
+// Keep the regular arrow while hovering rows; show a closed hand only
+// once a real row drag has started (not just after mouse-down).
+fn sidebar_drag_cursor(dragging: bool) -> iced::mouse::Interaction {
+    if dragging {
+        iced::mouse::Interaction::Grabbing
+    } else {
+        iced::mouse::Interaction::Idle
+    }
+}
+
+fn sidebar_insertion_gap(visible: bool) -> Element<'static, Message> {
+    container(Space::new().width(Length::Fill).height(Length::Fill))
+        .width(Length::Fill)
+        .height(Length::Fixed(crate::SIDEBAR_ROW_SPACING))
+        .style(move |theme: &iced::Theme| container::Style {
+            background: visible.then(|| theme.extended_palette().primary.strong.color.into()),
+            ..Default::default()
+        })
+        .into()
 }
 
 impl App {
@@ -174,11 +235,36 @@ impl App {
         ].spacing(4);
 
         let query = self.search_tracks.to_lowercase();
-        let mut list = column![].spacing(crate::SIDEBAR_ROW_SPACING).padding([0.0, 12.0]);
+        let mut list = column![].spacing(0).padding([0.0, 12.0]);
+        // Keep the same 2 px row spacing at all times; the insertion marker
+        // replaces the empty gap instead of occupying the middle of a row.
+        let drag_source_index = self.sidebar_drag.as_ref()
+            .filter(|drag| drag.moved && drag.kind == SidebarKind::Tracks)
+            .and_then(|drag| self.tracks.iter().position(|item| item.id == drag.source_id));
+        let drag_cursor = sidebar_drag_cursor(drag_source_index.is_some());
+        let insertion_gap = self.sidebar_drag.as_ref()
+            .filter(|drag| drag.moved && drag.kind == SidebarKind::Tracks)
+            .and_then(|drag| {
+                let from = drag_source_index?;
+                let to = self.tracks.iter().position(|item| Some(item.id) == drag.hovered_id)?;
+                sidebar_drop_gap(from, to)
+            });
 
-        for t in &self.tracks {
+        for (row_index, t) in self.tracks.iter().enumerate() {
             if !query.is_empty() && !t.name.to_lowercase().contains(&query) { continue; }
 
+            // Each gap is an actual 2 px widget, so a marker is drawn exactly
+            // between adjacent entries, not across either entry.
+            let gap_hover_id = drag_source_index
+                .and_then(|from| sidebar_gap_target(from, row_index, self.tracks.len()))
+                .and_then(|index| self.tracks.get(index).map(|item| item.id));
+            let gap = mouse_area(sidebar_insertion_gap(insertion_gap == Some(row_index)));
+            let gap = if let Some(id) = gap_hover_id {
+                gap.on_enter(Message::SidebarDragHover(SidebarKind::Tracks, id))
+                    .on_move(move |_| Message::SidebarDragHover(SidebarKind::Tracks, id))
+                    .on_exit(Message::SidebarDragLeave(SidebarKind::Tracks, id))
+            } else { gap };
+            list = list.push(gap.interaction(drag_cursor));
             let selected = self.selection.tracks.contains(&t.id);
             let color_box = container(text(""))
                 .width(12).height(12)
@@ -195,32 +281,56 @@ impl App {
             };
 
             let track_id = t.id;
+            let name_area = mouse_area(sidebar_name_label(&t.name, selected))
+                .on_right_press(Message::ShowContextMenu(
+                    self.global_cursor,
+                    vec![
+                        ContextMenuItem::Label(t.name.clone()),
+                        ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenTrackProps(track_id)),
+                        ContextMenuItem::Action(t!("msg_0076").to_string(), Message::OpenTrackList(track_id)),
+                        ContextMenuItem::Action(t!("msg_0431").to_string(), Message::InspectTrack(track_id)),
+                        ContextMenuItem::Action(t!("msg_0086").to_string(), Message::FitTrackById(track_id)),
+                        ContextMenuItem::Separator,
+                        ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteTrackById(track_id)),
+                    ],
+                ));
+            let name_area = if query.is_empty() {
+                name_area
+                    .on_press(Message::SidebarDragStart(SidebarKind::Tracks, track_id))
+                    .on_release(Message::SidebarDragFinish)
+                    .interaction(drag_cursor)
+            } else {
+                name_area.on_release(Message::SelectTrack(track_id)).interaction(drag_cursor)
+            };
             let r = row![
                 self.visibility_button(t.visible, Message::ToggleTrackVisible(t.id, !t.visible)),
                 color_box,
-                container(
-                    mouse_area(
-                        self.list_item(&t.name, selected, Message::SelectTrack(t.id))
-                    ).on_right_press(Message::ShowContextMenu(
-                        self.global_cursor,
-                        vec![
-                            ContextMenuItem::Label(t.name.clone()),
-                            ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenTrackProps(track_id)),
-                            ContextMenuItem::Action(t!("msg_0076").to_string(), Message::OpenTrackList(track_id)),
-                            ContextMenuItem::Action(t!("msg_0431").to_string(), Message::InspectTrack(track_id)),
-                            ContextMenuItem::Action(t!("msg_0086").to_string(), Message::FitTrackById(track_id)),
-                            ContextMenuItem::Separator,
-                            ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteTrackById(track_id)),
-                        ],
-                    ))
-                ).width(Length::Fill).clip(true),
+                container(name_area).width(Length::Fill).clip(true),
                 container(text(t.cached_points.to_string()).size(12)).width(Length::Fixed(30.0)).align_x(Alignment::End),
                 container(text(dist).size(12)).width(Length::Fixed(50.0)).align_x(Alignment::End),
             ].spacing(4).align_y(Alignment::Center)
                 .height(Length::Fixed(crate::SIDEBAR_ROW_HEIGHT));
 
-            list = list.push(r);
+            let r = container(r).width(Length::Fill);
+            list = list.push(mouse_area(r)
+                .on_enter(Message::SidebarDragHover(SidebarKind::Tracks, track_id))
+                .on_move(move |_| Message::SidebarDragHover(SidebarKind::Tracks, track_id))
+                .on_exit(Message::SidebarDragLeave(SidebarKind::Tracks, track_id))
+                .interaction(drag_cursor));
         }
+
+        // A drop after the last row also has a real 2 px insertion gap.
+        let final_gap_index = self.tracks.len();
+        let final_gap_hover_id = drag_source_index
+            .and_then(|from| sidebar_gap_target(from, final_gap_index, final_gap_index))
+            .and_then(|index| self.tracks.get(index).map(|item| item.id));
+        let gap = mouse_area(sidebar_insertion_gap(insertion_gap == Some(final_gap_index)));
+        let gap = if let Some(id) = final_gap_hover_id {
+            gap.on_enter(Message::SidebarDragHover(SidebarKind::Tracks, id))
+                .on_move(move |_| Message::SidebarDragHover(SidebarKind::Tracks, id))
+                .on_exit(Message::SidebarDragLeave(SidebarKind::Tracks, id))
+        } else { gap };
+        list = list.push(gap.interaction(drag_cursor));
 
         let has_tracks = !self.selection.tracks.is_empty();
         let has_wps = !self.selection.waypoints.is_empty();
@@ -400,11 +510,36 @@ impl App {
         ].spacing(4);
 
         let query = self.search_waypoints.to_lowercase();
-        let mut list = column![].spacing(crate::SIDEBAR_ROW_SPACING).padding([0.0, 12.0]);
+        let mut list = column![].spacing(0).padding([0.0, 12.0]);
+        // Keep the same 2 px row spacing at all times; the insertion marker
+        // replaces the empty gap instead of occupying the middle of a row.
+        let drag_source_index = self.sidebar_drag.as_ref()
+            .filter(|drag| drag.moved && drag.kind == SidebarKind::Waypoints)
+            .and_then(|drag| self.waypoints.iter().position(|item| item.id == drag.source_id));
+        let drag_cursor = sidebar_drag_cursor(drag_source_index.is_some());
+        let insertion_gap = self.sidebar_drag.as_ref()
+            .filter(|drag| drag.moved && drag.kind == SidebarKind::Waypoints)
+            .and_then(|drag| {
+                let from = drag_source_index?;
+                let to = self.waypoints.iter().position(|item| Some(item.id) == drag.hovered_id)?;
+                sidebar_drop_gap(from, to)
+            });
 
-        for w in &self.waypoints {
+        for (row_index, w) in self.waypoints.iter().enumerate() {
             if !query.is_empty() && !w.name.to_lowercase().contains(&query) { continue; }
 
+            // Each gap is an actual 2 px widget, so a marker is drawn exactly
+            // between adjacent entries, not across either entry.
+            let gap_hover_id = drag_source_index
+                .and_then(|from| sidebar_gap_target(from, row_index, self.waypoints.len()))
+                .and_then(|index| self.waypoints.get(index).map(|item| item.id));
+            let gap = mouse_area(sidebar_insertion_gap(insertion_gap == Some(row_index)));
+            let gap = if let Some(id) = gap_hover_id {
+                gap.on_enter(Message::SidebarDragHover(SidebarKind::Waypoints, id))
+                    .on_move(move |_| Message::SidebarDragHover(SidebarKind::Waypoints, id))
+                    .on_exit(Message::SidebarDragLeave(SidebarKind::Waypoints, id))
+            } else { gap };
+            list = list.push(gap.interaction(drag_cursor));
             let selected = self.selection.waypoints.contains(&w.id);
             let icon = container(text("●").size(11).color(Color::from_rgb8(w.bg_color[0], w.bg_color[1], w.bg_color[2]))).width(14);
             let coord = coord::format_pair(w.lat, w.lon, self.format);
@@ -413,7 +548,7 @@ impl App {
             // Only waypoint descriptions need a tooltip. Empty descriptions
             // leave the row without a tooltip, just like track names.
             let waypoint_label: Element<'_, Message> = {
-                let name_button = self.list_item(&w.name, selected, Message::SelectWaypoint(w.id));
+                let name_button = sidebar_name_label(&w.name, selected);
                 match w.description.as_deref().filter(|desc| !desc.trim().is_empty()) {
                     // Hide description tooltip as soon as any context menu opens.
                     Some(description) if self.context_menu.is_none() => with_tooltip(name_button, description),
@@ -422,25 +557,31 @@ impl App {
             };
 
             let wp_id = w.id;
+            let name_area = mouse_area(waypoint_label)
+                .on_right_press(Message::ShowContextMenu(
+                    self.global_cursor,
+                    vec![
+                        ContextMenuItem::Label(w.name.clone()),
+                        ContextMenuItem::Action(t!("msg_0073").to_string(), Message::CopyCoordinates(w.lat, w.lon)),
+                        ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenWaypointProps(wp_id)),
+                        ContextMenuItem::Action(t!("msg_0103").to_string(), Message::CenterOnWaypoint(wp_id)),
+                        ContextMenuItem::Action(t!("msg_0062").to_string(), Message::OpenWaypointProjection(wp_id)),
+                        ContextMenuItem::Separator,
+                        ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteWaypointById(wp_id)),
+                    ],
+                ));
+            let name_area = if query.is_empty() {
+                name_area
+                    .on_press(Message::SidebarDragStart(SidebarKind::Waypoints, wp_id))
+                    .on_release(Message::SidebarDragFinish)
+                    .interaction(drag_cursor)
+            } else {
+                name_area.on_release(Message::SelectWaypoint(wp_id)).interaction(drag_cursor)
+            };
             let r = row![
                 self.visibility_button(w.visible, Message::ToggleWaypointVisible(w.id, !w.visible)),
                 icon,
-                container(
-                    mouse_area(
-                        waypoint_label
-                    ).on_right_press(Message::ShowContextMenu(
-                        self.global_cursor,
-                        vec![
-                            ContextMenuItem::Label(w.name.clone()),
-                            ContextMenuItem::Action(t!("msg_0073").to_string(), Message::CopyCoordinates(w.lat, w.lon)),
-                            ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenWaypointProps(wp_id)),
-                            ContextMenuItem::Action(t!("msg_0103").to_string(), Message::CenterOnWaypoint(wp_id)),
-                            ContextMenuItem::Action(t!("msg_0062").to_string(), Message::OpenWaypointProjection(wp_id)),
-                            ContextMenuItem::Separator,
-                            ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteWaypointById(wp_id)),
-                        ],
-                    ))
-                ).width(Length::Fill).clip(true),
+                container(name_area).width(Length::Fill).clip(true),
                 container(text(coord).size(11).font(iced::Font::MONOSPACE)).width(Length::Fixed(80.0)).align_x(Alignment::End),
                 container(column![
                     text(date).size(11).font(iced::Font::MONOSPACE),
@@ -450,8 +591,26 @@ impl App {
             ].spacing(4).align_y(Alignment::Center)
                 .height(Length::Fixed(crate::SIDEBAR_ROW_HEIGHT));
 
-            list = list.push(r);
+            let r = container(r).width(Length::Fill);
+            list = list.push(mouse_area(r)
+                .on_enter(Message::SidebarDragHover(SidebarKind::Waypoints, wp_id))
+                .on_move(move |_| Message::SidebarDragHover(SidebarKind::Waypoints, wp_id))
+                .on_exit(Message::SidebarDragLeave(SidebarKind::Waypoints, wp_id))
+                .interaction(drag_cursor));
         }
+
+        // A drop after the last row also has a real 2 px insertion gap.
+        let final_gap_index = self.waypoints.len();
+        let final_gap_hover_id = drag_source_index
+            .and_then(|from| sidebar_gap_target(from, final_gap_index, final_gap_index))
+            .and_then(|index| self.waypoints.get(index).map(|item| item.id));
+        let gap = mouse_area(sidebar_insertion_gap(insertion_gap == Some(final_gap_index)));
+        let gap = if let Some(id) = final_gap_hover_id {
+            gap.on_enter(Message::SidebarDragHover(SidebarKind::Waypoints, id))
+                .on_move(move |_| Message::SidebarDragHover(SidebarKind::Waypoints, id))
+                .on_exit(Message::SidebarDragLeave(SidebarKind::Waypoints, id))
+        } else { gap };
+        list = list.push(gap.interaction(drag_cursor));
 
         let has_wps = !self.selection.waypoints.is_empty();
         let has_tracks = !self.selection.tracks.is_empty();
@@ -592,5 +751,39 @@ impl App {
         .width(Length::Fill)
         .height(Length::FillPortion(1))
         .into()
+    }
+}
+
+#[cfg(test)]
+mod sidebar_insertion_tests {
+    use super::{sidebar_drag_cursor, sidebar_drop_gap, sidebar_gap_target};
+
+    #[test]
+    fn cursor_is_normal_until_a_row_is_dragged() {
+        assert_eq!(sidebar_drag_cursor(false), iced::mouse::Interaction::Idle);
+        assert_eq!(sidebar_drag_cursor(true), iced::mouse::Interaction::Grabbing);
+    }
+
+    #[test]
+    fn insertion_line_marks_actual_gap_after_reorder() {
+        // A B C D: moving B over D yields A C D B (gap after D).
+        assert_eq!(sidebar_drop_gap(1, 3), Some(4));
+        // A B C D: moving D over B yields A D B C (gap before B).
+        assert_eq!(sidebar_drop_gap(3, 1), Some(1));
+        // Hovering the dragged item must not create a marker.
+        assert_eq!(sidebar_drop_gap(2, 2), None);
+    }
+
+    #[test]
+    fn hovering_between_rows_selects_matching_drop_target() {
+        // Dragging A downward: gap after C targets C.
+        assert_eq!(sidebar_gap_target(0, 3, 4), Some(2));
+        // Dragging D upward: gap before B targets B.
+        assert_eq!(sidebar_gap_target(3, 1, 4), Some(1));
+        // The two gaps adjacent to the source are no-ops.
+        assert_eq!(sidebar_gap_target(1, 1, 4), None);
+        assert_eq!(sidebar_gap_target(1, 2, 4), None);
+        assert_eq!(sidebar_gap_target(1, 4, 4), Some(3));
+        assert_eq!(sidebar_gap_target(3, 0, 4), Some(0));
     }
 }

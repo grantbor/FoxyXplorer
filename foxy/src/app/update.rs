@@ -25,6 +25,15 @@ use crate::util::geo::dist_to_segment;
 use crate::t;
 use crate::SettingsDraft;
 
+/// Reorder in place; source and destination refer to the current unfiltered list.
+/// IDs, object contents, and selection are unchanged; only ordering changes.
+fn move_to_index<T>(items: &mut Vec<T>, from: usize, to: usize) -> bool {
+    if from >= items.len() || to >= items.len() || from == to { return false; }
+    let item = items.remove(from);
+    items.insert(to, item);
+    true
+}
+
 fn is_space(key: &iced::keyboard::Key) -> bool {
     matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
         || matches!(key, iced::keyboard::Key::Character(c) if c == " ")
@@ -327,6 +336,11 @@ impl App {
             }
 
             // --- UI (Верхняя панель) ---
+            Message::SidebarDragStart(_, _) | Message::SidebarDragHover(_, _)
+            | Message::SidebarDragLeave(_, _) | Message::SidebarDragFinish
+            | Message::SidebarDragCancel => {
+                return self.update_ui(m);
+            }
             Message::ToggleGrid | Message::ToggleLabels | Message::ToggleWiki
             | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) 
             | Message::ModalDragStart | Message::SelectTool(_) 
@@ -427,7 +441,7 @@ impl App {
             }
 
             // --- Система и прочее ---
-            Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
+            Message::ExternalPathDropped(_) | Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(..)
             | Message::AutoSaveTick | Message::StatusNoticeTick | Message::None => {
                 return self.update_system(m);
@@ -547,6 +561,7 @@ impl App {
     }
     fn apply_session(&mut self, sess: session::Session) {
         self.track_inspection = None;
+        self.sidebar_drag = None;
         // A session replaces the entire map kit, including the case where
         // last_kit is None. Otherwise layers from the previous session linger
         // in the map list (and the grid may still be drawn).
@@ -1760,6 +1775,76 @@ impl App {
                     self.wiki_cache.clear();
                 }
             }
+            Message::SidebarDragStart(kind, id) => {
+                if self.modal.is_some() || self.track_inspection.is_some() { return Task::none(); }
+                let allowed = match kind {
+                    crate::SidebarKind::Tracks => self.search_tracks.is_empty()
+                        && self.tracks.iter().any(|t| t.id == id),
+                    crate::SidebarKind::Waypoints => self.search_waypoints.is_empty()
+                        && self.waypoints.iter().any(|w| w.id == id),
+                };
+                if allowed {
+                    self.sidebar_drag = Some(crate::SidebarDrag {
+                        kind, source_id: id, hovered_id: Some(id),
+                        start: self.global_cursor, moved: false,
+                    });
+                }
+            }
+            Message::SidebarDragHover(kind, id) => {
+                if let Some(drag) = self.sidebar_drag.as_mut() {
+                    if drag.kind == kind && drag.hovered_id != Some(id) {
+                        drag.hovered_id = Some(id);
+                        self.tracks_cache.clear();
+                    }
+                }
+            }
+            Message::SidebarDragLeave(kind, id) => {
+                if let Some(drag) = self.sidebar_drag.as_mut() {
+                    if drag.kind == kind && drag.hovered_id == Some(id) {
+                        drag.hovered_id = None;
+                        self.tracks_cache.clear();
+                    }
+                }
+            }
+            Message::SidebarDragCancel => {
+                self.sidebar_drag = None;
+                self.tracks_cache.clear();
+            }
+            Message::SidebarDragFinish => {
+                let Some(drag) = self.sidebar_drag.take() else { return Task::none(); };
+                if !drag.moved {
+                    // A short click still selects (and supports double-click to edit).
+                    return match drag.kind {
+                        crate::SidebarKind::Tracks => self.update(Message::SelectTrack(drag.source_id)),
+                        crate::SidebarKind::Waypoints => self.update(Message::SelectWaypoint(drag.source_id)),
+                    };
+                }
+                let Some(destination) = drag.hovered_id else { return Task::none(); };
+                if destination == drag.source_id { return Task::none(); }
+                let indexes = match drag.kind {
+                    crate::SidebarKind::Tracks => (
+                        self.tracks.iter().position(|item| item.id == drag.source_id),
+                        self.tracks.iter().position(|item| item.id == destination),
+                    ),
+                    crate::SidebarKind::Waypoints => (
+                        self.waypoints.iter().position(|item| item.id == drag.source_id),
+                        self.waypoints.iter().position(|item| item.id == destination),
+                    ),
+                };
+                if let (Some(from), Some(to)) = indexes {
+                    if from != to {
+                        self.push_undo(match drag.kind {
+                            crate::SidebarKind::Tracks => t!("msg_0613"),
+                            crate::SidebarKind::Waypoints => t!("msg_0614"),
+                        });
+                        match drag.kind {
+                            crate::SidebarKind::Tracks => { move_to_index(&mut self.tracks, from, to); }
+                            crate::SidebarKind::Waypoints => { move_to_index(&mut self.waypoints, from, to); }
+                        }
+                        self.tracks_cache.clear();
+                    }
+                }
+            }
             Message::SearchTracksChanged(q) => {
                 self.search_tracks = q;
                 self.search_focused = true;      // ← добавить
@@ -1891,6 +1976,7 @@ impl App {
                 self.modal = None;
             }
             Message::ExecuteClearAll => {
+                self.sidebar_drag = None;
                 self.modal = None;
                 self.track_inspection = None;
                 
@@ -1969,6 +2055,11 @@ impl App {
             }
             Message::GlobalCursorMoved(p) => {
                 self.global_cursor = p;
+                if let Some(drag) = self.sidebar_drag.as_mut() {
+                    if (p.x - drag.start.x).hypot(p.y - drag.start.y) >= 5.0 {
+                        drag.moved = true;
+                    }
+                }
             }
             Message::ShowContextMenu(pos, items) => {
                 self.context_menu = Some(ContextMenuState {
@@ -3639,6 +3730,29 @@ impl App {
                     self.status = self.cursor_status.clone();
                 }
             }
+            Message::ExternalPathDropped(path) => {
+                // Do not replace map layers while an unrelated editor is open.
+                if self.modal.is_some() || self.track_inspection.is_some() {
+                    return Task::none();
+                }
+                if path.is_dir() {
+                    if crate::looks_like_map_kit(&path) {
+                        return self.update_system(Message::KitPicked(Some(path)));
+                    }
+                    self.status = crate::tf!("msg_0611", path = path.display());
+                } else if path.extension().and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("map")) {
+                    if let Some(parent) = path.parent() {
+                        return self.update_system(Message::KitPicked(Some(parent.to_path_buf())));
+                    }
+                } else if path.extension().and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(),
+                        "gpx" | "plt" | "wpt" | "ms" | "kml" | "klm")) {
+                    return self.update_system(Message::TracksPicked(Some(vec![path])));
+                } else {
+                    self.status = crate::tf!("msg_0402", path = path.display());
+                }
+            }
             Message::PickKit => {
                 return Task::perform(
                     async {
@@ -3679,7 +3793,7 @@ impl App {
                 return Task::perform(
                     async move {
                         let mut dialog = rfd::AsyncFileDialog::new()
-                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml"]);
+                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml", "klm"]);
                         if let Some(d) = dir {
                             dialog = dialog.set_directory(&d);
                         }
@@ -4402,5 +4516,28 @@ mod tracklist_shared_boundary_split_tests {
         assert!(!split_segment_at_shared_point(&mut segments, 1, 1));
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].points.len(), 4);
+    }
+}
+
+#[cfg(test)]
+mod sidebar_reorder_tests {
+    use super::move_to_index;
+
+    #[test]
+    fn move_forward_and_backward_without_data_loss() {
+        let mut ids = vec![11, 22, 33, 44];
+        assert!(move_to_index(&mut ids, 0, 3));
+        assert_eq!(ids, [22, 33, 44, 11]);
+        assert!(move_to_index(&mut ids, 3, 1));
+        assert_eq!(ids, [22, 11, 33, 44]);
+    }
+
+    #[test]
+    fn no_op_and_bad_indices_do_not_change_order() {
+        let mut ids = vec![5, 9];
+        assert!(!move_to_index(&mut ids, 0, 0));
+        assert!(!move_to_index(&mut ids, 5, 0));
+        assert!(!move_to_index(&mut ids, 0, 5));
+        assert_eq!(ids, [5, 9]);
     }
 }

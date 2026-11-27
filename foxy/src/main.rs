@@ -155,6 +155,24 @@ pub(crate) struct SettingsDraft {
     pub ftp_password: String,
 }
 
+/// Recognize only directories containing a map definition in a location
+/// supported by load_kit. Do not mistake an arbitrary geodata folder for a kit.
+pub(crate) fn looks_like_map_kit(root: &Path) -> bool {
+    if !root.is_dir() { return false; }
+    let has_map = |dir: &Path| -> bool {
+        std::fs::read_dir(dir).ok().is_some_and(|items| {
+            items.flatten().any(|entry| entry.path().is_file()
+                && entry.path().extension().and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("map")))
+        })
+    };
+    if has_map(root) || has_map(&root.join("Maps")) { return true; }
+    std::fs::read_dir(root).ok().is_some_and(|items| {
+        items.flatten().any(|entry| entry.path().is_dir()
+            && has_map(&entry.path().join("Maps")))
+    })
+}
+
 pub(crate) fn load_kit(root: &Path) -> Result<(Vec<Layer>, Option<GridData>, Vec<wiki::WikiPoint>, Vec<String>), String> {
     let mut notes = Vec::new();
 
@@ -361,6 +379,13 @@ fn copy_kit_grid_if_missing(root: &Path, source: &Path) -> Result<(), String> {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
+    // OS file / directory drop and sidebar reordering.
+    ExternalPathDropped(PathBuf),
+    SidebarDragStart(SidebarKind, u64),
+    SidebarDragHover(SidebarKind, u64),
+    SidebarDragLeave(SidebarKind, u64),
+    SidebarDragFinish,
+    SidebarDragCancel,
     Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki,
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
@@ -490,6 +515,18 @@ pub(crate) enum Message {
     SettingsFtpUserChanged(String), SettingsFtpPasswordChanged(String),
     SettingsFtpEnabledChanged(bool),
     None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SidebarKind { Tracks, Waypoints }
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SidebarDrag {
+    pub(crate) kind: SidebarKind,
+    pub(crate) source_id: u64,
+    pub(crate) hovered_id: Option<u64>,
+    pub(crate) start: Point,
+    pub(crate) moved: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -659,6 +696,7 @@ pub(crate) struct App {
     pub(crate) modifiers: Modifiers,
     pub(crate) last_track_clicked: Option<u64>,
     pub(crate) last_waypoint_clicked: Option<u64>,
+    pub(crate) sidebar_drag: Option<SidebarDrag>,
     pub(crate) search_tracks: String,
     pub(crate) search_waypoints: String,
     pub(crate) ftp_enabled: bool,
@@ -956,7 +994,7 @@ impl App {
                     next_id: session.next_id, selection: Selection::default(),
                     ftp_enabled: cfg.ftp_enabled, ftp_remote_folder: session.ftp_remote_folder.clone(), last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
                     last_track_clicked: None, last_waypoint_clicked: None,
-                    search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
+                    sidebar_drag: None, search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
                     palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_inspection: None, cleanup_diagnostics, track_backup: None, last_track_click: None,
                     show_color_picker: None,
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
@@ -1021,7 +1059,7 @@ impl App {
             selection: Selection::default(),
             ftp_enabled: cfg.ftp_enabled, ftp_remote_folder: String::new(), last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None, last_waypoint_clicked: None,
-            search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
+            sidebar_drag: None, search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
             palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_inspection: None, cleanup_diagnostics, track_backup: None, last_track_click: None, show_color_picker: None,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
@@ -1105,10 +1143,11 @@ impl App {
     }
 
     pub(crate) fn apply_kit(&mut self, result: Result<(Vec<Layer>, Option<GridData>, Vec<wiki::WikiPoint>, Vec<String>), String>) -> bool {
-        self.undo_stack.clear();
-        self.redo_stack.clear();
         match result {
             Ok((layers, gd, wiki_points, notes)) => {
+                // A rejected dropped folder must not destroy the edit history.
+                self.undo_stack.clear();
+                self.redo_stack.clear();
                 let n_layers = layers.len();
                 let n_gpx = gd.as_ref().map_or(0, |(g, _)| g.nodes.len());
                 self.layers = layers;
@@ -1190,6 +1229,8 @@ impl App {
                 match event {
                     iced::window::Event::Resized(size) => Message::WindowResized(size),
                     iced::window::Event::Moved(pos) => Message::WindowMoved(pos),
+                    iced::window::Event::FileDropped(path) => Message::ExternalPathDropped(path),
+                    iced::window::Event::Unfocused => Message::SidebarDragCancel,
                     _ => Message::None,
                 }
             }),
@@ -1223,6 +1264,18 @@ impl App {
                     iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
                         Some(Message::DividerReleased)
                     }
+                    _ => None,
+                }
+            }));
+        }
+        // Release is observed even when the cursor has left the original row.
+        if self.sidebar_drag.is_some() {
+            subs.push(iced::event::listen_with(|event, _status, _id| {
+                match event {
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) =>
+                        Some(Message::SidebarDragFinish),
+                    iced::Event::Mouse(iced::mouse::Event::CursorLeft) =>
+                        Some(Message::SidebarDragCancel),
                     _ => None,
                 }
             }));
@@ -1711,4 +1764,24 @@ fn main() -> iced::Result {
     .subscription(App::subscription)
     .theme(|app: &App| app.theme.clone())
     .run()
+}
+
+#[cfg(test)]
+mod map_kit_drop_tests {
+    use super::looks_like_map_kit;
+
+    #[test]
+    fn dropped_folder_must_contain_map_definition_in_supported_layout() {
+        let name = format!("foxy-dnd-kit-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap().as_nanos());
+        let root = std::env::temp_dir().join(name);
+        let maps = root.join("Child").join("Maps");
+        std::fs::create_dir_all(&maps).unwrap();
+        std::fs::write(root.join("route.gpx"), b"GPX").unwrap();
+        assert!(!looks_like_map_kit(&root));
+        std::fs::write(maps.join("test.MAP"), b"map header").unwrap();
+        assert!(looks_like_map_kit(&root));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }

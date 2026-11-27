@@ -2098,5 +2098,25 @@
   "msg_0608": {
     "ru": "профиль - неизвестно",
     "en": "profile - unknown"
+  },
+  "msg_0609": {
+    "ru": "Перетащить для изменения порядка",
+    "en": "Drag to reorder"
+  },
+  "msg_0610": {
+    "ru": "Для изменения порядка очистите поле поиска",
+    "en": "Clear search to reorder"
+  },
+  "msg_0611": {
+    "ru": "Папка не содержит комплекта карт: {path}",
+    "en": "Folder does not contain a map kit: {path}"
+  },
+  "msg_0613": {
+    "ru": "Изменить порядок треков",
+    "en": "Reorder tracks"
+  },
+  "msg_0614": {
+    "ru": "Изменить порядок путевых точек",
+    "en": "Reorder waypoints"
   }
 }
