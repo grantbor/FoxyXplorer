@@ -87,7 +87,7 @@ C:\Users\<user>\AppData\Local\foxy\esri\z\x\y.jpg`
 
 ### Правая панель - список треков
 
-![Panel_Tracks_01.jpg](screenshots/Panel_Tracks_01.jpg)
+![Panel_Tracks_01.jpg](screenshots/Panel_Tracks_02.jpg)
 
 В целом картинка все объясняет. Нужно добавить, что клик по иконке видимости трека с модификатором **Alt** оставляет видимым только этот трек.
 
