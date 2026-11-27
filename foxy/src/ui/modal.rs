@@ -1105,6 +1105,9 @@ impl App {
         // Общая композиция
         let content = column![
             top_content,
+            separator(),
+            text(t!("msg_0618")).size(10).width(Length::Fill),
+            text(t!("msg_0619")).size(10).width(Length::Fill),
             bottom_content
         ]
         .spacing(24)

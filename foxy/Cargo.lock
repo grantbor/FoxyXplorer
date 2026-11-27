@@ -1535,6 +1535,7 @@ dependencies = [
  "reqwest",
  "resvg 0.48.1",
  "rfd",
+ "rusty_tiff",
  "serde",
  "serde_json",
  "tiny-skia 0.11.4",
@@ -4599,6 +4600,16 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rusty_tiff"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e2f4c4aa3b3065559cc20057c9dceb97cfefb72a337d5a4f044ba43cad8efd0"
+dependencies = [
+ "bytemuck",
+ "flate2",
+]
 
 [[package]]
 name = "rustybuzz"

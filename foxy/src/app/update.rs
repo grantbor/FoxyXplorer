@@ -316,6 +316,11 @@ impl App {
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
         let before = self.status.clone();
         let task = self.dispatch_message(m);
+        // Viewport-derived state: all navigation paths (mouse pan, wheel, Fit,
+        // session load, window resize and map source changes) pass through here.
+        // This immediately invalidates the old DEM even while its task runs.
+        let view = self.current_dem_view();
+        self.dem.sync(view);
         // status holds event feedback, cursor_status holds the live coordinate
         // readout. Pointer motion updates the latter, not the five-second notice.
         if self.status != before && self.status != self.cursor_status {
@@ -341,7 +346,7 @@ impl App {
             | Message::SidebarDragCancel => {
                 return self.update_ui(m);
             }
-            Message::ToggleGrid | Message::ToggleLabels | Message::ToggleWiki
+            Message::ToggleGrid | Message::ToggleLabels | Message::ToggleWiki | Message::ToggleDem
             | Message::SearchTracksChanged(_) | Message::SearchWaypointsChanged(_) 
             | Message::ModalDragStart | Message::SelectTool(_) 
             | Message::KeyPressed(_, _) | Message::KeyReleased(_) 
@@ -443,7 +448,8 @@ impl App {
             // --- Система и прочее ---
             Message::ExternalPathDropped(_) | Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(..)
-            | Message::AutoSaveTick | Message::StatusNoticeTick | Message::None => {
+            | Message::AutoSaveTick | Message::StatusNoticeTick
+            | Message::DemTick | Message::DemRendered(..) | Message::None => {
                 return self.update_system(m);
             }
             
@@ -597,6 +603,7 @@ impl App {
         self.show_grid = sess.view.show_grid;
         self.show_labels = sess.view.show_labels;
         self.show_wiki = sess.view.show_wiki;
+        self.dem.set_enabled(sess.view.show_dem);
         // Legacy sessions may contain DegMin/DegMinSec: always display Decimal.
         self.format = CoordFormat::Decimal;
         
@@ -1422,7 +1429,10 @@ impl App {
                     self.refresh_status();
                 }
             }
-            Message::WindowResized(size) => self.window_size = size,
+            Message::WindowResized(size) => {
+                self.window_size = size;
+                self.dem.force_refresh();
+            },
             Message::WindowMoved(pos) => self.window_pos = pos,
             Message::DividerPressed => self.resizing_panel = true,
             Message::CursorMoved(p) => {
@@ -1444,7 +1454,10 @@ impl App {
                 if self.resizing_panel {
                     let win_w = self.window_size.width;
                     let new_w = (win_w - p.x).clamp(200.0, win_w * 0.6);
-                    self.right_panel_width = new_w;
+                    if (self.right_panel_width - new_w).abs() > f32::EPSILON {
+                        self.right_panel_width = new_w;
+                        self.dem.force_refresh();
+                    }
                 }
             }
             Message::DividerReleased => {
@@ -1774,6 +1787,10 @@ impl App {
                     self.show_wiki = !self.show_wiki;
                     self.wiki_cache.clear();
                 }
+            }
+            Message::ToggleDem => {
+                let enabled = !self.dem.enabled;
+                self.dem.set_enabled(enabled);
             }
             Message::SidebarDragStart(kind, id) => {
                 if self.modal.is_some() || self.track_inspection.is_some() { return Task::none(); }
@@ -3837,6 +3854,24 @@ impl App {
             Message::ModifiersChanged(mods) => {
                 self.modifiers = mods;
                 self.capture_marquee_alt();
+            }
+            Message::DemTick => {
+                // The elapsed timer is based on Instant, not a count of ticks;
+                // receiving an event early can never shorten the full second.
+                let current = self.current_dem_view();
+                self.dem.sync(current);
+                if let Some((generation, view)) = self.dem.begin_if_ready(Instant::now()) {
+                    let client = self.osm_client.clone();
+                    return Task::perform(
+                        async move { crate::dem::load_and_render(view, client).await },
+                        move |result| Message::DemRendered(generation, result),
+                    );
+                }
+            }
+            Message::DemRendered(generation, result) => {
+                if let Some(error) = self.dem.complete(generation, result) {
+                    self.status = crate::tf!("msg_0617", error = error);
+                }
             }
             Message::OsmTileLoaded(source, id, result) => {
                 // Ответ пришёл от источника, с которого пользователь уже ушёл.

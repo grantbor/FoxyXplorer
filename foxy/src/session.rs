@@ -14,6 +14,8 @@ pub struct SessionView {
     pub show_labels: bool,
     #[serde(default = "default_show_wiki")]
     pub show_wiki: bool,
+    #[serde(default)]
+    pub show_dem: bool,
     pub format_str: String,
     pub window_size: Option<(f32, f32)>,
     pub window_pos: Option<(f32, f32)>,

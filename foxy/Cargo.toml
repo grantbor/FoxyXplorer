@@ -16,6 +16,7 @@ iced = { version = "0.14", features = ["canvas", "image", "wgpu", "tiny-skia", "
 ozf = { version = "0.1.0", path = "../ozf" }
 ozmap = { version = "0.1.0", path = "../ozmap" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rusty_tiff = { version = "=0.1.8", default-features = false }
 dirs = "5"
 rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "tokio"] }
 serde = { version = "1.0", features = ["derive"] }

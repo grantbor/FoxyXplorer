@@ -3,6 +3,7 @@ mod app;
 mod foxydrop;
 mod foxyupload;
 mod canvas;
+mod dem;
 mod domain;
 mod io;
 mod osm;
@@ -386,7 +387,8 @@ pub(crate) enum Message {
     SidebarDragLeave(SidebarKind, u64),
     SidebarDragFinish,
     SidebarDragCancel,
-    Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki,
+    Layer(usize), ToggleGrid, ToggleLabels, ToggleWiki, ToggleDem,
+    DemTick, DemRendered(u64, Result<Arc<dem::Rendered>, String>),
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
@@ -595,6 +597,7 @@ pub(crate) fn build_session(app: &App) -> session::Session {
             show_grid: app.show_grid,
             show_labels: app.show_labels,
             show_wiki: app.show_wiki,
+            show_dem: app.dem.enabled,
             format_str,
             window_size: Some((app.window_size.width, app.window_size.height)),
             window_pos: Some((app.window_pos.x, app.window_pos.y)),
@@ -657,6 +660,7 @@ pub(crate) struct App {
     pub(crate) show_grid: bool,
     pub(crate) wiki_points: Vec<wiki::WikiPoint>,
     pub(crate) show_wiki: bool,
+    pub(crate) dem: dem::State,
     pub(crate) grid_color: [u8; 3],
     pub(crate) drop_service: Arc<foxydrop::DropService>,
     pub(crate) drop_phase: foxydrop::Phase,
@@ -974,7 +978,7 @@ impl App {
         if !force_osm {
             if let Some(session) = session::load_session() {
                 let mut app = App {
-                    layers: Vec::new(), active: 0, grid: None, lines: Vec::new(), wiki_points: Vec::new(), show_wiki: true,
+                    layers: Vec::new(), active: 0, grid: None, lines: Vec::new(), wiki_points: Vec::new(), show_wiki: true, dem: dem::State::default(),
                     show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
                     drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(if session.foxydrop_folder.is_empty() { &cfg.drop_folder } else { &session.foxydrop_folder }))),
                     drop_phase: foxydrop::Phase::Stopped,
@@ -1024,6 +1028,9 @@ impl App {
                 app.active = session.view.active.min(app.layers.len());
                 app.osm_cache.set_source(crate::BasemapSource::Osm);
                 app.show_grid = session.view.show_grid; app.show_labels = session.view.show_labels; app.show_wiki = session.view.show_wiki;
+                app.dem.set_enabled(session.view.show_dem);
+                let initial_dem_view = app.current_dem_view();
+                app.dem.sync(initial_dem_view);
                 // Accept old sessions, but do not restore their former display format.
                 app.format = CoordFormat::Decimal;
                 if let Some(t) = &session.theme {
@@ -1041,7 +1048,7 @@ impl App {
         }
 
         let mut app = App {
-            layers: Vec::new(), active: 0, grid: None, lines: Vec::new(), wiki_points: Vec::new(), show_wiki: true,
+            layers: Vec::new(), active: 0, grid: None, lines: Vec::new(), wiki_points: Vec::new(), show_wiki: true, dem: dem::State::default(),
             show_grid: true, grid_color: cfg.grid_color, show_labels: true, declination: 0.0, format: CoordFormat::Decimal,
             drop_service: Arc::new(foxydrop::DropService::new(PathBuf::from(&cfg.drop_folder))),
             drop_phase: foxydrop::Phase::Stopped,
@@ -1248,6 +1255,12 @@ impl App {
             subs.push(iced::time::every(std::time::Duration::from_millis(100))
                 .map(|_| Message::StatusNoticeTick));
         }
+        // A 100 ms timer is active ONLY during the 1 s inactivity countdown.
+        // Once DEM has rendered (or failed), it consumes no periodic UI ticks.
+        if self.dem.wants_tick() {
+            subs.push(iced::time::every(std::time::Duration::from_millis(100))
+                .map(|_| Message::DemTick));
+        }
 
         if self.drop_phase == foxydrop::Phase::Running {
             subs.push(iced::time::every(std::time::Duration::from_secs(2))
@@ -1352,6 +1365,11 @@ impl App {
             ));
         }
         Task::batch(tasks)
+    }
+
+    pub(crate) fn current_dem_view(&self) -> dem::View {
+        let sz = self.last_bounds.get();
+        dem::View::new(self.cx, self.cy, self.scale, sz.width, sz.height)
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1471,8 +1489,12 @@ impl App {
                 layout = layout.push(self.view_top_toolbar());
             }
             layout = layout.push(map_row);
-            let displayed_status = self.status_notice.as_ref()
-                .map_or(self.status.as_str(), |(message, _)| message.as_str());
+            let displayed_status = if self.dem.is_loading() {
+                t!("msg_0620")
+            } else {
+                self.status_notice.as_ref()
+                    .map_or(self.status.as_str(), |(message, _)| message.as_str())
+            };
             layout = layout.push(text(displayed_status));
             layout = layout.push(
                 row![
@@ -1627,6 +1649,8 @@ impl App {
         let tracks_canvas = Canvas::new(canvas::TrackProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let grid_canvas = Canvas::new(canvas::GridProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let wiki_canvas = Canvas::new(canvas::WikiProgram { app: self }).width(Length::Fill).height(Length::Fill);
+        let dem_canvas = Canvas::new(canvas::DemProgram { app: self }).width(Length::Fill).height(Length::Fill);
+        let dem_legend_canvas = Canvas::new(canvas::DemLegendProgram { app: self }).width(Length::Fill).height(Length::Fill);
 
         // Custom tool cursors are rendered as 24x24 SVGs. iced::mouse::Interaction
         // does not support custom SVG cursors. Each icon has its own hotspot,
@@ -1659,7 +1683,7 @@ impl App {
             && self.cursor.is_some_and(|p| p.x >= 56.0)
             && cursor_icon.is_some();
 
-        let canvases = stack![map_canvas, wiki_canvas, tracks_canvas, grid_canvas];
+        let canvases = stack![map_canvas, dem_canvas, wiki_canvas, tracks_canvas, grid_canvas, dem_legend_canvas];
         let contents: Element<'_, Message> = if show_tool_cursor {
             let (index, hotspot_x, hotspot_y) = cursor_icon.unwrap();
             let p = self.cursor.unwrap();

@@ -47,6 +47,14 @@ impl App {
                 }
             ),
             with_tooltip(
+                self.icon_toggle_button(
+                    lucide_iced::bytes::MOUNTAIN,
+                    self.dem.enabled,
+                    Message::ToggleDem,
+                ),
+                if self.dem.enabled { t!("msg_0615") } else { t!("msg_0616") }
+            ),
+            with_tooltip(
                 self.icon_action_button(
                     lucide_iced::bytes::FULLSCREEN,
                     Message::Fit,
