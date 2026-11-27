@@ -112,7 +112,7 @@ fn line(coords: &Value, times: Option<&Value>) -> Option<Vec<TrackPoint>> {
     let mut out = Vec::with_capacity(arr.len());
     for (i, p) in arr.iter().enumerate() {
         let (lat, lon, ele_m) = position(p)?;
-        out.push(TrackPoint { lat, lon, ele_m, time: ts.as_ref().and_then(|t| t[i]) });
+        out.push(TrackPoint { lat, lon, ele_m, time: ts.as_ref().and_then(|t| t[i]), hdop: None, speed_m_s: None });
     }
     if out.is_empty() {
         None
@@ -320,7 +320,7 @@ node { text: eval(tag("name")); icon-image:"circle.svgpb"; } line { color: #00FF
 </customMapSource>"#;
 
     fn tp(lat: f64, lon: f64, t: f64) -> TrackPoint {
-        TrackPoint { lat, lon, ele_m: None, time: Some(t) }
+        TrackPoint { lat, lon, ele_m: None, time: Some(t), hdop: None, speed_m_s: None }
     }
 
     #[test]
@@ -348,6 +348,7 @@ node { text: eval(tag("name")); icon-image:"circle.svgpb"; } line { color: #00FF
             ele_m: None,
             time: Some(1_792_822_157.0),
             description: String::new(),
+            bg_color: [0, 255, 255], text_color: [0, 0, 0],
         });
         d.waypoints.push(Waypoint {
             name: "x]]>y".into(),
@@ -356,6 +357,7 @@ node { text: eval(tag("name")); icon-image:"circle.svgpb"; } line { color: #00FF
             ele_m: None,
             time: None,
             description: String::new(),
+            bg_color: [0, 255, 255], text_color: [0, 0, 0],
         });
         d.tracks.push(Track {
             name: "Трек 1".into(),

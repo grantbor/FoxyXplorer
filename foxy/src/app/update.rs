@@ -227,6 +227,18 @@ impl App {
     }
 
     pub(crate) fn update(&mut self, m: Message) -> Task<Message> {
+        let before = self.status.clone();
+        let task = self.dispatch_message(m);
+        // status holds event feedback, cursor_status holds the live coordinate
+        // readout. Pointer motion updates the latter, not the five-second notice.
+        if self.status != before && self.status != self.cursor_status {
+            self.status_notice = Some((self.status.clone(),
+                Instant::now() + Duration::from_secs(5)));
+        }
+        task
+    }
+
+    fn dispatch_message(&mut self, m: Message) -> Task<Message> {
         match m {
             // --- View & Canvas ---
             Message::MapPressed(_) | Message::MapReleased(_)
@@ -266,6 +278,19 @@ impl App {
                 return self.update_ui(m); 
             }
 
+            // --- Review and non-destructive reconstruction of GPX tracks ---
+            Message::InspectTrack(_) | Message::InspectionClose
+            | Message::InspectionFocus(_) | Message::InspectionFocusJump(_) | Message::InspectionFocusQuality(_)
+            | Message::InspectionMovementChanged(_) | Message::InspectionToggle(_, _) | Message::InspectionToggleReview(_, _)
+            | Message::InspectionSelectAll(_) | Message::InspectionSelectAllReviews(_)
+            | Message::InspectionToggleSecond(_, _) | Message::InspectionToggleSecondReview(_, _)
+            | Message::InspectionFocusSecond(_, _) | Message::InspectionScanAgain
+            | Message::InspectionToggleExtra(_, _, _, _) | Message::InspectionFocusExtra(_, _, _)
+            | Message::InspectionPreview
+            | Message::InspectionCreateCopy => {
+                return self.update_recovery(m);
+            }
+
             // --- FTP: separate workflow; repeat ONLY the network transfer, never WPT+. ---
             Message::FtpTracks | Message::FtpWaypointNew | Message::FtpNewDialog
             | Message::FtpAppendDialog | Message::FtpNewPicked(_) | Message::FtpAppendPicked(_)
@@ -277,7 +302,7 @@ impl App {
             | Message::ToggleAllTracksVisible | Message::DeleteSelectedTracks
             | Message::OpenTrackProps(_) | Message::ApplyTrackProps | Message::CloseTrackProps
             | Message::ToggleTrackSaveMenu | Message::SimplifyTracks |  Message::FitTrackToScreen | Message::MergeTracks
-            | Message::DeleteSelectedPoints | Message::FreehandReleased 
+            | Message::DeleteSelectedPoints { .. } | Message::FreehandReleased
             | Message::DeleteTrackById(_) | Message::FitTrackById(_) | Message::SplitTrackBySegments |  Message::SplitTrackAt(_, _, _)  => {
                 self.update_tracks(m);
             }
@@ -326,13 +351,13 @@ impl App {
             // --- Система и прочее ---
             Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(..)
-            | Message::AutoSaveTick | Message::None => {
+            | Message::AutoSaveTick | Message::StatusNoticeTick | Message::None => {
                 return self.update_system(m);
             }
             
             // --- Tracklist ----
             Message::OpenTrackList(_) | Message::CloseTrackList | Message::SelectTrackPoint(_, _)
-            | Message::DeleteSelectedTrackPoints
+            | Message::DeleteSelectedTrackPoints { .. }
             | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
             | Message::SelectPointsOutsideGrid | Message::StitchSegments => {
                 return self.update_track_list(m);
@@ -397,6 +422,7 @@ impl App {
     }
 
     fn perform_undo(&mut self) {
+        self.track_inspection = None;
         if let Some(prev) = self.undo_stack.pop() {
             self.redo_stack.push(UndoState {
                 tracks: self.tracks.clone(),
@@ -413,6 +439,7 @@ impl App {
     }
 
     fn perform_redo(&mut self) {
+        self.track_inspection = None;
         if let Some(next) = self.redo_stack.pop() {
             self.undo_stack.push(UndoState {
                 tracks: self.tracks.clone(),
@@ -441,6 +468,17 @@ impl App {
         self.redo_stack.clear();
     }
     fn apply_session(&mut self, sess: session::Session) {
+        self.track_inspection = None;
+        // A session replaces the entire map kit, including the case where
+        // last_kit is None. Otherwise layers from the previous session linger
+        // in the map list (and the grid may still be drawn).
+        self.layers.clear();
+        self.grid = None;
+        self.lines.clear();
+        self.wiki_points.clear();
+        self.active = 0;
+        self.tile_handles.borrow_mut().clear();
+        self.tile_fail_count.clear();
         self.tracks = sess.tracks.into_iter().map(Arc::new).collect();
         self.waypoints = sess.waypoints.into_iter().map(Arc::new).collect();
         self.next_id = sess.next_id;
@@ -455,7 +493,6 @@ impl App {
             crate::config::load().drop_folder
         } else { sess.foxydrop_folder.clone() };
         self.drop_service.set_directory(PathBuf::from(dir));
-        self.wiki_points.clear();
         if let Some(kit) = &self.last_kit {
             self.apply_kit(crate::load_kit(kit));
         }
@@ -890,7 +927,7 @@ impl App {
 
         // Упрощаем через Дуглас-Пекер
         let raw_pts: Vec<domain::TrackPoint> = dt.points.iter()
-            .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None })
+            .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None, hdop: None, speed_m_s: None })
             .collect();
         let before = raw_pts.len();
         let simplified = domain::simplify::simplify_points(&raw_pts, self.simplify_tolerance);
@@ -955,7 +992,7 @@ impl App {
         self.push_undo(t!("msg_0019"));
         
         let new_pts: Vec<domain::TrackPoint> = dt.points.iter()
-            .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None })
+            .map(|&(lon, lat)| domain::TrackPoint { lon, lat, ele: None, time: None, hdop: None, speed_m_s: None })
             .collect();
         
         if let Some(target_id) = dt.target_track_id {
@@ -1360,6 +1397,19 @@ impl App {
     fn update_ui(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::KeyPressed(key, modifiers) => {
+                if matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape))
+                    && self.track_inspection.is_some() && self.modal.is_none()
+                {
+                    return self.update_recovery(Message::InspectionClose);
+                }
+                // The inspector holds indices into the source track. A global
+                // Delete must not invalidate those indices behind the review UI.
+                if self.track_inspection.is_some() && matches!(key,
+                    iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete)
+                    | iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace)
+                ) {
+                    return Task::none();
+                }
                 if let iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) = key {
                     if self.context_menu.is_some() {
                         self.context_menu = None;
@@ -1446,6 +1496,7 @@ impl App {
                             _ => None,
                         };
                         if let Some(t) = tool {
+                            self.track_inspection = None;
                             self.active_tool = t;
                             self.dragging = false;
                             self.canvas_cache.clear();
@@ -1472,7 +1523,7 @@ impl App {
                     ) && self.context_menu.is_none() {
                         if self.active_tool == crate::Tool::SelectPoints {
                             if !self.selection.points.is_empty() {
-                                self.update_tracks(Message::DeleteSelectedPoints);
+                                self.update_tracks(Message::DeleteSelectedPoints { leave_gap: modifiers.shift() });
                             }
                         } else if self.drawing_track.is_none() {
                             self.delete_selected_map_objects();
@@ -1606,6 +1657,7 @@ impl App {
                 }
             }
             Message::SelectTool(tool) => {
+                self.track_inspection = None;
                 if tool != crate::Tool::Ruler || self.active_tool == crate::Tool::Ruler {
                     // Очищаем, если уходим с линейки ИЛИ кликнули по ней же (чтобы начать заново)
                     if !self.ruler_points.is_empty() {
@@ -1703,6 +1755,9 @@ impl App {
             Message::LoadSessionPicked(Some(path)) => {
                 if let Some(sess) = session::load_session_from(&path) {
                     self.apply_session(sess);
+                    // In a session without local maps the OSM base map becomes
+                    // active; request its tiles for the newly restored view.
+                    return self.request_osm_tiles();
                 } else {
                     self.status = format!("{} {}", t!("msg_0228"), path.display());
                 }
@@ -1716,6 +1771,7 @@ impl App {
             }
             Message::ExecuteClearAll => {
                 self.modal = None;
+                self.track_inspection = None;
                 
                 // --- Данные ---
                 self.layers.clear();
@@ -2422,51 +2478,40 @@ impl App {
                 self.tracks_cache.clear();
                 self.status = format!("{} {} {}", t!("msg_0233"), n_segments, t!("msg_0234"));
             }
-            Message::DeleteSelectedPoints => {
-                // Защита: не удаляем, если открыто модальное окно (например, редактируется текст)
-                if self.modal.is_some() { return; }
-                // Защита: не удаляем, если не активен инструмент выделения точек
-                if self.active_tool != crate::Tool::SelectPoints { return; }
-                // Защита: нечего удалять
+            Message::DeleteSelectedPoints { leave_gap } => {
+                if self.modal.is_some() || self.active_tool != crate::Tool::SelectPoints {
+                    return;
+                }
                 if self.selection.points.is_empty() { return; }
-                
-                self.push_undo(t!("msg_0049"));
-                
-                // Группируем выделенные точки по (track_id, seg_idx)
-                let mut by_track: std::collections::HashMap<u64, Vec<(usize, Vec<usize>)>> = std::collections::HashMap::new();
-                for (track_id, seg_idx, pt_idx) in &self.selection.points {
-                    let segs = by_track.entry(*track_id).or_default();
-                    if let Some(entry) = segs.iter_mut().find(|(s, _)| s == seg_idx) {
-                        entry.1.push(*pt_idx);
-                    } else {
-                        segs.push((*seg_idx, vec![*pt_idx]));
-                    }
+
+                // The selection uses zero-based (track_id, segment, point) indices.
+                // Keep a single Undo snapshot even if several tracks are edited.
+                let mut by_track: std::collections::HashMap<u64, std::collections::HashSet<(usize, usize)>>
+                    = std::collections::HashMap::new();
+                for &(track_id, seg_idx, pt_idx) in &self.selection.points {
+                    by_track.entry(track_id).or_default().insert((seg_idx, pt_idx));
                 }
-                
-                for (track_id, seg_updates) in by_track {
+                // No-op selections must not create an Undo entry.
+                let has_points = by_track.iter().any(|(id, points)| {
+                    self.tracks.iter().find(|t| t.id == *id).is_some_and(|track| {
+                        points.iter().any(|&(seg, point)| track.segments
+                            .get(seg).is_some_and(|s| point < s.points.len()))
+                    })
+                });
+                if !has_points { return; }
+
+                self.push_undo(if leave_gap { t!("msg_0485") } else { t!("msg_0049") });
+                for (track_id, selected) in by_track {
                     if let Some(t) = self.tracks.iter_mut().find(|t| t.id == track_id) {
-                        let t_m = Arc::make_mut(t);
-                        for (seg_idx, mut indices) in seg_updates {
-                            if let Some(seg) = t_m.segments.get_mut(seg_idx) {
-                                // Удаляем в обратном порядке, чтобы не сбить индексы
-                                indices.sort_unstable_by(|a, b| b.cmp(a));
-                                for &idx in &indices {
-                                    if idx < seg.points.len() {
-                                        seg.points.remove(idx);
-                                    }
-                                }
-                            }
-                        }
-                        // Удаляем пустые сегменты (0 точек)
-                        t_m.segments.retain(|s| !s.points.is_empty());
-                        domain::recompute_track_stats(t_m);
+                        let track = Arc::make_mut(t);
+                        domain::remove_selected_track_points(&mut track.segments, &selected, leave_gap);
+                        domain::recompute_track_stats(track);
                     }
                 }
-                
                 self.selection.points.clear();
                 self.last_point_clicked = None;
                 self.tracks_cache.clear();
-                self.status = t!("msg_0050").into();
+                self.status = (if leave_gap { t!("msg_0486") } else { t!("msg_0050") }).into();
             }
             Message::FitTrackToScreen => {
                 let ids: Vec<u64> = if !self.selection.tracks.is_empty() {
@@ -3465,6 +3510,14 @@ impl App {
     // =========================================================================
     fn update_system(&mut self, m: Message) -> Task<Message> {
         match m {
+            Message::StatusNoticeTick => {
+                if self.status_notice.as_ref()
+                    .is_some_and(|(_, deadline)| Instant::now() >= *deadline) {
+                    self.status_notice = None;
+                    // Remove the notice even when the mouse is stationary.
+                    self.status = self.cursor_status.clone();
+                }
+            }
             Message::PickKit => {
                 return Task::perform(
                     async {
@@ -3737,33 +3790,32 @@ impl App {
                 self.sync_tracklist_selection();
                 self.tracks_cache.clear();
             }
-            Message::DeleteSelectedTrackPoints => {
+            Message::DeleteSelectedTrackPoints { leave_gap } => {
                 if let Some(Modal::TrackList(state)) = &self.modal {
                     let id = state.track_id;
-                    let selected = state.selected_points.clone();
-                    
-                    self.push_undo(t!("msg_0066"));
+                    // TrackList uses 1-based section numbers; domain uses zero-based.
+                    let selected: std::collections::HashSet<(usize, usize)> = state.selected_points
+                        .iter()
+                        .filter_map(|&(sect, point)| sect.checked_sub(1).map(|seg| (seg, point)))
+                        .collect();
+                    if selected.is_empty() { return Task::none(); }
+                    let valid = self.tracks.iter().find(|t| t.id == id).is_some_and(|t| {
+                        selected.iter().any(|&(seg, point)| t.segments
+                            .get(seg).is_some_and(|s| point < s.points.len()))
+                    });
+                    if !valid { return Task::none(); }
+
+                    self.push_undo(if leave_gap { t!("msg_0485") } else { t!("msg_0066") });
                     if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
-                        let t_m = Arc::make_mut(t_mut);
-                        for (sect_idx, seg) in t_m.segments.iter_mut().enumerate() {
-                            let mut new_pts = Vec::new();
-                            for (pt_idx, pt) in seg.points.iter().enumerate() {
-                                if !selected.contains(&(sect_idx + 1, pt_idx)) {
-                                    new_pts.push(pt.clone());
-                                }
-                            }
-                            seg.points = new_pts;
-                        }
-                        // Удаляем пустые сегменты
-                        t_m.segments.retain(|s| !s.points.is_empty());
-                        domain::recompute_track_stats(t_m);
+                        let track = Arc::make_mut(t_mut);
+                        domain::remove_selected_track_points(&mut track.segments, &selected, leave_gap);
+                        domain::recompute_track_stats(track);
                     }
-                    
-                    // Deleted rows shift indices; drop only this track's selection.
+                    // After splitting, point and section indices have changed.
                     self.clear_track_point_selection(id);
-                    // Переоткрываем таблицу, чтобы обновить PID и индексы
                     let _ = self.update_track_list(Message::OpenTrackList(id));
                     self.tracks_cache.clear();
+                    if leave_gap { self.status = t!("msg_0486").into(); }
                 }
             }
             Message::CenterOnTrackPoint(sect, pt_idx) => {

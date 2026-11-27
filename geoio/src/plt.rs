@@ -20,7 +20,7 @@ fn parse_point(line: &str) -> Option<(TrackPoint, bool)> {
     let ele_m = if (alt - NO_ALT).abs() < 0.5 { None } else { Some(alt * FEET) };
     let ole: f64 = f[4].parse().unwrap_or(0.0);
     let time = if ole > 0.0 { Some(time::ole_to_unix(ole)) } else { None };
-    Some((TrackPoint { lat, lon, ele_m, time }, f[2] == "1"))
+    Some((TrackPoint { lat, lon, ele_m, time, hdop: None, speed_m_s: None }, f[2] == "1"))
 }
 
 /// Читает один трек. Строковые дата и время игнорируются: они зависят от
@@ -186,11 +186,10 @@ mod tests {
                     lat: 54.845306,
                     lon: 83.090073,
                     ele_m: Some(156.35),
-                    time: time::parse_iso("2026-10-24T06:09:17Z"),
-                },
-                TrackPoint { lat: 54.845290, lon: 83.090037, ele_m: None, time: None },
+                    time: time::parse_iso("2026-10-24T06:09:17Z"), hdop: None, speed_m_s: None },
+                TrackPoint { lat: 54.845290, lon: 83.090037, ele_m: None, time: None, hdop: None, speed_m_s: None },
             ],
-            vec![TrackPoint { lat: 54.8, lon: 83.0, ele_m: Some(100.0), time: None }],
+            vec![TrackPoint { lat: 54.8, lon: 83.0, ele_m: Some(100.0), time: None, hdop: None, speed_m_s: None }],
         ];
         let bytes = write(&t, Encoding::Cp1251);
         assert!(bytes.contains(&0xCB), "«Л» должна быть записана байтом 0xCB");

@@ -27,6 +27,10 @@ pub struct TrackPoint {
     pub ele_m: Option<f64>,
     /// Секунды Unix (UTC); None — нет данных.
     pub time: Option<f64>,
+    /// GPX dilution of precision, not metres.
+    pub hdop: Option<f64>,
+    /// Receiver-reported speed in metres per second.
+    pub speed_m_s: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

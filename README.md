@@ -4,6 +4,8 @@
 
 📖 **[Руководство пользователя](docs/user-guide.md)**
 
+🧭 **[Очистка треков: работа, ограничения и Undo](foxy/RECOVERY_ONE_CLICK.md)**
+
 <p align="center">
   <img src="docs/screenshots/Screen_1.png" width="32%" />
   <img src="docs/screenshots/Screen_2.png" width="32%" />
@@ -116,3 +118,50 @@ FoxyXplorer поддерживает три онлайн-источника по
 `~/.cache/foxy/osm/…`, `~/.cache/foxy/s2/…`, `~/.cache/foxy/esri/…`.
 
 Автоматическая очистка: старше 90 дней или при превышении 2 ГБ.
+
+### Manual point deletion with gaps (RU/EN)
+
+With the **Select Points** tool, `Delete` or `Backspace` removes the selected
+points and joins their retained neighbours (legacy behaviour). Hold **Shift**
+while pressing `Delete` or `Backspace` to remove the same points **with gaps**.
+In the track-point table there are now two separate buttons: **Delete** and
+**Delete and split** (Russian: **Удалить** / **Удалить с разрывом**).
+
+Deleting with gaps creates separate track segments around *each contiguous
+run* of deleted points. All retained point coordinates and times are unchanged;
+no bridging line is drawn. The action is one Undo step, even across several
+tracks. GPX export preserves the new segment boundaries. A lone retained point
+remains in the data even if it has no drawable line.
+
+
+## Track recovery v3.1 update
+
+See [foxy/RECOVERY_V3_1.md](foxy/RECOVERY_V3_1.md) for details of the
+quality-episode corrections and persistent map point selection.
+
+
+### Track cleanup: normal and diagnostic modes
+
+**Normal launch:** right-click a track and choose **Clean / Очистить**.
+The command performs conservative chronology repair in-place (Undo available),
+selects suspect fixes in **Select track points** for manual review, or displays
+**No problems found**. No cleaned copy is created and no suspicious fixes are
+deleted automatically. Operation messages remain visible for five seconds.
+
+**Diagnostic launch:** start the executable with the standalone `--cleanup` flag:
+
+```sh
+cd foxy
+cargo run -- --cleanup
+```
+
+For an already built binary: `./foxy --cleanup` (or `foxy.exe --cleanup` on
+Windows). The same **Clean / Очистить** command opens the full v3.4 diagnostic
+panel: movement profile, individual interval checkboxes, segment-boundary
+review, multi-pass scans, preview, and explicit cleaned-copy creation. The
+flag is read at startup only, is not saved in sessions/configuration, and does
+not change the detector thresholds. Launch without `--cleanup` to return to
+the one-click interface. `--osm` can be combined with `--cleanup`.
+
+See `foxy/RECOVERY_ONE_CLICK.md` for limitations and
+`foxy/RECOVERY_REPEAT_SCAN.md` for repeated diagnostic passes.

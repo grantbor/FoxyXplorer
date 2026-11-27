@@ -84,6 +84,9 @@ impl App {
     }
     
     pub(crate) fn view_right_panel(&self) -> Element<'_, Message> {
+        if self.track_inspection.is_some() {
+            return self.view_recovery_panel();
+        }
         column![
             self.view_maps_section(),
             self.view_tracks_section(),
@@ -204,6 +207,7 @@ impl App {
                             ContextMenuItem::Label(t.name.clone()),
                             ContextMenuItem::Action(t!("msg_0074").to_string(), Message::OpenTrackProps(track_id)),
                             ContextMenuItem::Action(t!("msg_0076").to_string(), Message::OpenTrackList(track_id)),
+                            ContextMenuItem::Action(t!("msg_0431").to_string(), Message::InspectTrack(track_id)),
                             ContextMenuItem::Action(t!("msg_0086").to_string(), Message::FitTrackById(track_id)),
                             ContextMenuItem::Separator,
                             ContextMenuItem::Action(t!("msg_0075").to_string(), Message::DeleteTrackById(track_id)),

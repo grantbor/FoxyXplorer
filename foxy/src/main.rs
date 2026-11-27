@@ -393,7 +393,7 @@ pub(crate) enum Message {
     OpenTrackList(u64),
     CloseTrackList,
     SelectTrackPoint(usize, usize), // (sect, pt_idx)
-    DeleteSelectedTrackPoints,
+    DeleteSelectedTrackPoints { leave_gap: bool }, // false: stitch, true: split around deleted points
     CenterOnTrackPoint(usize, usize),
     SplitTrackAtPoint(usize, usize),
     StitchSegments,
@@ -403,7 +403,26 @@ pub(crate) enum Message {
     SelectTool(Tool),
     MapPressed(Point), MapReleased(Point),
     MapMiddlePressed(Point), MapMiddleReleased,
-    DeleteSelectedPoints,
+    DeleteSelectedPoints { leave_gap: bool }, // Shift+Delete leaves gaps
+    InspectTrack(u64),
+    InspectionClose,
+    InspectionFocus(usize),
+    InspectionFocusJump(usize),
+    InspectionFocusQuality(usize),
+    InspectionMovementChanged(domain::recovery::MovementMode),
+    InspectionToggle(usize, bool),
+    InspectionToggleReview(usize, bool),
+    InspectionSelectAll(bool),
+    InspectionSelectAllReviews(bool),
+    InspectionToggleSecond(usize, bool),
+    InspectionToggleSecondReview(usize, bool),
+    InspectionFocusSecond(usize, bool), // false: proposal, true: manual review
+    InspectionScanAgain,
+    InspectionToggleExtra(usize, usize, bool, bool), // pass, item, is_review, checked
+    InspectionFocusExtra(usize, usize, bool), // pass, item, is_review
+    InspectionPreview,
+    InspectionCreateCopy,
+    StatusNoticeTick,
     KeyPressed(iced::keyboard::Key, Modifiers),
     KeyReleased(iced::keyboard::Key),
     FreehandReleased,
@@ -558,6 +577,41 @@ pub(crate) fn save_session(app: &App) {
     session::write_session(&sess);
 }
 
+/// Transient review state: never serialized. All selections are suggestions,
+/// not proof of valid or invalid GPS fixes.
+/// Later approved passes are indexed within their own snapshot of the preview.
+/// No iteration removes points without an explicit operator checkbox.
+pub(crate) struct InspectionExtraPass {
+    pub(crate) source_segments: Vec<domain::TrackSegment>,
+    pub(crate) report: domain::recovery::Report,
+    pub(crate) selected: HashSet<usize>,
+    pub(crate) selected_reviews: HashSet<usize>,
+    pub(crate) focused: Option<(bool, usize)>,
+}
+
+pub(crate) struct TrackInspection {
+    pub(crate) track_id: u64,
+    pub(crate) report: domain::recovery::Report,
+    pub(crate) movement_mode: domain::recovery::MovementMode,
+    pub(crate) focused_jump: Option<usize>,
+    pub(crate) focused_quality: Option<usize>,
+    pub(crate) selected: HashSet<usize>,
+    pub(crate) selected_reviews: HashSet<usize>,
+    pub(crate) focused: Option<usize>,
+    /// Preview after the explicitly approved first-pass cuts. Indexes in
+    /// `second_report` always refer to THESE segments, never the source track.
+    pub(crate) first_pass_segments: Option<Vec<domain::TrackSegment>>,
+    pub(crate) second_report: Option<domain::recovery::Report>,
+    pub(crate) second_selected: HashSet<usize>,
+    pub(crate) second_selected_reviews: HashSet<usize>,
+    pub(crate) second_focused: Option<(bool, usize)>,
+    pub(crate) extra_passes: Vec<InspectionExtraPass>,
+    /// Final preview after all operator-approved passes; no source mutation.
+    pub(crate) preview_segments: Option<Vec<domain::TrackSegment>>,
+    /// Residual counts AFTER all approved cuts (suggestions, reviews).
+    pub(crate) preview_residual: Option<(usize, usize)>,
+}
+
 pub(crate) struct App {
     pub(crate) layers: Vec<Layer>,
     pub(crate) active: usize,
@@ -593,6 +647,8 @@ pub(crate) struct App {
     pub(crate) cursor: Option<Point>,
     pub(crate) map_cursor_inside: bool,
     pub(crate) status: String,
+    pub(crate) cursor_status: String,
+    pub(crate) status_notice: Option<(String, std::time::Instant)>,
     pub(crate) last_geom_ms: Cell<f64>,
     pub(crate) last_bounds: Cell<Size>,
     pub(crate) osm_cache: osm::OsmCache,
@@ -613,6 +669,9 @@ pub(crate) struct App {
     pub(crate) palette: Vec<[u8; 3]>,
     pub(crate) modal: Option<Modal>,
     pub(crate) update_check: update_check::Status,
+    pub(crate) track_inspection: Option<TrackInspection>,
+    /// Expert recovery panel is enabled only for the current --cleanup launch.
+    pub(crate) cleanup_diagnostics: bool,
     pub(crate) track_backup: Option<domain::Track>, 
     pub(crate) last_track_click: Option<(u64, std::time::Instant)>,
     pub(crate) show_color_picker: Option<ColorPickerKind>,
@@ -862,6 +921,9 @@ impl App {
         // Применяем язык сразу, до создания App
         crate::i18n::set_lang(Box::leak(cfg.lang.clone().into_boxed_str()));
         let force_osm = args.iter().any(|a| a == "--osm");
+        // One-click cleanup is the default; --cleanup restores the complete
+        // diagnostic panel for field tests without persisting any preference.
+        let cleanup_diagnostics = cleanup_diagnostics_requested(&args);
         let dir_arg = args.iter().skip(1).find(|a| !a.starts_with("--")).cloned();
 
         let cache_cfg = osm::OsmCacheConfig {
@@ -886,7 +948,7 @@ impl App {
                     canvas_cache: Cache::default(), grid_cache: Cache::default(), wiki_cache: Cache::default(), osm_canvas_cache: Cache::default(),
                     tracks_cache: Cache::default(),
                     tile_handles: RefCell::new(HashMap::new()), dragging: false, middle_panning: false, cursor: None, map_cursor_inside: false,
-                    status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
+                    status: String::new(), cursor_status: String::new(), status_notice: None, last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
                     osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
                     tracks: session.tracks.into_iter().map(Arc::new).collect(), 
                     waypoints: session.waypoints.into_iter().map(Arc::new).collect(), 
@@ -894,7 +956,7 @@ impl App {
                     ftp_enabled: cfg.ftp_enabled, ftp_remote_folder: session.ftp_remote_folder.clone(), last_kit: session.last_kit.clone(), modifiers: iced::keyboard::Modifiers::default(),
                     last_track_clicked: None, last_waypoint_clicked: None,
                     search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
-                    palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_backup: None, last_track_click: None,
+                    palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_inspection: None, cleanup_diagnostics, track_backup: None, last_track_click: None,
                     show_color_picker: None,
                     window_size: session.view.window_size.map(|(w, h)| Size::new(w, h)).unwrap_or(Size::new(1130.0, 880.0)),
                     window_pos: session.view.window_pos.map(|(x, y)| Point::new(x, y)).unwrap_or(Point::new(100.0, 100.0)),
@@ -952,14 +1014,14 @@ impl App {
             cx: 0.0, cy: 0.0, scale: 1.0,
             canvas_cache: Cache::default(), grid_cache: Cache::default(), wiki_cache: Cache::default(), osm_canvas_cache: Cache::default(), tracks_cache: Cache::default(),
             tile_handles: RefCell::new(HashMap::new()), dragging: false, middle_panning: false, cursor: None, map_cursor_inside: false,
-            status: String::new(), last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
+            status: String::new(), cursor_status: String::new(), status_notice: None, last_geom_ms: Cell::new(0.0), last_bounds: Cell::new(Size::new(VIEW_W, VIEW_H)),
             osm_cache: osm::OsmCache::new(&cache_cfg), osm_client: osm::client(), osm_z: 0,
             tracks: Vec::new(), waypoints: Vec::new(), next_id: 0,
             selection: Selection::default(),
             ftp_enabled: cfg.ftp_enabled, ftp_remote_folder: String::new(), last_kit: None, modifiers: iced::keyboard::Modifiers::default(),
             last_track_clicked: None, last_waypoint_clicked: None,
             search_tracks: String::new(), search_waypoints: String::new(), search_focused: false,
-            palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_backup: None, last_track_click: None, show_color_picker: None,
+            palette: load_palette(), modal: None, update_check: update_check::Status::NotChecked, track_inspection: None, cleanup_diagnostics, track_backup: None, last_track_click: None, show_color_picker: None,
             window_size: Size::new(1130.0, 880.0), window_pos: Point::new(100.0, 100.0),
             right_panel_width: 400.0, resizing_panel: false, waypoint_backup: None, last_waypoint_click: None,
                     pending_track_scroll: None, pending_waypoint_scroll: None,
@@ -1037,6 +1099,7 @@ impl App {
             }
         }
         
+        self.cursor_status = s.clone();
         self.status = s;
     }
 
@@ -1136,6 +1199,13 @@ impl App {
             // 4. Отслеживаем смену системной темы
             iced::system::theme_changes().map(|_| Message::RefreshSystemTheme),
         ];
+
+        // Keep transient messages visible for five seconds even if the cursor
+        // moves. Subscribe only while a notice is active.
+        if self.status_notice.is_some() {
+            subs.push(iced::time::every(std::time::Duration::from_millis(100))
+                .map(|_| Message::StatusNoticeTick));
+        }
 
         if self.drop_phase == foxydrop::Phase::Running {
             subs.push(iced::time::every(std::time::Duration::from_secs(2))
@@ -1335,7 +1405,9 @@ impl App {
                 layout = layout.push(self.view_top_toolbar());
             }
             layout = layout.push(map_row);
-            layout = layout.push(text(self.status.as_str()));
+            let displayed_status = self.status_notice.as_ref()
+                .map_or(self.status.as_str(), |(message, _)| message.as_str());
+            layout = layout.push(text(displayed_status));
             layout = layout.push(
                 row![
                     text(info),
@@ -1552,6 +1624,37 @@ impl App {
             area = area.interaction(iced::mouse::Interaction::Hidden);
         }
         area.into()
+    }
+}
+
+/// Developer-only switch: recognized as a complete argument, not as a
+/// substring of a path, option value, or the executable's own name.
+fn cleanup_diagnostics_requested(args: &[String]) -> bool {
+    args.iter().skip(1).any(|argument| argument == "--cleanup")
+}
+
+#[cfg(test)]
+mod cleanup_flag_tests {
+    use super::cleanup_diagnostics_requested;
+
+    #[test]
+    fn exact_cleanup_flag_enables_expert_interface() {
+        let args = ["foxy", "--osm", "--cleanup"]
+            .map(str::to_string);
+        assert!(cleanup_diagnostics_requested(&args));
+    }
+
+    #[test]
+    fn normal_launch_and_similar_arguments_do_not_enable_it() {
+        for values in [
+            vec!["foxy"],
+            vec!["foxy", "--osm"],
+            vec!["foxy", "--cleanup=false"],
+            vec!["--cleanup", "some-gpx-file.gpx"],
+        ] {
+            let args: Vec<String> = values.into_iter().map(str::to_string).collect();
+            assert!(!cleanup_diagnostics_requested(&args));
+        }
     }
 }
 

@@ -110,7 +110,12 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
             // ПРОХОД 1: Рисуем линии треков
             // ==========================================
             for t in &app.tracks {
-                if !t.visible { continue; }
+                let inspected = app.track_inspection.as_ref().is_some_and(|i| i.track_id == t.id);
+                if !t.visible && !inspected { continue; }
+                // During preview the original is NOT drawn: gaps remain gaps.
+                if inspected && app.track_inspection.as_ref().is_some_and(|i| i.preview_segments.is_some()) {
+                    continue;
+                }
                 let color = Color::from_rgb8(t.props.line_color[0], t.props.line_color[1], t.props.line_color[2]);
                 let width = t.props.line_width.max(1.0);
                 let is_polygon = t.props.poly_type == crate::domain::PolyType::Polygon;
@@ -163,6 +168,123 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     }
                     // Сам трек
                     frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(width));
+                }
+            }
+
+            // ------------------------------------------
+            // GPX diagnostic overlay: red intervals are suspected, not proven.
+            // The preview draws ONLY retained segments, never a bridge across a gap.
+            // ------------------------------------------
+            if let Some(inspect) = &app.track_inspection {
+                if let Some(track) = app.tracks.iter().find(|t| t.id == inspect.track_id) {
+                    if let Some(preview) = &inspect.preview_segments {
+                        let color = Color::from_rgb8(0x4a, 0x9e, 0xbb);
+                        for segment in preview {
+                            let pts: Vec<_> = segment.points.iter().map(|p| {
+                                let (mx, my) = merc_of(p.lon, p.lat);
+                                to_screen(mx, my)
+                            }).collect();
+                            if pts.len() >= 2 {
+                                let path = create_patterned_path(&pts, &[]);
+                                frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(3.0));
+                            }
+                            if let Some(&a) = pts.first() {
+                                frame.fill(&CanvasPath::circle(a, 4.0), color);
+                            }
+                            if let Some(&z) = pts.last() {
+                                frame.fill(&CanvasPath::circle(z, 4.0), color);
+                            }
+                        }
+                    } else {
+                        // Highlight suspicious position jumps, including those
+                        // where there is no defensible interval to propose cutting.
+                        // Mark endpoints only: no misleading connection is drawn.
+                        for (jump_index, jump) in inspect.report.severe_jumps.iter().enumerate() {
+                            let Some(segment) = track.segments.get(jump.segment) else { continue };
+                            if jump.to_index == 0 || jump.to_index >= segment.points.len() { continue; }
+                            let jump_color = if inspect.focused_jump == Some(jump_index) {
+                                Color::from_rgb8(0xff, 0x60, 0x20)
+                            } else { Color::from_rgb8(0xf0, 0xb3, 0x37) };
+                            for point in [&segment.points[jump.to_index - 1], &segment.points[jump.to_index]] {
+                                let (mx, my) = merc_of(point.lon, point.lat);
+                                let p = to_screen(mx, my);
+                                frame.stroke(&CanvasPath::circle(p, 7.0),
+                                    canvas::Stroke::default().with_color(jump_color).with_width(2.0));
+                            }
+                        }
+                        // Review-only quality episodes are outlined, not crossed
+                        // out: weak positioning alone is not a delete instruction.
+                        for (i, ep) in inspect.report.quality.episodes.iter().enumerate() {
+                            if ep.verdict != crate::domain::quality::Verdict::Review { continue; }
+                            let Some(segment)=track.segments.get(ep.segment) else { continue; };
+                            if ep.start>ep.end || ep.end>=segment.points.len() { continue; }
+                            let points:Vec<_>=segment.points[ep.start..=ep.end].iter().map(|p| {
+                                let (mx,my)=merc_of(p.lon,p.lat);
+                                to_screen(mx,my)
+                            }).collect();
+                            let color=if inspect.focused_quality == Some(i) {
+                                Color::from_rgb8(0xff,0xbf,0x35)
+                            } else { Color::from_rgb8(0xdf,0x9b,0x44) };
+                            if points.len()>=2 {
+                                frame.stroke(&create_patterned_path(&points,&[]),
+                                    canvas::Stroke::default().with_color(color).with_width(2.0));
+                            }
+                        }
+                        for (index, region) in inspect.report.ranges.iter().enumerate() {
+                            let Some(segment) = track.segments.get(region.segment) else { continue };
+                            let points: Vec<_> = segment.points[region.start..=region.end]
+                                .iter().map(|p| {
+                                    let (mx, my) = merc_of(p.lon, p.lat);
+                                    to_screen(mx, my)
+                                }).collect();
+                            let color = if inspect.focused == Some(index) {
+                                Color::from_rgb8(0xff, 0xa0, 0x30)
+                            } else { Color::from_rgb8(0xf0, 0x48, 0x48) };
+                            if points.len() >= 2 {
+                                let path = create_patterned_path(&points, &[]);
+                                frame.stroke(&path, canvas::Stroke::default().with_color(Color::WHITE).with_width(6.0));
+                                frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(4.0));
+                            }
+                            for p in [points.first(), points.last()].into_iter().flatten() {
+                                frame.fill(&CanvasPath::circle(*p, 5.0), color);
+                            }
+                        }
+                    }
+                    // A second-pass finding refers to the first preview's
+                    // segments, NOT to source indexes or to the final output.
+                    // Outline the focused candidate even after it was checked
+                    // for removal, without adding a connecting segment.
+                    if let (Some((is_review, index)), Some(second), Some(first)) = (
+                        inspect.second_focused, &inspect.second_report, &inspect.first_pass_segments,
+                    ) {
+                        let area = if is_review {
+                            second.quality.episodes.get(index).and_then(|ep| {
+                                (ep.verdict == crate::domain::quality::Verdict::Review)
+                                    .then_some((ep.segment, ep.start, ep.end))
+                            })
+                        } else {
+                            second.ranges.get(index)
+                                .map(|r| (r.segment, r.start, r.end))
+                        };
+                        if let Some((segment, start, end)) = area {
+                            if let Some(points) = first.get(segment).map(|s| &s.points) {
+                                if start <= end && end < points.len() {
+                                    let pts: Vec<_> = points[start..=end].iter().map(|pt| {
+                                        let (mx, my) = merc_of(pt.lon, pt.lat);
+                                        to_screen(mx, my)
+                                    }).collect();
+                                    let color = Color::from_rgb8(0xff, 0xb0, 0x38);
+                                    if pts.len() >= 2 {
+                                        frame.stroke(&create_patterned_path(&pts, &[]),
+                                            canvas::Stroke::default().with_color(color).with_width(4.0));
+                                    }
+                                    for pt in [pts.first(), pts.last()].into_iter().flatten() {
+                                        frame.fill(&CanvasPath::circle(*pt, 6.0), color);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

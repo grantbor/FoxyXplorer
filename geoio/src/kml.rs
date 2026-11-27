@@ -72,7 +72,7 @@ fn read_point(n: &Node<'_, '_>, _warnings: &mut Vec<String>) -> Option<TrackPoin
         .and_then(|ts| ts.children().find(|c| is(c, "when")))
         .and_then(|w| w.text())
         .and_then(time::parse_iso);
-    Some(TrackPoint { lat, lon, ele_m: alt, time: t })
+    Some(TrackPoint { lat, lon, ele_m: alt, time: t, hdop: None, speed_m_s: None })
 }
 
 fn read_line_string(n: &Node<'_, '_>, warnings: &mut Vec<String>) -> Vec<TrackPoint> {
@@ -86,7 +86,7 @@ fn read_line_string(n: &Node<'_, '_>, warnings: &mut Vec<String>) -> Vec<TrackPo
     };
     parse_coordinates(coords)
         .into_iter()
-        .map(|(lat, lon, ele_m)| TrackPoint { lat, lon, ele_m, time: None })
+        .map(|(lat, lon, ele_m)| TrackPoint { lat, lon, ele_m, time: None, hdop: None, speed_m_s: None })
         .collect()
 }
 
@@ -118,7 +118,7 @@ fn read_gx_track(n: &Node<'_, '_>, _warnings: &mut Vec<String>) -> Vec<TrackPoin
     for i in 0..n {
         let (lat, lon, ele_m) = coords.get(i).copied().unwrap_or((0.0, 0.0, None));
         let t = whens.get(i).copied().flatten();
-        pts.push(TrackPoint { lat, lon, ele_m, time: t });
+        pts.push(TrackPoint { lat, lon, ele_m, time: t, hdop: None, speed_m_s: None });
     }
     pts
 }

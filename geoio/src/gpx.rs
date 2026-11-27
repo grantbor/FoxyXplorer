@@ -41,7 +41,17 @@ fn read_point(n: &Node<'_, '_>, warnings: &mut Vec<String>) -> Option<TrackPoint
         }
         None => None,
     };
-    Some(TrackPoint { lat, lon, ele_m, time })
+    let parsed = |value: Option<String>| -> Option<f64> {
+        value.and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| v.is_finite() && *v >= 0.0)
+    };
+    let hdop = parsed(child_text(n, "hdop"));
+    // Guru Maps uses <gom:speed> under <extensions>, while some other GPX
+    // producers write <speed> directly. Match by local name, not prefix.
+    let speed_m_s = parsed(n.descendants().filter(|c| c.is_element())
+        .find(|c| c.tag_name().name() == "speed")
+        .and_then(|c| c.text()).map(|t| t.trim().to_owned()));
+    Some(TrackPoint { lat, lon, ele_m, time, hdop, speed_m_s })
 }
 
 fn read_wpt(n: &Node<'_, '_>, warnings: &mut Vec<String>) -> Option<Waypoint> {
@@ -124,7 +134,8 @@ pub fn write(data: &GeoData) -> String {
     o.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     o.push_str(
         "<gpx version=\"1.1\" creator=\"FoxyXplorer\" xmlns=\"http://www.topografix.com/GPX/1/1\" \
-xmlns:gpxx=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\">\n",
+xmlns:gpxx=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\" \
+xmlns:gom=\"https://gurumaps.app/gpx/v3\">\n",
     );
     for w in &data.waypoints {
         o.push_str(&format!("  <wpt lat=\"{:.7}\" lon=\"{:.7}\">\n", w.lat, w.lon));
@@ -159,6 +170,12 @@ xmlns:gpxx=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\">\n",
                 if let Some(tm) = p.time {
                     o.push_str(&format!("<time>{}</time>", time::format_iso(tm)));
                 }
+                if let Some(hdop) = p.hdop.filter(|v| v.is_finite() && *v >= 0.0) {
+                    o.push_str(&format!("<hdop>{hdop}</hdop>"));
+                }
+                if let Some(speed) = p.speed_m_s.filter(|v| v.is_finite() && *v >= 0.0) {
+                    o.push_str(&format!("<extensions><gom:speed>{speed}</gom:speed></extensions>"));
+                }
                 o.push_str("</trkpt>\n");
             }
             o.push_str("    </trkseg>\n");
@@ -174,6 +191,25 @@ mod tests {
     use super::*;
 
     const GARMIN: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="no" ?><gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3" creator="eTrex 20x" version="1.1"><trk><name>2026-10-24-ЛИСА4</name><extensions><gpxx:TrackExtension><gpxx:DisplayColor>Magenta</gpxx:DisplayColor></gpxx:TrackExtension></extensions><trkseg><trkpt lat="54.8453057650" lon="83.0900727678"><ele>156.35</ele><time>2026-10-24T06:09:17Z</time></trkpt><trkpt lat="54.8452904262" lon="83.0900366418"><ele>155.39</ele><time>2026-10-24T06:09:42Z</time></trkpt></trkseg></trk></gpx>"#;
+
+    #[test]
+    fn preserves_hdop_and_guru_speed_in_gpx() {
+        let xml = r#"<gpx xmlns="http://www.topografix.com/GPX/1/1"
+            xmlns:gom="https://gurumaps.app/gpx/v3"><trk><trkseg>
+            <trkpt lat="55" lon="37"><time>2026-11-11T12:00:00Z</time>
+            <hdop>42.125</hdop><extensions><gom:speed>2.75</gom:speed></extensions></trkpt>
+            <trkpt lat="55.1" lon="37.1"><time>2026-11-11T12:00:01Z</time></trkpt>
+            </trkseg></trk></gpx>"#;
+        let data = read(xml.as_bytes()).unwrap();
+        let p = &data.tracks[0].segments[0][0];
+        assert_eq!(p.hdop, Some(42.125));
+        assert_eq!(p.speed_m_s, Some(2.75));
+        let second = &data.tracks[0].segments[0][1];
+        assert_eq!(second.hdop, None);
+        let back = read(write(&data).as_bytes()).unwrap();
+        assert_eq!(back.tracks[0].segments[0][0].hdop, Some(42.125));
+        assert_eq!(back.tracks[0].segments[0][0].speed_m_s, Some(2.75));
+    }
 
     #[test]
     fn reads_garmin_track() {
@@ -199,6 +235,7 @@ mod tests {
             ele_m: None,
             time: None,
             description: String::new(),
+            bg_color: [0, 255, 255], text_color: [0, 0, 0],
         });
         let b = read(write(&d).as_bytes()).unwrap();
         assert!(b.warnings.is_empty(), "{:?}", b.warnings);

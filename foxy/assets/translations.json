@@ -1718,5 +1718,373 @@
   "msg_0430": {
     "ru": "Не удалось проверить обновления. Проверьте соединение с GitHub.",
     "en": "Could not check for updates. Check your connection to GitHub."
+  },
+  "msg_0431": {
+    "ru": "Очистить",
+    "en": "Clean"
+  },
+  "msg_0432": {
+    "ru": "восстановлен порядок",
+    "en": "chronology restored"
+  },
+  "msg_0433": {
+    "ru": "исключены подозрительные участки",
+    "en": "suspect intervals excluded"
+  },
+  "msg_0434": {
+    "ru": "Создание обработанной копии трека",
+    "en": "Create a processed track copy"
+  },
+  "msg_0435": {
+    "ru": "Создана копия трека; оригинал сохранён и скрыт.",
+    "en": "Track copy created; original preserved and hidden."
+  },
+  "msg_0436": {
+    "ru": "Анализ трека",
+    "en": "Track analysis"
+  },
+  "msg_0437": {
+    "ru": "Хронология восстановима",
+    "en": "Chronology can be restored"
+  },
+  "msg_0438": {
+    "ru": "Подозрительные координаты",
+    "en": "Suspect coordinates detected"
+  },
+  "msg_0439": {
+    "ru": "Недостаточно данных для восстановления",
+    "en": "Insufficient data for reconstruction"
+  },
+  "msg_0440": {
+    "ru": "Очевидных аномалий не найдено",
+    "en": "No obvious anomalies found"
+  },
+  "msg_0441": {
+    "ru": "Исходная длина: {distance} км",
+    "en": "Original length: {distance} km"
+  },
+  "msg_0442": {
+    "ru": "После сортировки: {distance} км",
+    "en": "After sorting: {distance} km"
+  },
+  "msg_0443": {
+    "ru": "Нарушений хронологии: {count}",
+    "en": "Timestamp reversals: {count}"
+  },
+  "msg_0444": {
+    "ru": "Точек: {count}",
+    "en": "Points: {count}"
+  },
+  "msg_0445": {
+    "ru": "Резких пространственных скачков: {count}",
+    "en": "Severe position jumps: {count}"
+  },
+  "msg_0446": {
+    "ru": "Подозрительных интервалов: {count}",
+    "en": "Suspect intervals: {count}"
+  },
+  "msg_0447": {
+    "ru": "Это вероятные ошибки, а не доказательство. Проверьте каждый интервал.",
+    "en": "These are suspected errors, not proof. Review each interval."
+  },
+  "msg_0448": {
+    "ru": "Сегмент {segment}, точки {start}–{end} ({count})",
+    "en": "Segment {segment}, points {start}–{end} ({count})"
+  },
+  "msg_0449": {
+    "ru": "Вход / выход: {entry} / {exit}; между соседями: {bridge}",
+    "en": "Entry / exit: {entry} / {exit}; between neighbours: {bridge}"
+  },
+  "msg_0450": {
+    "ru": "Показать на карте",
+    "en": "Show on map"
+  },
+  "msg_0451": {
+    "ru": "Отметить все",
+    "en": "Select all"
+  },
+  "msg_0452": {
+    "ru": "Снять отметки",
+    "en": "Select none"
+  },
+  "msg_0453": {
+    "ru": "Предпросмотр",
+    "en": "Preview"
+  },
+  "msg_0454": {
+    "ru": "Вернуть исходный вид",
+    "en": "Show original"
+  },
+  "msg_0455": {
+    "ru": "Восстановить в копии",
+    "en": "Restore in a copy"
+  },
+  "msg_0456": {
+    "ru": "Исключить в копии",
+    "en": "Exclude in a copy"
+  },
+  "msg_0457": {
+    "ru": "Закрыть",
+    "en": "Close"
+  },
+  "msg_0458": {
+    "ru": "Оригинал не удаляется. После исключения участков разрывы не соединяются.",
+    "en": "The original is retained. Removed intervals never create connecting lines."
+  },
+  "msg_0459": {
+    "ru": "Отметьте интервалы для исключения. Изначально ни один не выбран.",
+    "en": "Mark intervals to exclude. None are selected by default."
+  },
+  "msg_0460": {
+    "ru": "Отсутствие пометки не означает достоверность остальных координат.",
+    "en": "Unmarked coordinates are not necessarily reliable."
+  },
+  "msg_0461": {
+    "ru": "Восстанавливается порядок уже записанных точек, координаты не изменяются.",
+    "en": "Only the ordering of existing recorded points changes; coordinates remain unchanged."
+  },
+  "msg_0462": {
+    "ru": "Время неполное или неоднозначное, либо сортировка не даёт надёжного улучшения.",
+    "en": "Timestamps are incomplete or ambiguous, or sorting does not reliably improve the track."
+  },
+  "msg_0463": {
+    "ru": "Это не гарантирует достоверности GPS-координат.",
+    "en": "This does not guarantee that GPS coordinates are correct."
+  },
+  "msg_0464": {
+    "ru": "Чтобы применить результат, сначала включите предпросмотр.",
+    "en": "To apply changes, open the preview first."
+  },
+  "msg_0465": {
+    "ru": "Жёлтые маркеры на карте обозначают концы резких скачков. Не каждый скачок позволяет уверенно определить, какие точки исключать.",
+    "en": "Yellow map markers show endpoints of severe jumps. Not every jump identifies which points should be excluded."
+  },
+  "msg_0466": {
+    "ru": "Режим движения для оценки аномалий",
+    "en": "Movement mode for anomaly screening"
+  },
+  "msg_0467": {
+    "ru": "Пешком",
+    "en": "On foot"
+  },
+  "msg_0468": {
+    "ru": "Автомобиль",
+    "en": "Vehicle"
+  },
+  "msg_0469": {
+    "ru": "Неизвестно",
+    "en": "Unknown"
+  },
+  "msg_0470": {
+    "ru": "Возможный одиночный выброс",
+    "en": "Possible isolated GPS outlier"
+  },
+  "msg_0471": {
+    "ru": "Необъяснённых скачков: {count}",
+    "en": "Unresolved jumps: {count}"
+  },
+  "msg_0472": {
+    "ru": "Сегмент {segment}, переход {start}–{end}: {distance}, {speed} км/ч",
+    "en": "Segment {segment}, transition {start}–{end}: {distance}, {speed} km/h"
+  },
+  "msg_0473": {
+    "ru": "Без времени: {count}",
+    "en": "Missing timestamps: {count}"
+  },
+  "msg_0474": {
+    "ru": "Повторяющихся меток времени: {count}",
+    "en": "Repeated timestamps: {count}"
+  },
+  "msg_0475": {
+    "ru": "Максимальный исходный переход: {distance}",
+    "en": "Largest original step: {distance}"
+  },
+  "msg_0476": {
+    "ru": "Максимальный переход после сортировки: {distance}",
+    "en": "Largest step after sorting: {distance}"
+  },
+  "msg_0477": {
+    "ru": "Режим меняет чувствительность, но не доказывает причину ошибки. При смене режима выбор сбрасывается.",
+    "en": "Mode changes sensitivity, not the cause of error. Changing it clears selections."
+  },
+  "msg_0479": {
+    "ru": "м",
+    "en": "m"
+  },
+  "msg_0480": {
+    "ru": "км",
+    "en": "km"
+  },
+  "msg_0481": {
+    "ru": "Подозрительный смещённый фрагмент",
+    "en": "Possible displaced track interval"
+  },
+  "msg_0482": {
+    "ru": "Скачки, остающиеся до применения выбранных исключений",
+    "en": "Jumps unresolved by the current selection"
+  },
+  "msg_0483": {
+    "ru": "Системные признаки повреждения: достоверное восстановление не гарантируется. Проверяйте предложения вручную; массовое исключение не рекомендуется.",
+    "en": "Systemic damage indicators: reliable reconstruction is not guaranteed. Review each proposal; bulk removal is not recommended."
+  },
+  "msg_0484": {
+    "ru": "Удалить с разрывом",
+    "en": "Delete and split"
+  },
+  "msg_0485": {
+    "ru": "Удалить точки с разрывом",
+    "en": "Delete points and split track"
+  },
+  "msg_0486": {
+    "ru": "Точки удалены с разрывом",
+    "en": "Points deleted; track segments split"
+  },
+  "msg_0487": {
+    "ru": "Точек с HDOP: {count}",
+    "en": "Points with HDOP: {count}"
+  },
+  "msg_0488": {
+    "ru": "Точек с записанной скоростью: {count}",
+    "en": "Points with recorded speed: {count}"
+  },
+  "msg_0489": {
+    "ru": "Признаков ухудшения качества: {count}",
+    "en": "Poor-quality fix indicators: {count}"
+  },
+  "msg_0490": {
+    "ru": "Неустранённых скачков при текущем выборе: {count}",
+    "en": "Unresolved jumps for current selection: {count}"
+  },
+  "msg_0491": {
+    "ru": "Сегмент {segment}, точки {start}–{end} ({count})",
+    "en": "Segment {segment}, points {start}–{end} ({count})"
+  },
+  "msg_0492": {
+    "ru": "Подозрительный интервал: качество GPS и движение",
+    "en": "Suspect interval: GPS quality and movement"
+  },
+  "msg_0493": {
+    "ru": "Требуют ручной проверки (не предложены к удалению)",
+    "en": "Require manual review (not suggested for deletion)"
+  },
+  "msg_0494": {
+    "ru": "Плохих фиксаций: {bad}; аномальных переходов: {jumps}; внутри: {distance}; между границами: {bridge}",
+    "en": "Poor fixes: {bad}; anomalous steps: {jumps}; inside: {distance}; between bounds: {bridge}"
+  },
+  "msg_0495": {
+    "ru": "Данных HDOP и скорости нет: доступна только геометрическая проверка.",
+    "en": "HDOP and recorded speed unavailable: geometry-only diagnosis."
+  },
+  "msg_0496": {
+    "ru": "Предпросмотр: удалено {removed}, осталось {remaining}, сегментов {segments}, длина линий {distance} км",
+    "en": "Preview: removed {removed}, remaining {remaining}, segments {segments}, line length {distance} km"
+  },
+  "msg_0497": {
+    "ru": "Внимание: предлагается убрать более 75% точек. Это не означает восстановление маршрута.",
+    "en": "Warning: over 75% of points are removed. This is not a restored route."
+  },
+  "msg_0498": {
+    "ru": "Выбирайте эти интервалы для исключения только после собственной проверки на карте.",
+    "en": "Select these ranges for exclusion only after checking them on the map."
+  },
+  "msg_0499": {
+    "ru": "После закрытия анализа показанные на карте точки останутся выделенными для редактирования.",
+    "en": "After closing analysis, points shown on the map remain selected for editing."
+  },
+  "msg_0505": {
+    "ru": "Край сегмента: односторонняя проверка; соседний сегмент не соединяется.",
+    "en": "Segment edge: one-sided review; adjacent segments are never joined."
+  },
+  "msg_0506": {
+    "ru": "Подозрительный конец записи: несколько плохих фиксаций со скачками.",
+    "en": "Suspect recording tail: several poor-quality fixes with large steps."
+  },
+  "msg_0507": {
+    "ru": "Геометрический крюк подкреплён плохим HDOP и отсутствием скорости.",
+    "en": "Geometric detour supported by poor HDOP and missing recorded speed."
+  },
+  "msg_0508": {
+    "ru": "Возможный боковой выброс при ухудшении качества GPS; проверьте поворот вручную.",
+    "en": "Possible lateral excursion with degraded GPS quality; verify the turn manually."
+  },
+  "msg_0509": {
+    "ru": "Проверка текущего предпросмотра: предложений {suggested}, требуют проверки {review}. Оставшиеся подозрения не доказывают ошибку.",
+    "en": "Current preview scan: {suggested} proposals, {review} require review. Remaining flags do not prove errors."
+  },
+  "msg_0510": {
+    "ru": "Второй проход: подозрения после предварительной очистки",
+    "en": "Second pass: findings after the initial cleanup"
+  },
+  "msg_0511": {
+    "ru": "Это номера точек в промежуточных сегментах, а не в исходном GPX. Все отметки сняты по умолчанию.",
+    "en": "Point numbers refer to intermediate segments, not the original GPX. All items are unchecked by default."
+  },
+  "msg_0512": {
+    "ru": "Второй проход — предложены к исключению",
+    "en": "Second pass — suggested for exclusion"
+  },
+  "msg_0513": {
+    "ru": "Второй проход — требуют ручной проверки",
+    "en": "Second pass — require manual review"
+  },
+  "msg_0514": {
+    "ru": "Выбранные находки повторных проходов включены в общий предпросмотр. Создаётся одна копия; исходный трек не изменяется.",
+    "en": "Selected findings from later passes are included in the combined preview. One copy will be created; the original track is unchanged."
+  },
+  "msg_0515": {
+    "ru": "После повторной проверки новых предложений нет.",
+    "en": "No additional findings in the second pass."
+  },
+  "msg_0516": {
+    "ru": "Проход {pass}: новые подозрения после уточнённой очистки",
+    "en": "Pass {pass}: findings after further cleanup"
+  },
+  "msg_0517": {
+    "ru": "Номера относятся к сегментам предыдущего предпросмотра. Отметки сняты по умолчанию.",
+    "en": "Point numbers refer to the previous preview segments. All items start unchecked."
+  },
+  "msg_0518": {
+    "ru": "Проверить оставшиеся ещё раз",
+    "en": "Scan remaining points again"
+  },
+  "msg_0519": {
+    "ru": "Новый проход выполняется только по вашей команде после выбора дополнительных исключений. Изменение старых отметок сбросит последующие проходы. Максимум пять проходов.",
+    "en": "A further scan runs only on request after you select more exclusions. Changing earlier checks invalidates later passes. Up to five passes."
+  },
+  "msg_0520": {
+    "ru": "В исходном треке: точки {first}–{last}",
+    "en": "Original track: points {first}–{last}"
+  },
+  "msg_0521": {
+    "ru": "Предложены к исключению",
+    "en": "Suggested for exclusion"
+  },
+  "msg_0522": {
+    "ru": "Требуют ручной проверки",
+    "en": "Require manual review"
+  },
+  "msg_0600": {
+    "ru": "Проблем не обнаружено",
+    "en": "No problems detected"
+  },
+  "msg_0601": {
+    "ru": "Хронология восстановлена",
+    "en": "Chronology restored"
+  },
+  "msg_0602": {
+    "ru": "Восстановление хронологии трека",
+    "en": "Restore track chronology"
+  },
+  "msg_0603": {
+    "ru": "Хронология нарушена: безопасное восстановление невозможно",
+    "en": "Chronology is inconsistent: safe restoration is unavailable"
+  },
+  "msg_0604": {
+    "ru": "Найдено подозрительных точек: {count}. Выделены для ручной проверки.",
+    "en": "Suspect points: {count}. Selected for manual review."
+  },
+  "msg_0605": {
+    "ru": "Массовые повреждения: выделено {count} точек. Достоверность трека не подтверждена.",
+    "en": "Extensive damage: {count} points selected. The remaining track is not verified."
   }
 }

@@ -138,6 +138,7 @@ mod tests {
             ele_m: None,
             time: time::parse_iso("2023-09-21T11:31:21Z"),
             description: String::new(),
+            bg_color: [0, 255, 255], text_color: [0, 0, 0],
         };
         let s = String::from_utf8(write(&[w], Encoding::Utf8)).unwrap();
         let line = s.lines().nth(4).unwrap();
@@ -159,6 +160,7 @@ mod tests {
             ele_m: Some(156.35),
             time: Some(1_792_822_157.0),
             description: "у ручья, слева".into(),
+            bg_color: [0, 255, 255], text_color: [0, 0, 0],
         };
         let bytes = write(&[w], Encoding::Cp1251);
         assert!(std::str::from_utf8(&bytes).is_err());

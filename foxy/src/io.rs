@@ -116,6 +116,8 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
                 lat: p.lat,
                 ele: p.ele_m,
                 time: p.time,
+                hdop: p.hdop,
+                speed_m_s: p.speed_m_s,
             }).collect();
             segments.push(TrackSegment { points });
         }
@@ -261,6 +263,8 @@ pub fn save_gpx(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
                 lon: p.lon,
                 ele_m: p.ele,
                 time: p.time,
+                hdop: p.hdop,
+                speed_m_s: p.speed_m_s,
             }).collect()
         }).collect();
         
@@ -304,6 +308,8 @@ pub fn save_plt(track: &Track, path: &Path) -> Result<(), String> {
             lon: p.lon,
             ele_m: p.ele,
             time: p.time,
+            hdop: p.hdop,
+            speed_m_s: p.speed_m_s,
         }).collect()
     }).collect();
 
@@ -359,6 +365,8 @@ pub fn save_kml(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
                 lon: p.lon,
                 ele_m: p.ele,
                 time: p.time,
+                hdop: p.hdop,
+                speed_m_s: p.speed_m_s,
             }).collect()
         }).collect();
 
@@ -664,6 +672,8 @@ pub fn save_ms(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resul
                 lon: p.lon,
                 ele_m: p.ele,
                 time: p.time,
+                hdop: p.hdop,
+                speed_m_s: p.speed_m_s,
             }).collect()
         }).collect();
         

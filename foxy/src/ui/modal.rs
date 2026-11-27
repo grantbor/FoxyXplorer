@@ -147,12 +147,23 @@ impl App {
                     } else {
                         None
                     }
-                ),                
+                ),
                 self.btn_secondary(t!("msg_0132")).on_press(Message::SelectPointsOutsideGrid),
-                self.btn_secondary(t!("msg_0075")).on_press(Message::DeleteSelectedTrackPoints),
+            ].spacing(8).padding([10, 0]),
+            row![
+                self.btn_secondary(t!("msg_0075")).on_press_maybe(
+                    (!state.selected_points.is_empty()).then_some(
+                        Message::DeleteSelectedTrackPoints { leave_gap: false }
+                    )
+                ),
+                self.btn_secondary(t!("msg_0484")).on_press_maybe(
+                    (!state.selected_points.is_empty()).then_some(
+                        Message::DeleteSelectedTrackPoints { leave_gap: true }
+                    )
+                ),
                 Space::new().width(Length::Fill),
                 self.btn_secondary(t!("msg_0133")).on_press(Message::CloseTrackList),
-            ].spacing(8).padding([10, 0])
+            ].spacing(8).padding([0, 0])
         ]
         .spacing(10)
         .padding(20)

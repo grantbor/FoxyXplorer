@@ -60,6 +60,38 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
             return None;
         }
 
+        // In review mode a click on a red suspicious interval focuses it in
+        // the sidebar. The usual map context menu is intentionally disabled.
+        if let Some(inspect) = &self.app.track_inspection {
+            if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Right)) = event {
+                return None;
+            }
+            if inspect.preview_segments.is_none() {
+                if let iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) = event {
+                    if let Some(pos) = cursor.position_in(bounds) {
+                        if let Some(track) = self.app.tracks.iter().find(|t| t.id == inspect.track_id) {
+                            let to_screen = |p: &crate::domain::TrackPoint| {
+                                let (x, y) = crate::util::geo::merc_of(p.lon, p.lat);
+                                Point::new(
+                                    bounds.width / 2.0 + ((x - self.app.cx) / self.app.scale) as f32,
+                                    bounds.height / 2.0 - ((y - self.app.cy) / self.app.scale) as f32,
+                                )
+                            };
+                            for (index, region) in inspect.report.ranges.iter().enumerate() {
+                                let Some(segment) = track.segments.get(region.segment) else { continue };
+                                let pts = &segment.points[region.start..=region.end];
+                                if pts.windows(2).any(|w| dist_to_segment(pos, to_screen(&w[0]), to_screen(&w[1])) < 11.0)
+                                    || pts.first().is_some_and(|p| { let q = to_screen(p); (pos.x - q.x).hypot(pos.y - q.y) < 11.0 })
+                                {
+                                    return Some(iced::widget::Action::publish(Message::InspectionFocus(index)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ============================================================
         // ПРАВАЯ КНОПКА — КОНТЕКСТНОЕ МЕНЮ
         // ============================================================
@@ -230,6 +262,10 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                             crate::ContextMenuItem::Action(
                                 t!("msg_0076").to_string(),
                                 Message::OpenTrackList(id),
+                            ),
+                            crate::ContextMenuItem::Action(
+                                t!("msg_0431").to_string(),
+                                Message::InspectTrack(id),
                             ),
                             crate::ContextMenuItem::Action(
                                 t!("msg_0077").to_string(),
