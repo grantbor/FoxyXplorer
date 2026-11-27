@@ -314,6 +314,29 @@ fn cleanup_point_selection(
 }
 
 
+/// Infer from a safe chronological ordering when a repair is possible.
+/// Without such a repair, never fabricate timestamps or merge segments.
+fn one_click_auto_profile(
+    track: &domain::Track, chronology: &recovery::Report,
+) -> recovery::MovementMode {
+    if chronology.can_reorder {
+        recovery::chronological_segments(track)
+            .map(|ordered| domain::profile::infer_movement_mode(
+                &recovery::with_segments(track, ordered)))
+            .unwrap_or(recovery::MovementMode::Unknown)
+    } else {
+        domain::profile::infer_movement_mode(track)
+    }
+}
+
+fn one_click_profile_label(mode: recovery::MovementMode) -> &'static str {
+    match mode {
+        recovery::MovementMode::Vehicle => crate::t!("msg_0606"),
+        recovery::MovementMode::Foot => crate::t!("msg_0607"),
+        recovery::MovementMode::Unknown => crate::t!("msg_0608"),
+    }
+}
+
 impl App {
     pub(crate) fn update_recovery(&mut self, m: Message) -> Task<Message> {
         match m {
@@ -326,8 +349,22 @@ impl App {
                 // --cleanup restores the complete v3.4 diagnostic panel with
                 // mode selection, editable intervals, repeated scans, preview,
                 // and explicit copy creation. Normal launches never enter it.
-                let mode = recovery::MovementMode::Vehicle;
-                let report = recovery::analyze_with_mode(original, mode);
+                let vehicle_report = recovery::analyze_with_mode(
+                    original, recovery::MovementMode::Vehicle);
+                // The diagnostic --cleanup path retains its manual profile
+                // selector. Only the ordinary one-click path infers a profile.
+                // If chronology is safely repairable, infer movement from the
+                // reordered geometry, never from its scrambled timestamps.
+                let mode = if self.cleanup_diagnostics {
+                    recovery::MovementMode::Vehicle
+                } else {
+                    one_click_auto_profile(original, &vehicle_report)
+                };
+                let report = if mode == recovery::MovementMode::Vehicle {
+                    vehicle_report
+                } else {
+                    recovery::analyze_with_mode(original, mode)
+                };
                 if self.cleanup_diagnostics {
                     self.track_inspection = Some(TrackInspection {
                         track_id: id, report, movement_mode: mode,
@@ -352,7 +389,8 @@ impl App {
                 // fixes for manual point editing; no copies and no deletion.
                 if report.can_reorder {
                     let Some(ordered) = recovery::chronological_segments(original) else {
-                        self.status = crate::t!("msg_0603").into();
+                        self.status = format!("{} · {}", crate::t!("msg_0603"),
+                            one_click_profile_label(mode));
                         return Task::none();
                     };
                     self.push_undo(crate::t!("msg_0602"));
@@ -396,6 +434,11 @@ impl App {
                         };
                     }
                 }
+                // Include the automatically chosen profile in EVERY ordinary
+                // cleanup result (healthy, restored, suspects, or warning).
+                // The existing five-second status timeout is unchanged.
+                self.status = format!("{} · {}", self.status,
+                    one_click_profile_label(mode));
             }
             Message::InspectionClose => {
                 if let Some(inspect) = self.track_inspection.take() {
@@ -1032,6 +1075,21 @@ mod one_click_cleanup_tests {
         assert_eq!(found, expected);
         // Only highlighting; no edit and no derived track.
         assert_eq!(track.segments[0].points.len(), 12);
+    }
+
+    #[test]
+    fn auto_profile_uses_safely_restored_chronology() {
+        let mut track = track();
+        track.segments[0].points = (0..301).map(|i| TrackPoint {
+            lat: 55.0, lon: 37.0 + i as f64 * 14.0 / 63_770.0,
+            ele: None, time: Some(i as f64), hdop: Some(5.0),
+            speed_m_s: Some(14.0),
+        }).collect();
+        track.segments[0].points.swap(50, 250);
+        let report = recovery::analyze_with_mode(&track, recovery::MovementMode::Vehicle);
+        assert!(report.can_reorder);
+        assert_eq!(one_click_auto_profile(&track, &report),
+            recovery::MovementMode::Vehicle);
     }
 
     #[test]

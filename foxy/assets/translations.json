@@ -2086,5 +2086,17 @@
   "msg_0605": {
     "ru": "Массовые повреждения: выделено {count} точек. Достоверность трека не подтверждена.",
     "en": "Extensive damage: {count} points selected. The remaining track is not verified."
+  },
+  "msg_0606": {
+    "ru": "профиль - автомобиль",
+    "en": "profile - vehicle"
+  },
+  "msg_0607": {
+    "ru": "профиль - пеший",
+    "en": "profile - foot"
+  },
+  "msg_0608": {
+    "ru": "профиль - неизвестно",
+    "en": "profile - unknown"
   }
 }

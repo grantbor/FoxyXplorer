@@ -52,7 +52,64 @@ fn new_user_waypoint(id: u64, name: String, lon: f64, lat: f64) -> domain::Waypo
     }
 }
 
+/// Apply an additive or subtractive marquee selection without toggling items.
+fn apply_marquee_selection<T: Eq + std::hash::Hash>(
+    selected: &mut HashSet<T>,
+    item: T,
+    subtract: bool,
+) {
+    if subtract {
+        selected.remove(&item);
+    } else {
+        selected.insert(item);
+    }
+}
+
+/// Screen-space rectangle membership. Alt+marquee must affect *only* enclosed
+/// items; everything outside the rectangle keeps its previous selection state.
+fn point_in_marquee(x: f32, y: f32, min_x: f32, max_x: f32, min_y: f32, max_y: f32) -> bool {
+    x >= min_x && x <= max_x && y >= min_y && y <= max_y
+}
+
+/// A track can cross the marquee without having any recorded vertex inside it.
+/// Liang-Barsky clipping tests the drawn line, including edge touches.
+fn line_intersects_marquee(
+    ax: f32, ay: f32, bx: f32, by: f32,
+    min_x: f32, max_x: f32, min_y: f32, max_y: f32,
+) -> bool {
+    if ![ax, ay, bx, by].iter().all(|v| v.is_finite()) {
+        return false;
+    }
+    let dx = bx - ax;
+    let dy = by - ay;
+    let mut enter: f32 = 0.0;
+    let mut exit: f32 = 1.0;
+    for (p, q) in [
+        (-dx, ax - min_x), (dx, max_x - ax),
+        (-dy, ay - min_y), (dy, max_y - ay),
+    ] {
+        if p == 0.0 {
+            if q < 0.0 { return false; }
+        } else {
+            let r = q / p;
+            if p < 0.0 { enter = enter.max(r); }
+            else { exit = exit.min(r); }
+            if enter > exit { return false; }
+        }
+    }
+    true
+}
+
 impl App {
+    /// Latched for the current gesture. If modifier notifications arrive after
+    /// the mouse-down event, the gesture must not become a replacing selection.
+    fn capture_marquee_alt(&mut self) {
+        if self.rubber_band_start.is_some() && self.modifiers.alt() && !self.rubber_band_subtract {
+            self.rubber_band_subtract = true;
+            self.tracks_cache.clear();
+        }
+    }
+
     fn ftp_tracks_dir(&self) -> Result<PathBuf, String> {
         let kit = self.last_kit.as_ref().filter(|p| p.is_dir())
             .ok_or_else(|| crate::t!("msg_0321").to_string())?;
@@ -547,7 +604,7 @@ impl App {
         }
     }
 
-    fn select_points_in_rect(&mut self, start: Point, end: Point) {
+    fn select_points_in_rect(&mut self, start: Point, end: Point, subtract: bool) {
         let (x_min, x_max) = (start.x.min(end.x), start.x.max(end.x));
         let (y_min, y_max) = (start.y.min(end.y), start.y.max(end.y));
         let sz = self.last_bounds.get();
@@ -567,8 +624,10 @@ impl App {
                         let (mx, my) = merc_of(pt.lon, pt.lat);
                         let sx = (sz.width as f64 / 2.0 + (mx - self.cx) / self.scale) as f32;
                         let sy = (sz.height as f64 / 2.0 - (my - self.cy) / self.scale) as f32;
-                        if sx >= x_min && sx <= x_max && sy >= y_min && sy <= y_max {
-                            self.selection.points.insert((track_id, seg_idx, pt_idx));
+                        if point_in_marquee(sx, sy, x_min, x_max, y_min, y_max) {
+                            apply_marquee_selection(
+                                &mut self.selection.points, (track_id, seg_idx, pt_idx), subtract,
+                            );
                         }
                     }
                 }
@@ -628,6 +687,14 @@ impl App {
         self.point_press_start = Some(p);
         self.point_is_dragging = false;
         self.point_pressed_key = None;
+        // Alt always starts a subtractive marquee, even on top of a point.
+        // Otherwise Alt+drag could unexpectedly move the selected points.
+        self.rubber_band_subtract = self.modifiers.alt();
+        if self.rubber_band_subtract {
+            self.rubber_band_start = Some(p);
+            self.rubber_band_end = Some(p);
+            return;
+        }
 
         let sz = self.last_bounds.get();
         let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
@@ -665,6 +732,13 @@ impl App {
         self.point_is_dragging = false;
         self.rubber_band_start = None;
         self.rubber_band_end = None;
+        // Use the modifier at mouse-down, even if Alt is released mid-drag.
+        self.rubber_band_subtract = self.modifiers.alt();
+        if self.rubber_band_subtract {
+            self.rubber_band_start = Some(p);
+            self.rubber_band_end = Some(p);
+            return;
+        }
         
         let sz = self.last_bounds.get();
         let hw = sz.width as f64 / 2.0;
@@ -726,6 +800,7 @@ impl App {
     }
 
     fn handle_select_points_move(&mut self, p: Point) {
+        self.capture_marquee_alt();
         if let Some(start) = self.point_press_start {
             let dx = p.x - start.x;
             let dy = p.y - start.y;
@@ -778,15 +853,17 @@ impl App {
     }
 
     fn handle_select_points_release(&mut self) {
+        self.capture_marquee_alt();
         let ctrl = self.modifiers.control() || self.modifiers.command();
         let shift = self.modifiers.shift();
+        let subtract = self.rubber_band_subtract;
 
         // 1. ПРИОРИТЕТ: Завершение рамки выделения
         if let (Some(s), Some(e)) = (self.rubber_band_start, self.rubber_band_end) {
-            if !ctrl && !shift {
+            if !subtract && !ctrl && !shift {
                 self.selection.points.clear();
             }
-            self.select_points_in_rect(s, e);
+            self.select_points_in_rect(s, e, subtract);
         }
         // 2. Клик без движения
         else if !self.point_is_dragging {
@@ -823,10 +900,12 @@ impl App {
         self.point_is_dragging = false;
         self.rubber_band_start = None;
         self.rubber_band_end = None;
+        self.rubber_band_subtract = false;
         self.tracks_cache.clear();
     }
 
     fn handle_select_objects_move(&mut self, p: Point) {
+        self.capture_marquee_alt();
         if let Some(start) = self.point_press_start {
             let dx = p.x - start.x;
             let dy = p.y - start.y;
@@ -841,10 +920,12 @@ impl App {
     }
 
     fn handle_select_objects_release(&mut self) {
+        self.capture_marquee_alt();
+        let subtract = self.rubber_band_subtract;
         if let (Some(s), Some(e)) = (self.rubber_band_start, self.rubber_band_end) {
             let ctrl = self.modifiers.control() || self.modifiers.command();
             let shift = self.modifiers.shift();
-            if !ctrl && !shift {
+            if !subtract && !ctrl && !shift {
                 self.selection.tracks.clear();
                 self.selection.waypoints.clear();
             }
@@ -865,33 +946,47 @@ impl App {
                 let (mx, my) = merc_of(wp.lon, wp.lat);
                 let sx = (hw + (mx - self.cx) / self.scale) as f32;
                 let sy = (hh - (my - self.cy) / self.scale) as f32;
-                if sx >= x_min && sx <= x_max && sy >= y_min && sy <= y_max {
-                    self.selection.waypoints.insert(wp.id);
-                    found_waypoint = true;
+                if point_in_marquee(sx, sy, x_min, x_max, y_min, y_max) {
+                    apply_marquee_selection(&mut self.selection.waypoints, wp.id, subtract);
+                    found_waypoint = !subtract;
                 }
             }
 
-            // Выделяем треки, которые ЦЕЛИКОМ внутри рамки
+            // Обычная рамка: трек должен помещаться целиком (как раньше).
+            // Alt+рамка: достаточно пересечения с линией трека; объекты вне
+            // рамки сохраняют своё выделение без изменений.
             for t in &self.tracks {
-                if !t.visible { continue; }
+                if !t.visible || (subtract && !self.selection.tracks.contains(&t.id)) {
+                    continue;
+                }
                 let mut fully_inside = true;
+                let mut intersects = false;
                 let mut has_pts = false;
                 for seg in &t.segments {
+                    let mut prev: Option<(f32, f32)> = None;
                     for pt in &seg.points {
                         has_pts = true;
                         let (mx, my) = merc_of(pt.lon, pt.lat);
                         let sx = (hw + (mx - self.cx) / self.scale) as f32;
                         let sy = (hh - (my - self.cy) / self.scale) as f32;
-                        if sx < x_min || sx > x_max || sy < y_min || sy > y_max {
-                            fully_inside = false;
+                        let inside = point_in_marquee(sx, sy, x_min, x_max, y_min, y_max);
+                        if !inside { fully_inside = false; }
+                        if inside || prev.is_some_and(|(px, py)|
+                            line_intersects_marquee(px, py, sx, sy, x_min, x_max, y_min, y_max)) {
+                            intersects = true;
+                        }
+                        prev = Some((sx, sy));
+                        if (subtract && intersects) || (!subtract && !fully_inside) {
                             break;
                         }
                     }
-                    if !fully_inside { break; }
+                    if (subtract && intersects) || (!subtract && !fully_inside) {
+                        break;
+                    }
                 }
-                if fully_inside && has_pts {
-                    self.selection.tracks.insert(t.id);
-                    found_track = true;
+                if has_pts && (if subtract { intersects } else { fully_inside }) {
+                    apply_marquee_selection(&mut self.selection.tracks, t.id, subtract);
+                    found_track = !subtract;
                 }
             }
 
@@ -909,6 +1004,7 @@ impl App {
         }
         self.rubber_band_start = None;
         self.rubber_band_end = None;
+        self.rubber_band_subtract = false;
         self.point_press_start = None;
         self.point_is_dragging = false;
         self.tracks_cache.clear();
@@ -1397,6 +1493,10 @@ impl App {
     fn update_ui(&mut self, m: Message) -> Task<Message> {
         match m {
             Message::KeyPressed(key, modifiers) => {
+                // Key events carry modifier state too; it may arrive before a
+                // separate ModifiersChanged notification on some backends.
+                self.modifiers = modifiers;
+                self.capture_marquee_alt();
                 if matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape))
                     && self.track_inspection.is_some() && self.modal.is_none()
                 {
@@ -3601,6 +3701,7 @@ impl App {
             }
             Message::ModifiersChanged(mods) => {
                 self.modifiers = mods;
+                self.capture_marquee_alt();
             }
             Message::OsmTileLoaded(source, id, result) => {
                 // Ответ пришёл от источника, с которого пользователь уже ушёл.
@@ -4154,6 +4255,58 @@ impl App {
     
 }
 
+
+#[cfg(test)]
+mod marquee_selection_tests {
+    use super::{apply_marquee_selection, line_intersects_marquee, point_in_marquee};
+    use std::collections::HashSet;
+
+    #[test]
+    fn subtractive_marquee_removes_only_points_inside_rectangle() {
+        let mut selection = HashSet::from([(7u64, 0usize, 1usize), (7, 0, 2), (7, 0, 3)]);
+        apply_marquee_selection(&mut selection, (7, 0, 2), true);
+        apply_marquee_selection(&mut selection, (7, 0, 9), true);
+        assert_eq!(selection, HashSet::from([(7, 0, 1), (7, 0, 3)]));
+    }
+
+    #[test]
+    fn alt_marquee_keeps_selected_items_outside_the_rectangle() {
+        let mut selected = HashSet::from([1u64, 2, 3, 4]);
+        let items = [(1, 5.0, 5.0), (2, 15.0, 15.0), (3, 25.0, 25.0), (4, -2.0, 5.0)];
+        for (id, x, y) in items {
+            if point_in_marquee(x, y, 0.0, 20.0, 0.0, 20.0) {
+                apply_marquee_selection(&mut selected, id, true);
+            }
+        }
+        assert_eq!(selected, HashSet::from([3, 4]));
+    }
+
+    #[test]
+    fn line_crossing_alt_marquee_is_hit_even_without_internal_vertices() {
+        // The track runs through the box, but both endpoints are outside it.
+        assert!(line_intersects_marquee(-10.0, 10.0, 30.0, 10.0,
+            0.0, 20.0, 0.0, 20.0));
+        // Tangency with the border also counts as intersecting.
+        assert!(line_intersects_marquee(-10.0, 0.0, 30.0, 0.0,
+            0.0, 20.0, 0.0, 20.0));
+        assert!(!line_intersects_marquee(-10.0, 25.0, 30.0, 25.0,
+            0.0, 20.0, 0.0, 20.0));
+    }
+
+    #[test]
+    fn normal_marquee_still_includes_only_items_within_its_bounds() {
+        assert!(point_in_marquee(10.0, 10.0, 0.0, 20.0, 0.0, 20.0));
+        assert!(!point_in_marquee(25.0, 10.0, 0.0, 20.0, 0.0, 20.0));
+    }
+
+    #[test]
+    fn additive_marquee_remains_idempotent() {
+        let mut selection = HashSet::from([3u64, 5]);
+        apply_marquee_selection(&mut selection, 5, false);
+        apply_marquee_selection(&mut selection, 7, false);
+        assert_eq!(selection, HashSet::from([3, 5, 7]));
+    }
+}
 
 #[cfg(test)]
 mod named_waypoint_tests {

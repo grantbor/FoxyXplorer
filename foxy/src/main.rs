@@ -710,6 +710,7 @@ pub(crate) struct App {
     pub(crate) point_is_dragging: bool,
     pub(crate) rubber_band_start: Option<Point>,
     pub(crate) rubber_band_end: Option<Point>,
+    pub(crate) rubber_band_subtract: bool,
     pub(crate) last_point_clicked: Option<(u64, usize, usize)>,
     pub(crate) drawing_track: Option<DrawingTrack>,
     pub(crate) freehand_is_drawing: bool,
@@ -968,7 +969,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
+                    rubber_band_end: None, rubber_band_subtract: false, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
                     current_theme: initial_theme_kind, ui_theme: ui_theme.clone(), compact_view: false, last_open_dir: None, last_save_dir: None,
                 
                 };
@@ -1031,7 +1032,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
+            rubber_band_end: None, rubber_band_subtract: false, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
             current_theme: initial_theme_kind, ui_theme: ui_theme.clone(), compact_view: false, last_open_dir: None, last_save_dir: None,
         };
 
