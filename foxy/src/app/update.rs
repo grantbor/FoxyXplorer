@@ -580,6 +580,7 @@ impl App {
         self.active = 0;
         self.tile_handles.borrow_mut().clear();
         self.tile_fail_count.clear();
+        self.osm_cache.abort_all_requests();
         self.tracks = sess.tracks.into_iter().map(Arc::new).collect();
         self.waypoints = sess.waypoints.into_iter().map(Arc::new).collect();
         self.next_id = sess.next_id;
@@ -2061,6 +2062,7 @@ impl App {
                 self.grid_cache.clear(); self.wiki_cache.clear();
                 self.osm_canvas_cache.clear();
                 self.tracks_cache.clear();
+                self.osm_cache.abort_all_requests();
                 self.osm_cache.set_source(crate::BasemapSource::Osm);
                 self.tile_handles.borrow_mut().clear();
                 self.tile_fail_count.clear();
@@ -2464,6 +2466,8 @@ impl App {
                     self.active = i;
                     if let Some(src) = self.online_basemap() {
                         self.osm_cache.set_source(src);
+                    } else {
+                        self.osm_cache.abort_all_requests();
                     }
                     self.canvas_cache.clear();
                     self.grid_cache.clear(); self.wiki_cache.clear();
@@ -3904,27 +3908,27 @@ impl App {
             Message::OsmRetryTick => {
                 return self.request_osm_tiles();
             }
-            Message::OsmTileLoaded(source, id, result) => {
-                // A reply from an earlier basemap must never unmark an active
-                // request with the same (z, x, y) in the new basemap.
+            Message::OsmTileLoaded(source, id, token, result) => {
+                // A late response from an aborted task must not complete a
+                // newer request for the same tile or a different basemap.
                 if Some(source) != self.online_basemap()
                     || source != self.osm_cache.source
-                    || !self.osm_cache.pending.borrow().contains(&id)
+                    || !self.osm_cache.finish_request(id, token)
                 {
                     return Task::none();
                 }
-
-                self.osm_cache.unmark_pending(id);
                 match result {
                     Ok(bytes) => {
                         self.tile_fail_count.remove(&id);
+                        let estimated_bytes = crate::osm::estimated_tile_memory(
+                            &bytes, crate::osm::format_for_source(source));
                         let handle = iced::widget::image::Handle::from_bytes(bytes);
-                        self.osm_cache.insert(id, Some(handle));
+                        self.osm_cache.insert(id, Some(handle), estimated_bytes);
                     }
                     Err(e) if crate::osm::is_permanently_missing_tile_error(&e) => {
                         // HTTP 404/410: the tile genuinely does not exist.
                         self.tile_fail_count.remove(&id);
-                        self.osm_cache.insert(id, None);
+                        self.osm_cache.insert(id, None, 1);
                     }
                     Err(e) => {
                         // A temporary network failure never poisons memory

@@ -391,7 +391,7 @@ pub(crate) enum Message {
     DemTick, DemRendered(u64, Result<Option<Arc<dem::Rendered>>, String>),
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
-    OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
+    OsmTileLoaded(BasemapSource, osm::TileId, u64, Result<Vec<u8>, String>),
     OsmRetryTick,
     PickTrack, TracksPicked(Option<Vec<PathBuf>>),
     ToggleTrackVisible(u64, bool), SelectTrack(u64), ToggleAllTracksVisible, DeleteSelectedTracks,
@@ -1342,7 +1342,10 @@ impl App {
     }
 
     pub(crate) fn request_osm_tiles(&mut self) -> Task<Message> {
-        let Some(source) = self.online_basemap() else { return Task::none(); };
+        let Some(source) = self.online_basemap() else {
+            self.osm_cache.abort_all_requests();
+            return Task::none();
+        };
 
         let sz = self.last_bounds.get();
         let max_z = match source {
@@ -1350,12 +1353,17 @@ impl App {
             BasemapSource::Esri => Some(19u8),
             BasemapSource::Osm => None,
         };
-        let (z, tiles) = osm::visible_tiles(
+        let (z, mut tiles) = osm::visible_tiles(
             self.cx, self.cy, self.scale,
             sz.width as f64, sz.height as f64,
             max_z,
         );
         self.osm_z = z;
+        osm::prioritize_visible_tiles(&mut tiles);
+        self.osm_cache.abort_offscreen_requests(&tiles);
+        // Retain the visible set and recently used neighbours, but release
+        // old online tile handles before scheduling the next requests.
+        self.osm_cache.prune_for_view(&tiles);
 
         // Four requests in flight *total*: each completion fills the free slot.
         // Failed tiles become eligible again only after their retry deadline.
@@ -1368,34 +1376,22 @@ impl App {
         );
         let mut tasks: Vec<Task<Message>> = Vec::new();
         for id in ids {
-            self.osm_cache.pending.borrow_mut().insert(id);
+            let token = self.osm_cache.next_request_token();
             let client = self.osm_client.clone();
             let disk = self.osm_cache.disk_path(id);
             let url = self.tile_url(id);
 
-            tasks.push(Task::perform(
+            let (task, handle) = Task::perform(
                 async move {
-                    if let Ok(bytes) = std::fs::read(&disk) {
-                        return (id, Ok(bytes));
-                    }
-                    match client.get(&url).send().await {
-                        Ok(r) if r.status().is_success() => match r.bytes().await {
-                            Ok(b) => {
-                                let v = b.to_vec();
-                                if let Some(parent) = disk.parent() {
-                                    let _ = std::fs::create_dir_all(parent);
-                                }
-                                let _ = std::fs::write(&disk, &v);
-                                (id, Ok(v))
-                            }
-                            Err(e) => (id, Err(e.to_string())),
-                        },
-                        Ok(r) => (id, Err(format!("HTTP {}", r.status().as_u16()))),
-                        Err(e) => (id, Err(e.to_string())),
-                    }
+                    let format = osm::format_for_source(source);
+                    osm::load_validated_tile(&disk, format, || async move {
+                        osm::download_tile(&client, &url).await
+                    }).await
                 },
-                move |(id, result)| Message::OsmTileLoaded(source, id, result),
-            ));
+                move |result| Message::OsmTileLoaded(source, id, token, result),
+            ).abortable();
+            self.osm_cache.register_request(id, token, handle);
+            tasks.push(task);
         }
         Task::batch(tasks)
     }

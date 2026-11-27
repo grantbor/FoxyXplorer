@@ -1,6 +1,6 @@
 [package]
 name = "foxyXplorer"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2024"
 authors = ["Grant Borodin"]
 license = "GPL-3.0-or-later"
@@ -11,6 +11,7 @@ winresource = "0.1"
 coord = { version = "0.1.0", path = "../coord" }
 declination = { version = "0.1.0", path = "../declination" }
 geoio = { version = "0.1.0", path = "../geoio" }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 grid = { version = "0.1.0", path = "../grid" }
 iced = { version = "0.14", features = ["canvas", "image", "wgpu", "tiny-skia", "tokio"] }
 ozf = { version = "0.1.0", path = "../ozf" }
