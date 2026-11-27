@@ -41,6 +41,7 @@ impl App {
         state: &'a crate::TrackListState,
     ) -> Element<'a, Message> {
         let track_name = self.tracks.iter().find(|t| t.id == state.track_id).map(|t| t.name.as_str()).unwrap_or(crate::t!("msg_0420"));
+        let modal_width = (self.window_size.width - 32.0).min(1000.0).max(1.0);
         
         let header = container(
             row![
@@ -134,36 +135,43 @@ impl App {
                     .height(Length::Fixed(crate::TRACK_LIST_VIEW_HEIGHT))
             ).padding(2).width(Length::Fill),
 
-            row![
-                self.btn_secondary(t!("msg_0129")).on_press_maybe(
-                    state.last_clicked.map(|(s, p)| Message::CenterOnTrackPoint(s, p))
-                ),
-                self.btn_secondary(t!("msg_0130")).on_press_maybe(
-                    state.last_clicked.map(|(s, p)| Message::SplitTrackAtPoint(s, p))
-                ),
-                self.btn_secondary(t!("msg_0131")).on_press_maybe(
-                    if state.selected_points.len() == 2 {
-                        Some(Message::StitchSegments)
-                    } else {
-                        None
-                    }
-                ),
-                self.btn_secondary(t!("msg_0132")).on_press(Message::SelectPointsOutsideGrid),
-            ].spacing(8).padding([10, 0]),
-            row![
-                self.btn_secondary(t!("msg_0075")).on_press_maybe(
-                    (!state.selected_points.is_empty()).then_some(
-                        Message::DeleteSelectedTrackPoints { leave_gap: false }
-                    )
-                ),
-                self.btn_secondary(t!("msg_0484")).on_press_maybe(
-                    (!state.selected_points.is_empty()).then_some(
-                        Message::DeleteSelectedTrackPoints { leave_gap: true }
-                    )
-                ),
-                Space::new().width(Length::Fill),
-                self.btn_secondary(t!("msg_0133")).on_press(Message::CloseTrackList),
-            ].spacing(8).padding([0, 0])
+            // Keep all commands on one line and pin Close to the right edge.
+            // A minimum content width allows horizontal scrolling on narrow windows.
+            scrollable(
+                row![
+                    self.btn_secondary(t!("msg_0129")).on_press_maybe(
+                        state.last_clicked.map(|(s, p)| Message::CenterOnTrackPoint(s, p))
+                    ),
+                    self.btn_secondary(t!("msg_0130")).on_press_maybe(
+                        state.last_clicked.map(|(s, p)| Message::SplitTrackAtPoint(s, p))
+                    ),
+                    self.btn_secondary(t!("msg_0131")).on_press_maybe(
+                        if state.selected_points.len() == 2 {
+                            Some(Message::StitchSegments)
+                        } else {
+                            None
+                        }
+                    ),
+                    self.btn_secondary(t!("msg_0132")).on_press(Message::SelectPointsOutsideGrid),
+                    self.btn_secondary(t!("msg_0075")).on_press_maybe(
+                        (!state.selected_points.is_empty()).then_some(
+                            Message::DeleteSelectedTrackPoints { leave_gap: false }
+                        )
+                    ),
+                    self.btn_secondary(t!("msg_0484")).on_press_maybe(
+                        (!state.selected_points.is_empty()).then_some(
+                            Message::DeleteSelectedTrackPoints { leave_gap: true }
+                        )
+                    ),
+                    Space::new().width(Length::Fill),
+                    self.btn_secondary(t!("msg_0133")).on_press(Message::CloseTrackList),
+                ]
+                .spacing(8)
+                .padding([10, 0])
+                .width(Length::Fixed((modal_width - 40.0).max(820.0)))
+            )
+            .horizontal()
+            .width(Length::Fill)
         ]
         .spacing(10)
         .padding(20)
@@ -182,7 +190,8 @@ impl App {
                     ..Default::default()
                 }
             })
-            .width(Length::Fixed(750.0))
+            // Wider than the old 750px dialog, but never wider than the app window.
+            .width(Length::Fixed(modal_width))
             .into()
     }
 
