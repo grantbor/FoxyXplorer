@@ -1514,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "foxyXplorer"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "axum",
  "chrono",
