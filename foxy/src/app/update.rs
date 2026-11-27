@@ -30,6 +30,27 @@ fn is_space(key: &iced::keyboard::Key) -> bool {
         || matches!(key, iced::keyboard::Key::Character(c) if c == " ")
 }
 
+/// Split one segment, preserving the chosen recorded fix as the common
+/// endpoint of both resulting segments. The neighbouring segments are untouched.
+/// Like the previous Tracklist command, this only accepts interior points.
+fn split_segment_at_shared_point(
+    segments: &mut Vec<domain::TrackSegment>,
+    seg_idx: usize,
+    pt_idx: usize,
+) -> bool {
+    let Some(segment) = segments.get_mut(seg_idx) else { return false; };
+    if pt_idx == 0 || pt_idx >= segment.points.len().saturating_sub(1) {
+        return false;
+    }
+
+    // Clone the complete original fix: coordinates, timestamp, HDOP and speed.
+    let boundary = segment.points[pt_idx].clone();
+    let mut right = segment.points.split_off(pt_idx + 1);
+    right.insert(0, boundary);
+    segments.insert(seg_idx + 1, domain::TrackSegment { points: right });
+    true
+}
+
 /// Construct an ordinary, editable waypoint (the same defaults as AddWaypointAt).
 fn new_user_waypoint(id: u64, name: String, lon: f64, lat: f64) -> domain::Waypoint {
     domain::Waypoint {
@@ -3933,28 +3954,25 @@ impl App {
                 }
             }
             Message::SplitTrackAtPoint(sect, pt_idx) => {
-                if let Some(Modal::TrackList(state)) = &self.modal {
-                    let id = state.track_id;
-                    self.push_undo(t!("msg_0053"));
-                    
-                    if let Some(t_mut) = self.tracks.iter_mut().find(|t| t.id == id) {
-                        let t_m = Arc::make_mut(t_mut);
-                        
-                        if sect > 0 && sect <= t_m.segments.len() {
-                            let seg_idx = sect - 1; 
-                            let seg = &mut t_m.segments[seg_idx];
-                            
-                            if pt_idx > 0 && pt_idx < seg.points.len() - 1 {
-                                let right_half = seg.points.split_off(pt_idx + 1);
-                                t_m.segments.insert(seg_idx + 1, domain::TrackSegment { points: right_half });
-                            }
-                        }
-                        domain::recompute_track_stats(t_m);
+                let Some(Modal::TrackList(state)) = &self.modal else { return Task::none(); };
+                let id = state.track_id;
+                let Some(seg_idx) = sect.checked_sub(1) else { return Task::none(); };
+                let can_split = self.tracks.iter()
+                    .find(|track| track.id == id)
+                    .and_then(|track| track.segments.get(seg_idx))
+                    .is_some_and(|seg| pt_idx > 0 && pt_idx < seg.points.len().saturating_sub(1));
+                if !can_split { return Task::none(); }
+
+                self.push_undo(t!("msg_0053"));
+                if let Some(t_mut) = self.tracks.iter_mut().find(|track| track.id == id) {
+                    let track = Arc::make_mut(t_mut);
+                    if split_segment_at_shared_point(&mut track.segments, seg_idx, pt_idx) {
+                        domain::recompute_track_stats(track);
                     }
-                    self.clear_track_point_selection(id);
-                    let _ = self.update_track_list(Message::OpenTrackList(id));
-                    self.tracks_cache.clear();
                 }
+                self.clear_track_point_selection(id);
+                let _ = self.update_track_list(Message::OpenTrackList(id));
+                self.tracks_cache.clear();
             }
             Message::StitchSegments => {
                     let Some(Modal::TrackList(state)) = &self.modal else {
@@ -4323,5 +4341,66 @@ mod named_waypoint_tests {
         assert_eq!(wp.text_color, [0, 0, 0]);
         assert_eq!(wp.bg_color, [0, 255, 255]);
         assert!(wp.description.is_none());
+    }
+}
+
+#[cfg(test)]
+mod tracklist_shared_boundary_split_tests {
+    use super::*;
+
+    fn point(n: i32) -> domain::TrackPoint {
+        domain::TrackPoint {
+            lon: n as f64,
+            lat: 50.0,
+            ele: Some(100.0 + n as f64),
+            time: Some(1_000.0 + n as f64),
+            hdop: Some(1.5 + n as f64 / 10.0),
+            speed_m_s: Some(n as f64 / 2.0),
+        }
+    }
+
+    #[test]
+    fn tracklist_split_preserves_boundary_fix_on_both_sides() {
+        let mut segments = vec![domain::TrackSegment {
+            points: (0..5).map(point).collect(),
+        }];
+        assert!(split_segment_at_shared_point(&mut segments, 0, 2));
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].points.iter().map(|p| p.lon).collect::<Vec<_>>(), vec![0.0, 1.0, 2.0]);
+        assert_eq!(segments[1].points.iter().map(|p| p.lon).collect::<Vec<_>>(), vec![2.0, 3.0, 4.0]);
+
+        let left = segments[0].points.last().unwrap();
+        let right = segments[1].points.first().unwrap();
+        assert_eq!((left.lat, left.lon, left.ele, left.time, left.hdop, left.speed_m_s),
+                   (right.lat, right.lon, right.ele, right.time, right.hdop, right.speed_m_s));
+        // The existing StitchSegments deduplicates coincident endpoints.
+        let mut joined = segments[0].points.clone();
+        joined.extend(segments[1].points.iter().skip(1).cloned());
+        assert_eq!(joined.iter().map(|p| p.lon).collect::<Vec<_>>(),
+                   vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn tracklist_split_does_not_cross_existing_segment_boundaries() {
+        let mut segments = vec![
+            domain::TrackSegment { points: vec![point(10), point(11)] },
+            domain::TrackSegment { points: vec![point(20), point(21), point(22), point(23)] },
+        ];
+        assert!(split_segment_at_shared_point(&mut segments, 1, 1));
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0].points.iter().map(|p| p.lon).collect::<Vec<_>>(), vec![10.0, 11.0]);
+        assert_eq!(segments[1].points.iter().map(|p| p.lon).collect::<Vec<_>>(), vec![20.0, 21.0]);
+        assert_eq!(segments[2].points.iter().map(|p| p.lon).collect::<Vec<_>>(), vec![21.0, 22.0, 23.0]);
+    }
+
+    #[test]
+    fn tracklist_split_at_endpoints_or_missing_segment_is_noop() {
+        let mut segments = vec![domain::TrackSegment { points: (0..4).map(point).collect() }];
+        assert!(!split_segment_at_shared_point(&mut segments, 0, 0));
+        assert!(!split_segment_at_shared_point(&mut segments, 0, 3));
+        assert!(!split_segment_at_shared_point(&mut segments, 0, usize::MAX));
+        assert!(!split_segment_at_shared_point(&mut segments, 1, 1));
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].points.len(), 4);
     }
 }
