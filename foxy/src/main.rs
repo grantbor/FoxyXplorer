@@ -1381,12 +1381,24 @@ impl App {
             .filter(|waypoint| self.selection.waypoints.contains(&waypoint.id))
             .count();
 
+        // The cached lengths already exclude jumps across segment boundaries.
+        // Include every loaded track, not just the visible or selected ones.
+        let total_track_distance_m: f64 = self.tracks.iter()
+            .map(|track| track.cached_distance_m)
+            .sum();
+        let total_track_length = if total_track_distance_m >= 1000.0 {
+            let rounded_km = format!("{:.1}", total_track_distance_m / 1000.0);
+            format!("{} {}", rounded_km.trim_end_matches(".0"), t!("msg_0259"))
+        } else {
+            format!("{:.0} {}", total_track_distance_m, t!("msg_0258"))
+        };
+
         let info = format!(
-            "{} {:.2}° (WMM2025)  |  {} {:.2} {}  |  {} {}  |  {} {} ({} {})  |  {} {} ({} {})",
+            "{} {:.2}° (WMM2025)  |  {} {:.2} {}  |  {} {}  |  {} {} ({} {}) {}  |  {} {} ({} {})",
             t!("msg_0214"), self.declination,
             t!("msg_0215"), self.scale, t!("msg_0216"),
             t!("msg_0217"), name,
-            t!("msg_0253"), self.tracks.len(), t!("msg_0255"), selected_tracks,
+            t!("msg_0253"), self.tracks.len(), t!("msg_0255"), selected_tracks, total_track_length,
             t!("msg_0254"), self.waypoints.len(), t!("msg_0255"), selected_waypoints,
         );
 
