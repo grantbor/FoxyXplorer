@@ -251,6 +251,14 @@ impl App {
             ),
             with_tooltip(
                 if one_track {
+                    self.icon_button(lucide_iced::bytes::BROOM_SPARKLES, Message::InspectTrack(selected_id.unwrap()))
+                } else {
+                    self.icon_button_disabled(lucide_iced::bytes::BROOM_SPARKLES)
+                },
+                t!("msg_0431")
+            ),
+            with_tooltip(
+                if one_track {
                     self.icon_button(lucide_iced::bytes::LIST, Message::OpenTrackList(selected_id.unwrap()))
                 } else {
                     self.icon_button_disabled(lucide_iced::bytes::LIST)
