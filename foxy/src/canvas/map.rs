@@ -405,38 +405,6 @@ impl<'a> canvas::Program<Message> for MapProgram<'a> {
                         }
                     }
 
-                    let (attr_text, attr_w_target): (&str, f32) = match app.online_basemap() {
-                        Some(crate::BasemapSource::Sentinel2) => (
-                            "Sentinel-2 cloudless by EOX IT Services GmbH \
-                            (Contains modified Copernicus Sentinel data 2024) — CC BY 4.0",
-                            720.0,
-                        ),
-                        Some(crate::BasemapSource::Esri) => (
-                            "Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, \
-                            AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, and the GIS User Community",
-                            900.0,
-                        ),
-                        _ => (
-                            "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team",
-                            470.0,
-                        ),
-                    };
-                    let attr_w = attr_w_target.min(bounds.width);
-                    let attr_h = 20.0_f32;
-                    frame.fill_rectangle(
-                        Point::new(bounds.width - attr_w - 4.0, bounds.height - attr_h - 4.0),
-                        Size::new(attr_w, attr_h),
-                        Color::from_rgba8(0, 0, 0, 0.6),
-                    );
-                    frame.fill_text(canvas::Text {
-                        content: attr_text.to_string(),
-                        position: Point::new(bounds.width - 8.0, bounds.height - attr_h / 2.0 - 4.0),
-                        color: Color::WHITE,
-                        size: iced::Pixels(11.0),
-                        align_x: iced::widget::text::Alignment::Right,
-                        align_y: iced::alignment::Vertical::Center,
-                        ..Default::default()
-                    });
                 })
         } else {
             app.canvas_cache
@@ -624,5 +592,107 @@ mod reference_point_context_tests {
             }
             other => panic!("Wrong menu action: {other:?}"),
         }
+    }
+}
+
+
+/// Map credits are drawn above the DEM overlay and map objects, so the tint
+/// cannot darken the basemap credit. Multiple credits share one bottom-right
+/// corner and never overlap each other.
+pub struct AttributionProgram<'a> {
+    pub app: &'a App,
+}
+
+const DEM_ATTRIBUTION: &str = "Copernicus DEM GLO-30 © DLR / Airbus — EU / ESA";
+const ONLINE_ATTR_HEIGHT: f32 = 20.0;
+const ONLINE_ATTR_GAP: f32 = 2.0;
+
+fn attribution_top(viewport_height: f32, row: usize) -> f32 {
+    viewport_height - 4.0 - ONLINE_ATTR_HEIGHT
+        - row as f32 * (ONLINE_ATTR_HEIGHT + ONLINE_ATTR_GAP)
+}
+
+fn attribution_rows(source: Option<BasemapSource>, dem_visible: bool) -> Vec<(&'static str, f32)> {
+    let mut rows = Vec::new();
+    match source {
+        Some(BasemapSource::Sentinel2) => rows.push((
+            "Sentinel-2 cloudless by EOX IT Services GmbH \
+            (Contains modified Copernicus Sentinel data 2024) — CC BY 4.0",
+            720.0,
+        )),
+        Some(BasemapSource::Esri) => rows.push((
+            "Sources: Esri, DigitalGlobe, GeoEye, i-cubed, USDA FSA, USGS, \
+            AEX, Getmapping, Aerogrid, IGN, IGP, swisstopo, and the GIS User Community",
+            900.0,
+        )),
+        Some(BasemapSource::Osm) => rows.push((
+            "© OpenStreetMap contributors, Tiles courtesy of Humanitarian OpenStreetMap Team",
+            470.0,
+        )),
+        None => {},
+    }
+    if dem_visible {
+        // The complete legally prescribed Copernicus notice is in README.md.
+        rows.push((DEM_ATTRIBUTION, 315.0));
+    }
+    rows
+}
+
+impl<'a> canvas::Program<Message> for AttributionProgram<'a> {
+    type State = ();
+
+    fn draw(
+        &self, _: &Self::State, renderer: &Renderer, _: &Theme,
+        bounds: Rectangle, _: iced::mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let dem_visible = self.app.dem.visible(self.app.current_dem_view()).is_some();
+        let rows = attribution_rows(self.app.online_basemap(), dem_visible);
+        let right = (bounds.width - 4.0).max(0.0);
+        for (row, (text, target_width)) in rows.into_iter().enumerate() {
+            // Basemap first (bottom), DEM second (above). With just one
+            // attribution it occupies the normal bottom-right position.
+            let y = attribution_top(bounds.height, row);
+            if y < 0.0 || right <= 0.0 { continue; }
+            let width = target_width.min((bounds.width - 8.0).max(0.0));
+            frame.fill_rectangle(
+                Point::new(right - width, y),
+                Size::new(width, ONLINE_ATTR_HEIGHT),
+                Color::from_rgba8(0, 0, 0, 0.6),
+            );
+            frame.fill_text(canvas::Text {
+                content: text.to_string(),
+                position: Point::new(right - 4.0, y + ONLINE_ATTR_HEIGHT / 2.0),
+                color: Color::WHITE,
+                size: iced::Pixels(11.0),
+                align_x: iced::widget::text::Alignment::Right,
+                align_y: iced::alignment::Vertical::Center,
+                ..Default::default()
+            });
+        }
+        vec![frame.into_geometry()]
+    }
+}
+
+#[cfg(test)]
+mod attribution_tests {
+    use super::{
+        attribution_rows, attribution_top, BasemapSource, DEM_ATTRIBUTION,
+        ONLINE_ATTR_HEIGHT, ONLINE_ATTR_GAP,
+    };
+
+    #[test]
+    fn map_attribution_combines_basemap_and_dem_without_replacement() {
+        for source in [BasemapSource::Osm, BasemapSource::Esri, BasemapSource::Sentinel2] {
+            let rows = attribution_rows(Some(source), true);
+            assert_eq!(rows.len(), 2);
+            assert_ne!(rows[0].0, DEM_ATTRIBUTION);
+            assert_eq!(rows[1].0, DEM_ATTRIBUTION);
+            assert_eq!(attribution_rows(Some(source), false).len(), 1);
+        }
+        assert_eq!(attribution_rows(None, true).len(), 1);
+        assert_eq!(attribution_rows(None, false).len(), 0);
+        assert!(attribution_top(600.0, 1) + ONLINE_ATTR_HEIGHT + ONLINE_ATTR_GAP
+            <= attribution_top(600.0, 0));
     }
 }

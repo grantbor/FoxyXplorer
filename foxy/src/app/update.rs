@@ -358,6 +358,7 @@ impl App {
             | Message::ShowContextMenu(_, _) | Message::ContextMenuClose | Message::ContextMenuSelect(_) 
             | Message::CopyCoordinates(_, _) | Message::ToggleTheme | Message::RefreshSystemTheme 
             | Message::OpenAbout | Message::CloseAbout
+            | Message::OpenDataLicenses | Message::CloseDataLicenses
             | Message::CheckForUpdates | Message::UpdateCheckFinished(_)
             | Message::OpenSettings | Message::CloseSettings | Message::ApplySettings
             | Message::SettingsCoordChanged(_)
@@ -448,6 +449,7 @@ impl App {
             // --- Система и прочее ---
             Message::ExternalPathDropped(_) | Message::PickKit | Message::KitPicked(_) | Message::PickTrack | Message::TracksPicked(_)
             | Message::WindowCloseRequested | Message::ModifiersChanged(_) | Message::OsmTileLoaded(..)
+            | Message::OsmRetryTick
             | Message::AutoSaveTick | Message::StatusNoticeTick
             | Message::DemTick | Message::DemRendered(..) | Message::None => {
                 return self.update_system(m);
@@ -1432,6 +1434,7 @@ impl App {
             Message::WindowResized(size) => {
                 self.window_size = size;
                 self.dem.force_refresh();
+                if self.dem.enabled { self.refresh_status(); }
             },
             Message::WindowMoved(pos) => self.window_pos = pos,
             Message::DividerPressed => self.resizing_panel = true,
@@ -1577,6 +1580,7 @@ impl App {
                             Some(Modal::WaypointMeasure { .. })       => Message::CloseWaypointMeasure,
                             Some(Modal::WaypointProjection { .. })    => Message::CloseWaypointProjection,
                             Some(Modal::About)                        => Message::CloseAbout,
+                            Some(Modal::DataLicenses)                 => Message::CloseDataLicenses,
                             Some(Modal::Settings { .. })              => Message::CloseSettings,
                             Some(Modal::FoxyDrop)                    => Message::CloseFoxyDrop,
                             Some(Modal::FtpConfirm { .. }) | Some(Modal::FtpResult(_)) => Message::FtpClose,
@@ -1791,6 +1795,7 @@ impl App {
             Message::ToggleDem => {
                 let enabled = !self.dem.enabled;
                 self.dem.set_enabled(enabled);
+                self.refresh_status();
             }
             Message::SidebarDragStart(kind, id) => {
                 if self.modal.is_some() || self.track_inspection.is_some() { return Task::none(); }
@@ -2124,6 +2129,16 @@ impl App {
                 self.modal_drag_offset = Point::ORIGIN;
                 self.modal = None;
             }
+            Message::OpenDataLicenses => {
+                if matches!(&self.modal, Some(Modal::About)) {
+                    self.modal_drag_offset = Point::ORIGIN;
+                    self.modal = Some(Modal::DataLicenses);
+                }
+            }
+            Message::CloseDataLicenses => {
+                self.modal_drag_offset = Point::ORIGIN;
+                self.modal = Some(Modal::About);
+            }
             Message::CheckForUpdates => {
                 if !matches!(&self.modal, Some(Modal::About))
                     || matches!(&self.update_check, crate::update_check::Status::Checking)
@@ -2256,6 +2271,7 @@ impl App {
                                     self.grid_cache.clear();
                                     self.show_color_picker = None;
                                     crate::i18n::set_lang(Box::leak(new_cfg.lang.clone().into_boxed_str()));
+                                    self.refresh_status();
                                     self.status = crate::t!("msg_0385").into();
                                     self.modal = None;
                                     save_session(self);
@@ -3879,33 +3895,52 @@ impl App {
             Message::DemRendered(generation, result) => {
                 if let Some(error) = self.dem.complete(generation, result) {
                     self.status = crate::tf!("msg_0617", error = error);
+                } else if self.dem.visible(self.current_dem_view()).is_some() {
+                    // Update the stationary cursor when the DEM image becomes
+                    // ready; no mouse movement or additional IO is needed.
+                    self.refresh_status();
                 }
             }
+            Message::OsmRetryTick => {
+                return self.request_osm_tiles();
+            }
             Message::OsmTileLoaded(source, id, result) => {
-                // Ответ пришёл от источника, с которого пользователь уже ушёл.
-                if Some(source) != self.online_basemap() {
-                    // Снимаем pending, чтобы не блокировало будущие запросы этого тайла.
-                    self.osm_cache.unmark_pending(id);
+                // A reply from an earlier basemap must never unmark an active
+                // request with the same (z, x, y) in the new basemap.
+                if Some(source) != self.online_basemap()
+                    || source != self.osm_cache.source
+                    || !self.osm_cache.pending.borrow().contains(&id)
+                {
                     return Task::none();
                 }
 
                 self.osm_cache.unmark_pending(id);
                 match result {
                     Ok(bytes) => {
+                        self.tile_fail_count.remove(&id);
                         let handle = iced::widget::image::Handle::from_bytes(bytes);
                         self.osm_cache.insert(id, Some(handle));
                     }
+                    Err(e) if crate::osm::is_permanently_missing_tile_error(&e) => {
+                        // HTTP 404/410: the tile genuinely does not exist.
+                        self.tile_fail_count.remove(&id);
+                        self.osm_cache.insert(id, None);
+                    }
                     Err(e) => {
-                        let cnt = self.tile_fail_count.entry(id).or_insert(0);
-                        *cnt += 1;
-                        if *cnt <= 3 {
-                            eprintln!("tile {:?} failed (try {}): {}", id, cnt, e);
-                        } else {
-                            self.osm_cache.insert(id, None);
+                        // A temporary network failure never poisons memory
+                        // with a permanent missing-tile marker.
+                        let retry = crate::osm::TileRetry::after_failure(
+                            self.tile_fail_count.get(&id), Instant::now());
+                        if retry.attempts() <= 3 {
+                            eprintln!("tile {:?} failed (try {}): {}", id, retry.attempts(), e);
                         }
+                        self.tile_fail_count.insert(id, retry);
                     }
                 }
                 self.osm_canvas_cache.clear();
+                // Schedule the next visible tile immediately. Previously the
+                // queue stopped after the first four until a map gesture.
+                return self.request_osm_tiles();
             }
             Message::RefreshSystemTheme => {
                 // User-selected themes are pinned; OS notifications must not override them.

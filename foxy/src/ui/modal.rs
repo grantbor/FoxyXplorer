@@ -8,6 +8,111 @@ use crate::{App, Message, ContextMenuState, ContextMenuItem, ColorPickerKind};
 use crate::t;
 use crate::SettingsDraft;
 
+// Include the repository README at compile time: the Windows EXE and other
+// standalone builds do not need a separate README file at runtime.
+const EMBEDDED_README: &str = include_str!("../../../README.md");
+
+fn extract_readme_legal_sections(readme: &str) -> Option<(&str, &str)> {
+    let license_start = readme.find("This program is free software:")?;
+    let (license, _) = readme[license_start..]
+        .split_once("------------------------------------------------------")?;
+    let (_, sources) = readme.split_once("## Источники подложки")?;
+    let (sources, _) = sources.split_once("### Кэширование и нагрузка")?;
+    Some((license.trim(), sources.trim()))
+}
+
+fn readme_legal_sections() -> Option<(&'static str, &'static str)> {
+    extract_readme_legal_sections(EMBEDDED_README)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadmeLineKind {
+    Heading,
+    Paragraph,
+    Bullet,
+    Quote,
+}
+
+// Strip only Markdown presentation markers. Keep the wording and mandatory
+// legal notices from README intact, including their attribution and URLs.
+fn readme_paragraphs(source: &str) -> Vec<(ReadmeLineKind, String)> {
+    let mut paragraphs: Vec<(ReadmeLineKind, String)> = Vec::new();
+    for line in source.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            // A paragraph break, including between consecutive quote blocks.
+            if !paragraphs.is_empty() && paragraphs.last().is_some_and(|(_, text)| !text.is_empty()) {
+                paragraphs.push((ReadmeLineKind::Paragraph, String::new()));
+            }
+            continue;
+        }
+        let (kind, content, starts_new) = if let Some(t) = line.strip_prefix("### ") {
+            (ReadmeLineKind::Heading, t, true)
+        } else if let Some(t) = line.strip_prefix("#### ") {
+            (ReadmeLineKind::Heading, t, true)
+        } else if let Some(t) = line.strip_prefix("- ") {
+            (ReadmeLineKind::Bullet, t, true)
+        } else if let Some(t) = line.strip_prefix("> ") {
+            (ReadmeLineKind::Quote, t, false)
+        } else {
+            (ReadmeLineKind::Paragraph, line, false)
+        };
+        let content = content.replace("**", "").replace('`', "");
+        if !starts_new {
+            if let Some((last_kind, last_text)) = paragraphs.last_mut() {
+                // Continuation lines in README are hard-wrapped; join them
+                // into paragraphs instead of treating each as a UI row.
+                if !last_text.is_empty() && (*last_kind == kind
+                    || (kind == ReadmeLineKind::Paragraph
+                        && *last_kind == ReadmeLineKind::Bullet)) {
+                    last_text.push(' ');
+                    last_text.push_str(&content);
+                    continue;
+                }
+            }
+        }
+        paragraphs.push((kind, content));
+    }
+    paragraphs.into_iter().filter(|(_, text)| !text.is_empty()).collect()
+}
+
+#[cfg(test)]
+mod readme_legal_tests {
+    use super::*;
+
+    #[test]
+    fn embedded_readme_has_program_license_and_all_map_sources() {
+        let (license, sources) = readme_legal_sections().expect("README legal section markers");
+        assert!(license.contains("GNU General Public License"));
+        for source in ["OpenStreetMap", "Sentinel-2", "ESRI", "Copernicus DEM"] {
+            assert!(sources.contains(source), "missing {source} in embedded notices");
+        }
+        assert!(sources.contains("produced using Copernicus WorldDEM-30"));
+        assert!(sources.contains("do not incur any liability"));
+        assert!(!sources.contains("### Кэширование и нагрузка"));
+        assert!(!sources.contains("### Manual point deletion"));
+    }
+
+    #[test]
+    fn embedded_legal_sections_support_windows_line_endings() {
+        let windows_readme = EMBEDDED_README.replace('\n', "\r\n");
+        let (license, sources) = extract_readme_legal_sections(&windows_readme)
+            .expect("README sections with CRLF line endings");
+        assert!(license.starts_with("This program is free software:"));
+        assert!(sources.contains("Copernicus DEM"));
+    }
+
+    #[test]
+    fn legal_text_preserves_multiline_required_copernicus_notices() {
+        let (_, sources) = readme_legal_sections().expect("README legal section markers");
+        let text = readme_paragraphs(sources)
+            .into_iter().map(|(_, s)| s).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus"));
+        assert!(text.contains("provided under COPERNICUS by the European Union and ESA; all rights reserved"));
+        assert!(text.contains("do not incur any liability for any use of the Copernicus WorldDEM-30"));
+    }
+}
+
 // =========================================================
 // Хелпер для форматирования даты/времени в таблице точек
 // =========================================================
@@ -981,6 +1086,65 @@ impl App {
             .width(Length::Fixed(450.0))
             .into()
     }
+    pub(crate) fn view_data_licenses_modal<'a>(&'a self) -> Element<'a, Message> {
+        let width = (self.window_size.width - 48.0).min(780.0).max(1.0);
+        let height = (self.window_size.height - 64.0).min(690.0).max(1.0);
+
+        let mut content = column![].spacing(9).width(Length::Fill);
+        if let Some((license, sources)) = readme_legal_sections() {
+            content = content.push(text(t!("msg_0624")).size(18));
+            for (kind, paragraph) in readme_paragraphs(license) {
+                content = content.push(match kind {
+                    ReadmeLineKind::Heading => text(paragraph).size(17),
+                    ReadmeLineKind::Bullet => text(format!("• {paragraph}")).size(14),
+                    ReadmeLineKind::Quote | ReadmeLineKind::Paragraph => text(paragraph).size(14),
+                });
+            }
+            content = content.push(Space::new().height(12));
+            content = content.push(text(t!("msg_0623")).size(18));
+            for (kind, paragraph) in readme_paragraphs(sources) {
+                content = content.push(match kind {
+                    ReadmeLineKind::Heading => text(paragraph).size(17),
+                    ReadmeLineKind::Bullet => text(format!("• {paragraph}")).size(14),
+                    ReadmeLineKind::Quote | ReadmeLineKind::Paragraph => text(paragraph).size(14),
+                });
+            }
+        } else {
+            content = content.push(text(t!("msg_0626")).size(14));
+        }
+
+        let layout = column![
+            text(t!("msg_0623")).size(21),
+            scrollable(container(content).padding([8, 4]).width(Length::Fill))
+                .height(Length::Fill),
+            row![
+                Space::new().width(Length::Fill),
+                self.btn(t!("msg_0625")).on_press(Message::CloseDataLicenses),
+            ]
+            .align_y(Alignment::Center),
+        ]
+        .spacing(12)
+        .padding(20)
+        .width(Length::Fill)
+        .height(Length::Fixed(height));
+
+        container(layout)
+            .style(|theme: &Theme| {
+                let palette = theme.extended_palette();
+                container::Style {
+                    background: Some(palette.background.base.color.into()),
+                    border: iced::Border {
+                        color: palette.background.strong.color,
+                        width: 1.0,
+                        radius: crate::ui::styles::border_radius().into(),
+                    },
+                    ..Default::default()
+                }
+            })
+            .width(Length::Fixed(width))
+            .into()
+    }
+
     pub(crate) fn view_about_modal<'a>(&'a self) -> Element<'a, Message> {
         let version = env!("CARGO_PKG_VERSION");
 
@@ -1099,15 +1263,14 @@ impl App {
         let bottom_content = row![
             text("GPL-3.0").size(16).color(Color::from_rgb(0.6, 0.6, 0.6)),
             Space::new().width(Length::Fill),
+            self.btn_secondary(t!("msg_0623")).on_press(Message::OpenDataLicenses),
             self.btn(t!("msg_0133")).on_press(Message::CloseAbout),
-        ].align_y(Alignment::Center);
+        ].spacing(10).align_y(Alignment::Center);
 
         // Общая композиция
         let content = column![
             top_content,
             separator(),
-            text(t!("msg_0618")).size(10).width(Length::Fill),
-            text(t!("msg_0619")).size(10).width(Length::Fill),
             bottom_content
         ]
         .spacing(24)

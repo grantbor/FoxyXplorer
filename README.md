@@ -26,6 +26,8 @@
 
 - Поддержка OSM, Sentinel-2 Cloudless, ESRI World Imagery
 
+- Дополнительный цветной слой высот Copernicus DEM GLO-30 с адаптивной легендой
+
 - Магнитное склонение для текущей локации (WMM2025)
 
 - Встроенный [http сервер](docs/FoxyDrop.md) для загрузки треков по локальной сети с мобильных устройств
@@ -108,6 +110,36 @@ FoxyXplorer поддерживает три онлайн-источника по
 доступность, точность или актуальность и не несёт ответственности за
 возможные перебои в работе сервиса ESRI. Доступность тайлов может
 различаться по регионам и не гарантируется.
+
+### Copernicus DEM GLO-30 (слой высот)
+
+- **Источник:** Copernicus Digital Elevation Model (DEM), GLO-30 Public
+- **Данные:** цифровая модель поверхности (DSM), около 30 м; возможны
+  пропуски, а высоты могут включать деревья и здания
+- **Хранение:** исходные числовые данные загружаются выборочно из
+  Cloud Optimized GeoTIFF и кэшируются отдельно в `~/.cache/foxy/dem/glo30/…`
+- **Атрибуция на карте:** «Copernicus DEM GLO-30 © DLR / Airbus — EU / ESA»;
+  при включении поверх онлайн-подложки выводится отдельной строкой над
+  атрибуцией выбранного источника
+- **Лицензия и правовые условия:**
+  https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM
+
+Обязательное уведомление для адаптированных данных Copernicus WorldDEM-30:
+
+> produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus
+> Defence and Space GmbH 2014-2018 provided under COPERNICUS by the
+> European Union and ESA; all rights reserved
+
+Обязательное уведомление об ограничении ответственности:
+
+> The organisations in charge of the Copernicus programme by law or by
+> delegation do not incur any liability for any use of the Copernicus
+> WorldDEM-30
+
+Copernicus не является общественным достоянием. Использование данных
+не подразумевает официального одобрения FoxyXplorer организациями
+Copernicus, ЕС, ESA, DLR или Airbus. При распространении приложения
+эти правовые сведения должны оставаться доступны пользователям.
 
 ### Кэширование и нагрузка
 

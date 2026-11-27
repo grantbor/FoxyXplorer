@@ -2142,5 +2142,29 @@
   "msg_0620": {
     "ru": "Copernicus DEM: загрузка высот…",
     "en": "Copernicus DEM: loading elevations…"
+  },
+  "msg_0621": {
+    "ru": "Высота: {height} м",
+    "en": "Elevation: {height} m"
+  },
+  "msg_0622": {
+    "ru": "Высота: —",
+    "en": "Elevation: —"
+  },
+  "msg_0623": {
+    "ru": "Источники данных и лицензии",
+    "en": "Data sources and licenses"
+  },
+  "msg_0624": {
+    "ru": "Лицензия FoxyXplorer",
+    "en": "FoxyXplorer license"
+  },
+  "msg_0625": {
+    "ru": "Назад к программе",
+    "en": "Back to About"
+  },
+  "msg_0626": {
+    "ru": "Не удалось прочитать раздел README",
+    "en": "Unable to read README section"
   }
 }

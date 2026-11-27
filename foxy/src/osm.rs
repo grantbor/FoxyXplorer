@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use iced::widget::image::Handle;
 use reqwest::Client;
@@ -10,6 +10,61 @@ use crate::BasemapSource;
 pub type TileId = (u8, u32, u32);
 
 pub const TILE_SIZE: f64 = 256.0;
+
+// Bound the total number of in-flight requests, not just each batch.
+pub(crate) const MAX_IN_FLIGHT: usize = 4;
+
+// Transient failures remain retryable; a disconnected client must not leave
+// permanent holes on the map. Delays are deliberately bounded to avoid
+// hammering tile providers when the network is down.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TileRetry {
+    attempts: u32,
+    retry_at: Instant,
+}
+
+impl TileRetry {
+    pub(crate) fn after_failure(previous: Option<&Self>, now: Instant) -> Self {
+        let attempts = previous.map_or(1, |s| s.attempts.saturating_add(1));
+        let wait_secs = match attempts {
+            1 => 2,
+            2 => 5,
+            3 => 10,
+            4 => 20,
+            _ => 30,
+        };
+        Self { attempts, retry_at: now + Duration::from_secs(wait_secs) }
+    }
+
+    pub(crate) fn ready(&self, now: Instant) -> bool {
+        now >= self.retry_at
+    }
+
+    pub(crate) fn attempts(&self) -> u32 {
+        self.attempts
+    }
+}
+
+// Keep all scheduling decisions testable without an HTTP client or an Iced App.
+// A cached None represents a genuinely missing tile (HTTP 404/410).
+pub(crate) fn plan_tile_requests(
+    visible: &[TileId],
+    cached: &HashMap<TileId, Option<Handle>>,
+    pending: &HashSet<TileId>,
+    retries: &HashMap<TileId, TileRetry>,
+    now: Instant,
+) -> Vec<TileId> {
+    let free_slots = MAX_IN_FLIGHT.saturating_sub(pending.len());
+    visible.iter().copied()
+        .filter(|id| !cached.contains_key(id) && !pending.contains(id))
+        .filter(|id| retries.get(id).is_none_or(|retry| retry.ready(now)))
+        .take(free_slots)
+        .collect()
+}
+
+pub(crate) fn is_permanently_missing_tile_error(error: &str) -> bool {
+    matches!(error, "HTTP 404" | "HTTP 410")
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct OsmCacheConfig {
@@ -302,5 +357,61 @@ pub fn tile_screen_rect(
         y: sy0.min(sy1) as f32,
         width: (sx1 - sx0).abs() as f32,
         height: (sy1 - sy0).abs() as f32,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completed_tile_frees_slot_for_next_visible_tile() {
+        let ids: Vec<TileId> = (0..8).map(|x| (8, x, 5)).collect();
+        let cached = HashMap::new();
+        let mut pending: HashSet<TileId> = ids[..4].iter().copied().collect();
+        let failures = HashMap::new();
+        let now = Instant::now();
+
+        assert!(plan_tile_requests(&ids, &cached, &pending, &failures, now).is_empty());
+        pending.remove(&ids[0]);
+        assert_eq!(plan_tile_requests(&ids, &cached, &pending, &failures, now), vec![ids[0]]);
+        // Once the completed tile is cached, the next missing tile is selected.
+        let mut cached = HashMap::new();
+        cached.insert(ids[0], Some(Handle::from_bytes(vec![1])));
+        assert_eq!(plan_tile_requests(&ids, &cached, &pending, &failures, now), vec![ids[4]]);
+    }
+
+    #[test]
+    fn transient_errors_wait_and_resume_without_navigation() {
+        let now = Instant::now();
+        let id = (10, 3, 4);
+        let visible = [id];
+        let cached = HashMap::new();
+        let pending = HashSet::new();
+        let mut retries = HashMap::new();
+
+        for (attempt, delay) in [(1, 2), (2, 5), (3, 10), (4, 20), (5, 30), (6, 30)] {
+            let fail = TileRetry::after_failure(retries.get(&id), now);
+            assert_eq!(fail.attempts(), attempt);
+            retries.insert(id, fail);
+            assert!(plan_tile_requests(&visible, &cached, &pending, &retries,
+                now + Duration::from_secs(delay - 1)).is_empty());
+            assert_eq!(plan_tile_requests(&visible, &cached, &pending, &retries,
+                now + Duration::from_secs(delay)), vec![id]);
+        }
+    }
+
+    #[test]
+    fn permanently_missing_tiles_are_not_retried() {
+        assert!(is_permanently_missing_tile_error("HTTP 404"));
+        assert!(is_permanently_missing_tile_error("HTTP 410"));
+        assert!(!is_permanently_missing_tile_error("HTTP 503"));
+        assert!(!is_permanently_missing_tile_error("connection reset"));
+
+        let id = (7, 20, 21);
+        let mut cached = HashMap::new();
+        cached.insert(id, None);
+        assert!(plan_tile_requests(&[id], &cached, &HashSet::new(),
+            &HashMap::new(), Instant::now()).is_empty());
     }
 }

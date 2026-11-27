@@ -71,6 +71,9 @@ pub(crate) struct Rendered {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) rgba: Vec<u8>,
+    // Numeric samples of the same viewport grid that was used to paint rgba.
+    // Kept so the cursor can report elevation without any new disk or HTTP IO.
+    pub(crate) samples: Arc<[f32]>,
     pub(crate) lower: f32,
     pub(crate) upper: f32,
 }
@@ -78,6 +81,9 @@ pub(crate) struct Rendered {
 pub(crate) struct Overlay {
     pub(crate) view: View,
     pub(crate) image: Handle,
+    width: u32,
+    height: u32,
+    samples: Arc<[f32]>,
     pub(crate) lower: f32,
     pub(crate) upper: f32,
 }
@@ -172,6 +178,9 @@ impl State {
                 self.displayed = Some(Overlay {
                     view: result.view,
                     image: Handle::from_rgba(result.width, result.height, result.rgba.clone()),
+                    width: result.width,
+                    height: result.height,
+                    samples: Arc::clone(&result.samples),
                     lower: result.lower,
                     upper: result.upper,
                 });
@@ -201,6 +210,31 @@ impl State {
             None
         }
     }
+
+    /// Returns a numeric DEM height at the cursor, only for the currently
+    /// displayed viewport. Missing/nodata pixels have no height.
+    pub(crate) fn elevation_at(&self, current: View, point: iced::Point) -> Option<f32> {
+        let ready = self.visible(current)?;
+        sample_cursor_height(&ready.samples, ready.width, ready.height, current, point)
+    }
+}
+
+// The colour overlay is resampled to a bounded numeric grid (normally ~2
+// screen pixels per cell). Read the corresponding height, not its colour or
+// the percentile legend limits; retain transparent nodata as missing.
+fn sample_cursor_height(
+    samples: &[f32], width: u32, height: u32, view: View, point: iced::Point,
+) -> Option<f32> {
+    if width == 0 || height == 0 || !point.x.is_finite() || !point.y.is_finite()
+        || point.x < 0.0 || point.y < 0.0
+        || point.x >= view.width as f32 || point.y >= view.height as f32
+    {
+        return None;
+    }
+    let x = (point.x as f64 * width as f64 / view.width as f64).floor() as usize;
+    let y = (point.y as f64 * height as f64 / view.height as f64).floor() as usize;
+    let index = y.checked_mul(width as usize)?.checked_add(x)?;
+    samples.get(index).copied().filter(|h| h.is_finite())
 }
 
 pub(crate) fn palette(t: f32) -> [u8; 3] {
@@ -802,7 +836,7 @@ fn render_tiles(view: View, tiles: HashMap<(i32, i32), Tile>) -> Result<Rendered
     let high = valid[((valid.len() - 1) as f64 * 0.98).round() as usize];
     let upper = if high > lower { high } else { lower + 1.0 };
     let mut rgba = Vec::with_capacity(sampled.len() * 4);
-    for h in sampled {
+    for &h in &sampled {
         if h.is_finite() {
             rgba.extend_from_slice(&palette((h - lower) / (upper - lower)));
             rgba.push(170); // preserve labels and terrain detail from the base map
@@ -810,7 +844,7 @@ fn render_tiles(view: View, tiles: HashMap<(i32, i32), Tile>) -> Result<Rendered
             rgba.extend_from_slice(&[0, 0, 0, 0]);
         }
     }
-    Ok(Rendered { view, width, height, rgba, lower, upper })
+    Ok(Rendered { view, width, height, rgba, samples: sampled.into(), lower, upper })
 }
 
 async fn load_and_render_mode(view: View, client: Option<&reqwest::Client>)
@@ -1072,6 +1106,44 @@ mod tests {
         let image = render_tiles(v, tiles).unwrap();
         assert_eq!(image.lower, 500.0);
         assert_eq!(image.upper, 501.0);
+        assert!(image.samples.iter().all(|&h| h == 500.0));
+    }
+
+    #[test]
+    fn cursor_elevation_reads_numeric_samples_not_palette() {
+        let view = View::new(10.0, 20.0, 5.0, 100.0, 80.0);
+        let samples = [137.4, f32::NAN, -18.5, 3200.0];
+        let p = |x, y| iced::Point::new(x, y);
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(2.0, 2.0)), Some(137.4));
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(55.0, 2.0)), None);
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(2.0, 60.0)), Some(-18.5));
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(99.0, 79.0)), Some(3200.0));
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(100.0, 79.0)), None);
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(-1.0, 5.0)), None);
+        assert_eq!(sample_cursor_height(&samples, 2, 2, view, p(f32::NAN, 5.0)), None);
+    }
+
+    #[test]
+    fn cursor_elevation_is_hidden_for_stale_or_disabled_dem() {
+        let mut state = State::default();
+        let view = View::new(10.0, 20.0, 5.0, 100.0, 80.0);
+        let other = View::new(11.0, 20.0, 5.0, 100.0, 80.0);
+        let p = iced::Point::new(10.0, 10.0);
+        assert!(state.elevation_at(view, p).is_none());
+        state.set_enabled(true);
+        state.sync(view);
+        let (generation, _, _) = state.begin_if_ready(state.deadline.unwrap()).unwrap();
+        let rendered = Arc::new(Rendered {
+            view, width: 1, height: 1, rgba: vec![1, 2, 3, 170],
+            samples: Arc::from(vec![342.0]), lower: 200.0, upper: 500.0,
+        });
+        assert!(state.complete(generation, Ok(Some(rendered))).is_none());
+        assert_eq!(state.elevation_at(view, p), Some(342.0));
+        assert!(state.elevation_at(other, p).is_none());
+        state.sync(other);
+        assert!(state.elevation_at(view, p).is_none());
+        state.set_enabled(false);
+        assert!(state.elevation_at(other, p).is_none());
     }
 
     #[test]
@@ -1121,6 +1193,7 @@ mod tests {
         assert_eq!(mode, LoadMode::CacheOnly);
         let image = Arc::new(Rendered {
             view, width: 1, height: 1, rgba: vec![1, 2, 3, 170],
+            samples: Arc::from(vec![150.0]),
             lower: 100.0, upper: 200.0,
         });
         assert!(state.complete(generation, Ok(Some(image))).is_none());

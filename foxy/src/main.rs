@@ -392,6 +392,7 @@ pub(crate) enum Message {
     Moved(Point), MapCursorExited, Scrolled(ScrollDelta), Fit,
     PickKit, KitPicked(Option<PathBuf>),
     OsmTileLoaded(BasemapSource, osm::TileId, Result<Vec<u8>, String>),
+    OsmRetryTick,
     PickTrack, TracksPicked(Option<Vec<PathBuf>>),
     ToggleTrackVisible(u64, bool), SelectTrack(u64), ToggleAllTracksVisible, DeleteSelectedTracks,
     SaveTracksPlt, SaveTracksPltPicked(Option<PathBuf>),
@@ -488,6 +489,8 @@ pub(crate) enum Message {
     AutoSaveTick,
     OpenAbout,
     CloseAbout,
+    OpenDataLicenses,
+    CloseDataLicenses,
     CheckForUpdates,
     UpdateCheckFinished(Result<Option<String>, ()>),
     OpenUrl(String),
@@ -760,7 +763,7 @@ pub(crate) struct App {
     pub(crate) context_menu: Option<ContextMenuState>,
     pub(crate) global_cursor: Point,
     pub(crate) search_focused: bool,
-    pub(crate) tile_fail_count: std::collections::HashMap<(u8, u32, u32), u8>,
+    pub(crate) tile_fail_count: std::collections::HashMap<osm::TileId, osm::TileRetry>,
 }
 
 pub(crate) enum Modal {
@@ -785,6 +788,7 @@ pub(crate) enum Modal {
         distance_input: String,
     },
     About,
+    DataLicenses,
     //Settings,
     Settings { draft: SettingsDraft },
     FoxyDrop,
@@ -1138,7 +1142,16 @@ impl App {
         let Some(p) = self.cursor else { return };
         let (lon, lat) = self.screen_to_lonlat(p);
         let mut s = format!("{} {}", t!("msg_0208"), format_pair(lat, lon, self.format));
-        
+
+        if self.dem.enabled {
+            let elevation = self.dem.elevation_at(self.current_dem_view(), p);
+            let readout = match elevation {
+                Some(height) => crate::tf!("msg_0621", height = format!("{height:.0}")),
+                None => t!("msg_0622").to_owned(),
+            };
+            s.push_str(&format!("   |   {readout}"));
+        }
+
         if let Some(g) = &self.grid {
             if let Some(n) = g.nearest(lat, lon, self.declination) {
                 s += &format!("   |   {} {}: {:.0} {}, {}  {:.0}°", t!("msg_0209"), n.node.name, n.distance_m, t!("msg_0258"), t!("msg_0210"), n.magnetic_azimuth);
@@ -1262,6 +1275,13 @@ impl App {
                 .map(|_| Message::DemTick));
         }
 
+        // Retry transient tile errors even if the user stops moving the map.
+        // Do not run a timer for cached tiles or for failures off screen.
+        if self.has_visible_osm_retries() {
+            subs.push(iced::time::every(std::time::Duration::from_secs(1))
+                .map(|_| Message::OsmRetryTick));
+        }
+
         if self.drop_phase == foxydrop::Phase::Running {
             subs.push(iced::time::every(std::time::Duration::from_secs(2))
                 .map(|_| Message::FoxyDropHeartbeat));
@@ -1307,13 +1327,22 @@ impl App {
     }
     
 
-    pub(crate) fn request_osm_tiles(&mut self) -> Task<Message> {
-        if !self.osm_active() { return Task::none(); }
-
-        let source = match self.online_basemap() {
-            Some(s) => s,
-            None => return Task::none(),
+    fn has_visible_osm_retries(&self) -> bool {
+        if self.tile_fail_count.is_empty() { return false; }
+        let Some(source) = self.online_basemap() else { return false; };
+        let sz = self.last_bounds.get();
+        let max_z = match source {
+            BasemapSource::Sentinel2 => Some(14),
+            BasemapSource::Esri => Some(19),
+            BasemapSource::Osm => None,
         };
+        let (_, tiles) = osm::visible_tiles(self.cx, self.cy, self.scale,
+            sz.width as f64, sz.height as f64, max_z);
+        tiles.iter().any(|id| self.tile_fail_count.contains_key(id))
+    }
+
+    pub(crate) fn request_osm_tiles(&mut self) -> Task<Message> {
+        let Some(source) = self.online_basemap() else { return Task::none(); };
 
         let sz = self.last_bounds.get();
         let max_z = match source {
@@ -1328,14 +1357,18 @@ impl App {
         );
         self.osm_z = z;
 
+        // Four requests in flight *total*: each completion fills the free slot.
+        // Failed tiles become eligible again only after their retry deadline.
+        let ids = osm::plan_tile_requests(
+            &tiles,
+            &self.osm_cache.mem.borrow(),
+            &self.osm_cache.pending.borrow(),
+            &self.tile_fail_count,
+            std::time::Instant::now(),
+        );
         let mut tasks: Vec<Task<Message>> = Vec::new();
-        for id in tiles {
-            if self.osm_cache.get(id).is_some() || self.osm_cache.pending.borrow().contains(&id) {
-                continue;
-            }
-            if tasks.len() >= 4 { break; }
+        for id in ids {
             self.osm_cache.pending.borrow_mut().insert(id);
-
             let client = self.osm_client.clone();
             let disk = self.osm_cache.disk_path(id);
             let url = self.tile_url(id);
@@ -1357,7 +1390,7 @@ impl App {
                             }
                             Err(e) => (id, Err(e.to_string())),
                         },
-                        Ok(r) => (id, Err(format!("HTTP {}", r.status()))),
+                        Ok(r) => (id, Err(format!("HTTP {}", r.status().as_u16()))),
                         Err(e) => (id, Err(e.to_string())),
                     }
                 },
@@ -1574,6 +1607,13 @@ impl App {
                 modal_backdrop(),
                 container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
             ].into()
+        } else if let Some(Modal::DataLicenses) = &self.modal {
+            let modal_ui = self.view_data_licenses_modal();
+            stack![
+                base_ui,
+                modal_backdrop(),
+                container(modal_ui).center_x(Length::Fill).center_y(Length::Fill)
+            ].into()
         } else if let Some(Modal::FoxyDrop) = &self.modal {
             let modal_ui = self.view_foxydrop_modal();
             stack![
@@ -1651,6 +1691,7 @@ impl App {
         let wiki_canvas = Canvas::new(canvas::WikiProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let dem_canvas = Canvas::new(canvas::DemProgram { app: self }).width(Length::Fill).height(Length::Fill);
         let dem_legend_canvas = Canvas::new(canvas::DemLegendProgram { app: self }).width(Length::Fill).height(Length::Fill);
+        let attribution_canvas = Canvas::new(canvas::AttributionProgram { app: self }).width(Length::Fill).height(Length::Fill);
 
         // Custom tool cursors are rendered as 24x24 SVGs. iced::mouse::Interaction
         // does not support custom SVG cursors. Each icon has its own hotspot,
@@ -1683,7 +1724,7 @@ impl App {
             && self.cursor.is_some_and(|p| p.x >= 56.0)
             && cursor_icon.is_some();
 
-        let canvases = stack![map_canvas, dem_canvas, wiki_canvas, tracks_canvas, grid_canvas, dem_legend_canvas];
+        let canvases = stack![map_canvas, dem_canvas, wiki_canvas, tracks_canvas, grid_canvas, dem_legend_canvas, attribution_canvas];
         let contents: Element<'_, Message> = if show_tool_cursor {
             let (index, hotspot_x, hotspot_y) = cursor_icon.unwrap();
             let p = self.cursor.unwrap();

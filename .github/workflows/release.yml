@@ -177,7 +177,7 @@ jobs:
           pkgdesc="FoxyXplorer cartographic app"
           arch=('x86_64')
           url="https://github.com/${GITHUB_REPOSITORY}"
-          license=('MIT')
+          license=('GPL-3.0-or-later')
           depends=('gtk3' 'libxkbcommon' 'wayland')
           makedepends=('cargo' 'clang' 'llvm' 'perl')
           source=()
@@ -198,6 +198,8 @@ jobs:
                   "$pkgdir/usr/share/icons/hicolor/256x256/apps/foxyxplorer.png"
               install -Dm644 "$GITHUB_WORKSPACE/foxy/foxyxplorer.desktop" \
                   "$pkgdir/usr/share/applications/foxyxplorer.desktop"
+              install -Dm644 "$GITHUB_WORKSPACE/LICENSE" \
+                  "$pkgdir/usr/share/licenses/foxyxplorer/LICENSE"
           }
           EOF
           chown builder:builder PKGBUILD
