@@ -4,6 +4,7 @@ mod foxydrop;
 mod foxyupload;
 mod canvas;
 mod dem;
+mod circle;
 mod domain;
 mod io;
 mod osm;
@@ -424,6 +425,7 @@ pub(crate) enum Message {
     SelectTrackPoint(usize, usize), // (sect, pt_idx)
     DeleteSelectedTrackPoints { leave_gap: bool }, // false: stitch, true: split around deleted points
     CenterOnTrackPoint(usize, usize),
+    CenterOnSelectedTrackPoints,
     SplitTrackAtPoint(usize, usize),
     StitchSegments,
     SelectPointsOutsideGrid,
@@ -454,7 +456,7 @@ pub(crate) enum Message {
     StatusNoticeTick,
     KeyPressed(iced::keyboard::Key, Modifiers),
     KeyReleased(iced::keyboard::Key),
-    FreehandReleased,
+    FreehandReleased, CircleDragReleased,
     MeasureWaypoints,
     CloseWaypointMeasure,
     SaveSessionAs,
@@ -541,6 +543,7 @@ pub(crate) enum Tool {
     SelectObjects,
     SelectPoints,
     DrawTrack,
+    Circle,
     Freehand,
     AddWaypoint,
     Ruler,
@@ -759,6 +762,7 @@ pub(crate) struct App {
     pub(crate) rubber_band_subtract: bool,
     pub(crate) last_point_clicked: Option<(u64, usize, usize)>,
     pub(crate) drawing_track: Option<DrawingTrack>,
+    pub(crate) circle_draft: Option<circle::CircleDraft>,
     pub(crate) freehand_is_drawing: bool,
     pub(crate) ruler_points: Vec<(f64, f64)>, // (lon, lat)
     pub(crate) context_menu: Option<ContextMenuState>,
@@ -1016,7 +1020,7 @@ impl App {
                     modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false, 
                     moving_points: false, move_start_cursor: None,  point_press_start: None, 
                     point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-                    rubber_band_end: None, rubber_band_subtract: false, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
+                    rubber_band_end: None, rubber_band_subtract: false, last_point_clicked: None, drawing_track: None, circle_draft: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
                     current_theme: initial_theme_kind, ui_theme: ui_theme.clone(), compact_view: false, last_open_dir: None, last_save_dir: None,
                 
                 };
@@ -1082,7 +1086,7 @@ impl App {
             modal_drag_start_offset: Point::new(0.0, 0.0), waypoint_crosshair: None, active_tool: Tool::Pan, space_pan_active: false,
             moving_points: false, move_start_cursor: None,  point_press_start: None, 
             point_pressed_key: None, point_is_dragging: false, rubber_band_start: None, 
-            rubber_band_end: None, rubber_band_subtract: false, last_point_clicked: None, drawing_track: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
+            rubber_band_end: None, rubber_band_subtract: false, last_point_clicked: None, drawing_track: None, circle_draft: None, freehand_is_drawing: false, ruler_points: Vec::new(), context_menu: None, global_cursor: Point::ORIGIN, tile_fail_count: HashMap::new(), last_declination_calc: None,
             current_theme: initial_theme_kind, ui_theme: ui_theme.clone(), compact_view: false, last_open_dir: None, last_save_dir: None,
         };
 
@@ -1312,6 +1316,14 @@ impl App {
                         Some(Message::SidebarDragCancel),
                     _ => None,
                 }
+            }));
+        }
+        if self.circle_draft.as_ref().is_some_and(|draft| draft.dragging_edge) {
+            subs.push(iced::event::listen_with(|event, _status, _id| {
+                if let iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) = event {
+                    return Some(Message::CircleDragReleased);
+                }
+                None
             }));
         }
         if self.freehand_is_drawing {
@@ -1694,7 +1706,7 @@ impl App {
         // does not support custom SVG cursors. Each icon has its own hotspot,
         // whose position corresponds to the actual mouse event coordinates.
         // Generated outlines are cached once; only SVG handles are made in view().
-        static OUTLINED_CURSORS: std::sync::OnceLock<[Vec<u8>; 5]> =
+        static OUTLINED_CURSORS: std::sync::OnceLock<[Vec<u8>; 6]> =
             std::sync::OnceLock::new();
         let cursor_images = OUTLINED_CURSORS.get_or_init(|| [
             outlined_tool_cursor_svg(lucide_iced::bytes::MOUSE_POINTER),
@@ -1702,6 +1714,7 @@ impl App {
             outlined_tool_cursor_svg(lucide_iced::bytes::PEN_TOOL),
             outlined_tool_cursor_svg(lucide_iced::bytes::PENCIL),
             outlined_tool_cursor_svg(lucide_iced::bytes::CIRCLE_PLUS),
+            outlined_tool_cursor_svg(lucide_iced::bytes::CIRCLE),
         ]);
         let cursor_icon: Option<(usize, f32, f32)> = match self.active_tool {
             Tool::SelectObjects => Some((0, 4.0, 3.0)),
@@ -1709,6 +1722,7 @@ impl App {
             Tool::DrawTrack     => Some((2, 2.3, 2.3)),
             Tool::Freehand      => Some((3, 4.0, 20.0)),
             Tool::AddWaypoint   => Some((4, 12.0, 12.0)),
+            Tool::Circle        => Some((5, 12.0, 12.0)),
             _ => None,
         };
 

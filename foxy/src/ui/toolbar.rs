@@ -175,6 +175,7 @@ impl App {
             make_tool_btn(crate::Tool::SelectPoints, lucide_iced::bytes::MOUSE_POINTER_2, t!("msg_0195")),
             make_tool_btn(crate::Tool::DrawTrack, lucide_iced::bytes::PEN_TOOL, t!("msg_0196")),
             make_tool_btn(crate::Tool::Freehand, lucide_iced::bytes::PENCIL, t!("msg_0197")),
+            make_tool_btn(crate::Tool::Circle, lucide_iced::bytes::CIRCLE, t!("msg_0629")),
             make_tool_btn(crate::Tool::AddWaypoint, lucide_iced::bytes::CIRCLE_PLUS, t!("msg_0198")),
             make_tool_btn(crate::Tool::Ruler, lucide_iced::bytes::RULER, t!("msg_0199")),
         ]

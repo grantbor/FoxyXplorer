@@ -245,7 +245,12 @@ impl App {
             scrollable(
                 row![
                     self.btn_secondary(t!("msg_0129")).on_press_maybe(
-                        state.last_clicked.map(|(s, p)| Message::CenterOnTrackPoint(s, p))
+                        match state.selected_points.len() {
+                            0 => None,
+                            1 => state.selected_points.iter().next()
+                                .map(|&(s, p)| Message::CenterOnTrackPoint(s, p)),
+                            _ => Some(Message::CenterOnSelectedTrackPoints),
+                        }
                     ),
                     self.btn_secondary(t!("msg_0130")).on_press_maybe(
                         state.last_clicked.map(|(s, p)| Message::SplitTrackAtPoint(s, p))

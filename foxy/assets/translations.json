@@ -728,8 +728,8 @@
     "en": "Geodata"
   },
   "msg_0183": {
-    "ru": "Загрузить треки / точки (GPX, PLT, WPT, MS, KML)",
-    "en": "Load tracks / waypoints (GPX, PLT, WPT, MS, KML)"
+    "ru": "Загрузить треки / точки (GPX, PLT, WPT, MS, FIT, KML)",
+    "en": "Load tracks / waypoints (GPX, PLT, WPT, MS, FIT, KML)"
   },
   "msg_0184": {
     "ru": "Выключить сетку привязки",
@@ -2174,5 +2174,29 @@
   "msg_0628": {
     "ru": "Для экспорта FIT должен быть выбран ровно один трек",
     "en": "FIT export requires exactly one selected track"
-  }
+  },
+  "msg_0629": {
+      "ru": "Окружность: 2 клика, изменение радиуса перетаскиванием, Enter/Esc",
+      "en": "Circle: 2 clicks, drag edge to resize, Enter/Esc"
+    },
+    "msg_0630": {
+      "ru": "Радиус: {value}",
+      "en": "Radius: {value}"
+    },
+    "msg_0631": {
+      "ru": "Площадь: {value}",
+      "en": "Area: {value}"
+    },
+    "msg_0632": {
+      "ru": "Создать окружность",
+      "en": "Create circle"
+    },
+    "msg_0633": {
+      "ru": "Окружность {id}",
+      "en": "Circle {id}"
+    },
+    "msg_0634": {
+      "ru": "можно перетаскивать",
+      "en": "drag to resize"
+    }
 }

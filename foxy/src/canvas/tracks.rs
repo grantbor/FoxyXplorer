@@ -7,6 +7,30 @@ pub struct TrackProgram<'a> {
     pub app: &'a App,
 }
 
+/// One consistent set of area units for circle and ruler: m² below 0.1 km², km² above.
+fn format_area(area_m2: f64) -> String {
+    if area_m2 >= 100_000.0 {
+        format!("{:.2} {}", area_m2 / 1_000_000.0, crate::t!("msg_0262"))
+    } else {
+        format!("{:.0} {}", area_m2, crate::t!("msg_0261"))
+    }
+}
+
+#[cfg(test)]
+mod area_format_tests {
+    use super::format_area;
+
+    #[test]
+    fn area_uses_square_meters_or_square_kilometers_only() {
+        assert_eq!(format_area(20_000.0), "20000 м²");
+        assert_eq!(format_area(99_999.0), "99999 м²");
+        assert_eq!(format_area(100_000.0), "0.10 км²");
+        assert_eq!(format_area(332_956.0), "0.33 км²");
+        assert_eq!(format_area(1_000_000.0), "1.00 км²");
+        assert_eq!(format_area(2_500_000.0), "2.50 км²");
+    }
+}
+
 // Вспомогательная функция для создания пунктирной линии
 /// Паттерн (dash/gap/dash/gap/...) для каждого стиля линии.
 /// Пустой слайс = сплошная линия.
@@ -384,6 +408,93 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
             }
 
             // ==========================================
+            // EDITABLE CIRCLE: only a preview until Enter commits a polygon.
+            // ==========================================
+            if let Some(draft) = &app.circle_draft {
+                let ring = draft.ring();
+                if ring.len() > 3 {
+                    let pts: Vec<Point> = ring.iter().map(|&(lon, lat)| {
+                        let (mx, my) = merc_of(lon, lat);
+                        to_screen(mx, my)
+                    }).collect();
+                    let path = CanvasPath::new(|p| {
+                        p.move_to(pts[0]);
+                        for &pt in pts.iter().skip(1) { p.line_to(pt); }
+                        p.close();
+                    });
+                    let color = Color::from_rgb8(0x2a, 0x7f, 0xff);
+                    frame.fill(&path, Color::from_rgba8(42, 127, 255, 0.12));
+                    frame.stroke(&path, canvas::Stroke::default().with_color(color).with_width(2.2));
+                    let (mx, my) = merc_of(draft.center_lon, draft.center_lat);
+                    let center = to_screen(mx, my);
+                    frame.fill(&CanvasPath::circle(center, 4.0), Color::WHITE);
+                    frame.stroke(&CanvasPath::circle(center, 4.0),
+                        canvas::Stroke::default().with_color(color).with_width(1.5));
+
+                    let radius_text = if draft.radius_m >= 1000.0 {
+                        format!("{:.2} {}", draft.radius_m / 1000.0, crate::t!("msg_0259"))
+                    } else {
+                        format!("{:.0} {}", draft.radius_m, crate::t!("msg_0258"))
+                    };
+                    let area_text = format_area(draft.area_m2());
+                    let label = format!("{}    {}",
+                        crate::tf!("msg_0630", value = radius_text),
+                        crate::tf!("msg_0631", value = area_text));
+                    let width = (label.chars().count() as f32 * 7.3 + 18.0)
+                        .min((bounds.width - 10.0).max(0.0));
+                    let left = (center.x - width / 2.0)
+                        .clamp(5.0, (bounds.width - width - 5.0).max(5.0));
+                    let top = (center.y - 35.0)
+                        .clamp(5.0, (bounds.height - 26.0).max(5.0));
+                    frame.fill_rectangle(Point::new(left, top), iced::Size::new(width, 25.0),
+                        Color::from_rgba8(0, 0, 0, 0.82));
+                    frame.fill_text(canvas::Text {
+                        content: label,
+                        position: Point::new(left + width / 2.0, top + 12.5),
+                        color: Color::WHITE,
+                        size: iced::Pixels(13.0),
+                        align_x: iced::widget::text::Alignment::Center,
+                        align_y: iced::alignment::Vertical::Center,
+                        ..Default::default()
+                    });
+
+                    // Once the radius is locked, show where the edge can be grabbed.
+                    // The dot is snapped to the outline, not placed at the raw cursor.
+                    if draft.fixed && !draft.dragging_edge && app.map_cursor_inside {
+                        if let Some(cursor) = app.cursor {
+                            if let Some(edge) = draft.edge_hit(cursor, bounds.size(), app.cx, app.cy, app.scale) {
+                                let dot = CanvasPath::circle(edge, 5.0);
+                                frame.fill(&dot, Color::WHITE);
+                                frame.stroke(&dot, canvas::Stroke::default().with_color(color).with_width(2.0));
+
+                                let hint = crate::t!("msg_0634");
+                                let hint_w = (hint.chars().count() as f32 * 7.3 + 16.0)
+                                    .min((bounds.width - 10.0).max(0.0));
+                                let hint_x = (edge.x + 14.0)
+                                    .clamp(5.0, (bounds.width - hint_w - 5.0).max(5.0));
+                                let hint_y = (if edge.y + 33.0 > bounds.height {
+                                    edge.y - 31.0
+                                } else {
+                                    edge.y + 10.0
+                                }).clamp(5.0, (bounds.height - 24.0).max(5.0));
+                                frame.fill_rectangle(Point::new(hint_x, hint_y),
+                                    iced::Size::new(hint_w, 24.0), Color::from_rgba8(0, 0, 0, 0.85));
+                                frame.fill_text(canvas::Text {
+                                    content: hint.to_string(),
+                                    position: Point::new(hint_x + hint_w / 2.0, hint_y + 12.0),
+                                    color: Color::WHITE,
+                                    size: iced::Pixels(13.0),
+                                    align_x: iced::widget::text::Alignment::Center,
+                                    align_y: iced::alignment::Vertical::Center,
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
             // РИСУЕМЫЙ ТРЕК (DrawTrack / Freehand)
             // ==========================================
             if let Some(dt) = &app.drawing_track {
@@ -636,13 +747,7 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
                     }
                     area_m2 = (area_m2 / 2.0).abs();
                     
-                    let area_text = if area_m2 >= 1_000_000.0 {
-                        format!("{} {:.2} {}", crate::t!("msg_0257"), area_m2 / 1_000_000.0, crate::t!("msg_0262"))
-                    } else if area_m2 >= 10_000.0 {
-                        format!("{} {:.2} {}", crate::t!("msg_0257"), area_m2 / 10_000.0, crate::t!("msg_0260"))
-                    } else {
-                        format!("{} {:.0} {}", crate::t!("msg_0257"), area_m2, crate::t!("msg_0261"))
-                    };
+                    let area_text = format!("{} {}", crate::t!("msg_0257"), format_area(area_m2));
 
                     let cx = sum_sx / (screen_pts.len() as f32 - 1.0);
                     let cy = sum_sy / (screen_pts.len() as f32 - 1.0);

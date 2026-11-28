@@ -34,6 +34,50 @@ fn move_to_index<T>(items: &mut Vec<T>, from: usize, to: usize) -> bool {
     true
 }
 
+/// Fit multiple selected Tracklist points with a 100 px margin on *every*
+/// viewport edge. Do not change selection or create a marker; zoom in or out
+/// regardless of the previous map scale.
+fn viewport_for_selected_track_points(
+    rows: &[TrackRowData],
+    selected: &HashSet<(usize, usize)>,
+    viewport: iced::Size,
+) -> Option<(f64, f64, f64)> {
+    let width = f64::from(viewport.width);
+    let height = f64::from(viewport.height);
+    if width <= 0.0 || height <= 0.0 || !width.is_finite() || !height.is_finite() {
+        return None;
+    }
+
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut count = 0;
+    for row in rows {
+        if !selected.contains(&(row.sect, row.pt_idx)) { continue; }
+        let (x, y) = merc_of(row.lon, row.lat);
+        if !x.is_finite() || !y.is_finite() { continue; }
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+        count += 1;
+    }
+    if count == 0 { return None; }
+
+    // Reserve 100 px on each of the four sides (not 100 px total on one
+    // axis). For viewports smaller than 200 px, keep a positive fit area.
+    // A tiny nonzero extent also covers coincident or collinear points.
+    let w = (max_x - min_x).max(0.001);
+    let h = (max_y - min_y).max(0.001);
+    let usable_width = (width - 200.0).max(1.0);
+    let usable_height = (height - 200.0).max(1.0);
+    let scale_x = w / usable_width;
+    let scale_y = h / usable_height;
+    let scale = scale_x.max(scale_y).clamp(0.1, 10000.0);
+    Some(((min_x + max_x) / 2.0, (min_y + max_y) / 2.0, scale))
+}
+
 fn is_space(key: &iced::keyboard::Key) -> bool {
     matches!(key, iced::keyboard::Key::Named(iced::keyboard::key::Named::Space))
         || matches!(key, iced::keyboard::Key::Character(c) if c == " ")
@@ -334,7 +378,7 @@ impl App {
         match m {
             // --- View & Canvas ---
             Message::MapPressed(_) | Message::MapReleased(_)
-            | Message::MapMiddlePressed(_) | Message::MapMiddleReleased | Message::Moved(_) | Message::MapCursorExited | Message::Scrolled(_)
+            | Message::MapMiddlePressed(_) | Message::MapMiddleReleased | Message::CircleDragReleased | Message::Moved(_) | Message::MapCursorExited | Message::Scrolled(_)
             | Message::Fit | Message::WindowResized(_) | Message::WindowMoved(_)
             | Message::DividerPressed | Message::DividerReleased | Message::CursorMoved(_)  => {
                 self.update_view(m);
@@ -459,7 +503,8 @@ impl App {
             // --- Tracklist ----
             Message::OpenTrackList(_) | Message::CloseTrackList | Message::SelectTrackPoint(_, _)
             | Message::DeleteSelectedTrackPoints { .. }
-            | Message::CenterOnTrackPoint(_, _) | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
+            | Message::CenterOnTrackPoint(_, _) | Message::CenterOnSelectedTrackPoints
+            | Message::SplitTrackAtPoint(_, _) | Message::TrackListUp | Message::TrackListDown
             | Message::SelectPointsOutsideGrid | Message::StitchSegments => {
                 return self.update_track_list(m);
             }
@@ -1125,6 +1170,45 @@ impl App {
         self.tracks_cache.clear();
     }
     
+    /// Commit the temporarily edited circle as a regular closed polygon track.
+    fn finish_circle(&mut self) {
+        let Some(draft) = self.circle_draft.as_ref() else { return; };
+        if !draft.can_commit() { return; }
+        let vertices = draft.ring();
+        if vertices.len() < 4 { return; }
+        self.push_undo(t!("msg_0632"));
+        let name = crate::tf!("msg_0633", id = self.next_id);
+        let points = vertices.into_iter().map(|(lon, lat)| domain::TrackPoint {
+            lon, lat, ele: None, time: None, hdop: None, speed_m_s: None,
+        }).collect();
+        let mut track = domain::Track {
+            id: self.next_id,
+            name: name.clone(),
+            color: [0x2a, 0x7f, 0xff],
+            visible: true,
+            segments: vec![domain::TrackSegment { points }],
+            source: domain::FileSource::New,
+            props: domain::TrackProps {
+                description: name,
+                line_color: [0x2a, 0x7f, 0xff],
+                poly_type: domain::PolyType::Polygon,
+                ..Default::default()
+            },
+            cached_points: 0,
+            cached_distance_m: 0.0,
+        };
+        domain::recompute_track_stats(&mut track);
+        let id = track.id;
+        self.next_id += 1;
+        self.tracks.push(Arc::new(track));
+        self.selection.tracks.clear();
+        self.selection.waypoints.clear();
+        self.selection.points.clear();
+        self.selection.tracks.insert(id);
+        self.circle_draft = None;
+        self.tracks_cache.clear();
+    }
+
     fn finish_drawing(&mut self) {
         let Some(dt) = self.drawing_track.take() else { return };
         if dt.points.len() < 2 {
@@ -1222,6 +1306,14 @@ impl App {
                 self.cursor = Some(p);
                 self.map_cursor_inside = true;
             }
+            Message::CircleDragReleased => {
+                if let Some(draft) = &mut self.circle_draft {
+                    if draft.dragging_edge {
+                        draft.dragging_edge = false;
+                        self.tracks_cache.clear();
+                    }
+                }
+            }
             Message::MapMiddleReleased => {
                 if self.middle_panning {
                     self.middle_panning = false;
@@ -1246,6 +1338,15 @@ impl App {
                 } else if self.active_tool == crate::Tool::SelectObjects {
                     self.handle_select_objects_press(p);
                 
+                } else if self.active_tool == crate::Tool::Circle {
+                    let sz = self.last_bounds.get();
+                    let (lon, lat) = crate::circle::map_point_to_geo(p, sz, self.cx, self.cy, self.scale);
+                    match &mut self.circle_draft {
+                        None => self.circle_draft = Some(crate::circle::CircleDraft::new(lon, lat)),
+                        Some(draft) if !draft.fixed => draft.lock(lon, lat),
+                        Some(draft) => { draft.start_edge_drag(p, sz, self.cx, self.cy, self.scale); }
+                    }
+                    self.tracks_cache.clear();
                 } else if self.active_tool == crate::Tool::DrawTrack {
                     let sz = self.last_bounds.get();
                     let mx = self.cx + (p.x as f64 - sz.width as f64 / 2.0) * self.scale;
@@ -1315,6 +1416,24 @@ impl App {
                     }
                     self.cursor = Some(p);
                     self.maybe_update_declination(false); 
+                } else if self.active_tool == crate::Tool::Circle {
+                    let previous_cursor = self.cursor;
+                    self.cursor = Some(p);
+                    if let Some(draft) = &mut self.circle_draft {
+                        let sz = self.last_bounds.get();
+                        let (lon, lat) = crate::circle::map_point_to_geo(p, sz, self.cx, self.cy, self.scale);
+                        let radius_changed = draft.pointer_moved(lon, lat);
+                        // Invalidate the cached track overlay on entering, moving
+                        // along, or leaving the editable circle's outline.
+                        let hover_changed = draft.fixed && !draft.dragging_edge
+                            && (draft.edge_hit(p, sz, self.cx, self.cy, self.scale).is_some()
+                                || previous_cursor.is_some_and(|prev|
+                                    draft.edge_hit(prev, sz, self.cx, self.cy, self.scale).is_some()));
+                        if radius_changed || hover_changed {
+                            self.tracks_cache.clear();
+                        }
+                    }
+                    self.refresh_status();
                 } else if self.active_tool == crate::Tool::SelectPoints {
                     self.cursor = Some(p);
                     self.handle_select_points_move(p);
@@ -1369,6 +1488,9 @@ impl App {
             }
             Message::MapCursorExited => {
                 self.map_cursor_inside = false;
+                if self.active_tool == crate::Tool::Circle && self.circle_draft.is_some() {
+                    self.tracks_cache.clear();
+                }
             }
             Message::MapReleased(p) => {
                 self.cursor = Some(p);
@@ -1381,6 +1503,13 @@ impl App {
                     self.tracks_cache.clear();
                     self.maybe_update_declination(true);
                     self.refresh_status();
+                } else if self.active_tool == crate::Tool::Circle {
+                    if let Some(draft) = &mut self.circle_draft {
+                        if draft.dragging_edge {
+                            draft.dragging_edge = false;
+                            self.tracks_cache.clear();
+                        }
+                    }
                 } else if self.active_tool == crate::Tool::SelectPoints {
                     self.handle_select_points_release();
                 } else if self.active_tool == crate::Tool::SelectObjects {
@@ -1596,6 +1725,21 @@ impl App {
                 let is_modal_open = self.modal.is_some();
                 
 
+                // Circle: Enter commits a locked contour; Escape discards it.
+                if !is_modal_open && self.active_tool == crate::Tool::Circle && self.circle_draft.is_some() {
+                    match &key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                            self.circle_draft = None;
+                            self.tracks_cache.clear();
+                            return Task::none();
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
+                            self.finish_circle();
+                            return Task::none();
+                        }
+                        _ => {}
+                    }
+                }
                 // Управление рисованием
                 if !is_modal_open
                     && (self.active_tool == crate::Tool::DrawTrack || self.active_tool == crate::Tool::Freehand)
@@ -1653,6 +1797,7 @@ impl App {
                         if let Some(t) = tool {
                             self.track_inspection = None;
                             self.active_tool = t;
+                            self.circle_draft = None;
                             self.dragging = false;
                             self.canvas_cache.clear();
                             self.grid_cache.clear(); self.wiki_cache.clear();
@@ -1888,6 +2033,10 @@ impl App {
             }
             Message::SelectTool(tool) => {
                 self.track_inspection = None;
+                // Switching away cancels an unfinished circle; it never commits silently.
+                if tool != crate::Tool::Circle {
+                    self.circle_draft = None;
+                }
                 if tool != crate::Tool::Ruler || self.active_tool == crate::Tool::Ruler {
                     // Очищаем, если уходим с линейки ИЛИ кликнули по ней же (чтобы начать заново)
                     if !self.ruler_points.is_empty() {
@@ -2036,6 +2185,7 @@ impl App {
                 self.rubber_band_start = None;
                 self.rubber_band_end = None;
                 self.drawing_track = None;
+                self.circle_draft = None;
                 self.freehand_is_drawing = false;
                 self.ruler_points.clear();
                 self.waypoint_crosshair = None;
@@ -4172,7 +4322,29 @@ impl App {
                         self.grid_cache.clear(); self.wiki_cache.clear();
                         self.osm_canvas_cache.clear();
                         self.tracks_cache.clear();
+                        return self.request_osm_tiles();
                     }
+                }
+            }
+            Message::CenterOnSelectedTrackPoints => {
+                let target = match &self.modal {
+                    Some(Modal::TrackList(state)) if state.selected_points.len() > 1 => {
+                        viewport_for_selected_track_points(
+                            &state.rows, &state.selected_points,
+                            self.last_bounds.get(),
+                        )
+                    }
+                    _ => None,
+                };
+                if let Some((cx, cy, scale)) = target {
+                    self.cx = cx;
+                    self.cy = cy;
+                    self.scale = scale;
+                    self.canvas_cache.clear();
+                    self.grid_cache.clear(); self.wiki_cache.clear();
+                    self.osm_canvas_cache.clear();
+                    self.tracks_cache.clear();
+                    return self.request_osm_tiles();
                 }
             }
             Message::SplitTrackAtPoint(sect, pt_idx) => {
@@ -4647,5 +4819,115 @@ mod sidebar_reorder_tests {
         assert!(!move_to_index(&mut ids, 5, 0));
         assert!(!move_to_index(&mut ids, 0, 5));
         assert_eq!(ids, [5, 9]);
+    }
+}
+
+#[cfg(test)]
+mod tracklist_center_tests {
+    use super::viewport_for_selected_track_points;
+    use crate::{util::geo::merc_of, TrackRowData};
+    use std::collections::HashSet;
+
+    fn row(sect: usize, pt_idx: usize, lat: f64, lon: f64) -> TrackRowData {
+        TrackRowData {
+            pid: pt_idx + 1, sect, pt_idx, lat, lon,
+            ele: None, time: None, dist_m: 0.0, kph: 0.0,
+        }
+    }
+
+    #[test]
+    fn multiple_points_fit_viewport_and_ignore_unselected_rows() {
+        let rows = [
+            row(1, 0, 47.25, 11.35),
+            row(1, 1, 47.27, 11.40),
+            row(2, 0, -33.0, 151.0), // Not selected: must not affect view.
+        ];
+        let selected = HashSet::from([(1, 0), (1, 1)]);
+        let viewport = iced::Size::new(900.0, 600.0);
+        let (cx, cy, scale) = viewport_for_selected_track_points(
+            &rows, &selected, viewport,
+        ).unwrap();
+        let (x1, y1) = merc_of(11.35, 47.25);
+        let (x2, y2) = merc_of(11.40, 47.27);
+        assert!((cx - (x1 + x2) / 2.0).abs() < 1e-6);
+        assert!((cy - (y1 + y2) / 2.0).abs() < 1e-6);
+        // 100 px from every edge: 900x600 -> usable area 700x400.
+        let expected_scale = ((x2 - x1).abs().max(0.001) / 700.0)
+            .max((y2 - y1).abs().max(0.001) / 400.0)
+            .clamp(0.1, 10000.0);
+        assert!((scale - expected_scale).abs() < 1e-9);
+        for (x, y) in [(x1, y1), (x2, y2)] {
+            assert!((x - cx).abs() / scale <= 350.0 + 1e-6);
+            assert!((y - cy).abs() / scale <= 200.0 + 1e-6);
+        }
+    }
+
+    #[test]
+    fn nearby_selected_points_zoom_in_even_if_they_already_fit() {
+        let rows = [row(1, 0, 47.2, 11.4), row(1, 1, 47.2005, 11.4005)];
+        let selected = HashSet::from([(1, 0), (1, 1)]);
+        let (_, _, scale) = viewport_for_selected_track_points(
+            &rows, &selected, iced::Size::new(800.0, 600.0),
+        ).unwrap();
+        // Previous zoom was 20 m/pixel: the former algorithm kept it.
+        // This must fit the selection closely, not preserve the old zoom.
+        assert!(scale < 20.0);
+        let (x1, y1) = merc_of(11.4, 47.2);
+        let (x2, y2) = merc_of(11.4005, 47.2005);
+        let expected = ((x2 - x1).abs().max(0.001) / 600.0)
+            .max((y2 - y1).abs().max(0.001) / 400.0)
+            .clamp(0.1, 10000.0);
+        assert!((scale - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn portrait_viewport_keeps_100_pixel_margins_on_both_axes() {
+        let rows = [row(1, 0, 47.25, 11.35), row(1, 1, 47.27, 11.40)];
+        let selected = HashSet::from([(1, 0), (1, 1)]);
+        let (cx, cy, scale) = viewport_for_selected_track_points(
+            &rows, &selected, iced::Size::new(600.0, 900.0),
+        ).unwrap();
+        for row in &rows {
+            let (x, y) = merc_of(row.lon, row.lat);
+            assert!((x - cx).abs() / scale <= 200.0 + 1e-6);
+            assert!((y - cy).abs() / scale <= 350.0 + 1e-6);
+        }
+    }
+
+    #[test]
+    fn very_small_viewport_still_has_positive_space_to_fit() {
+        let rows = [row(1, 0, 47.25, 11.35), row(1, 1, 47.27, 11.40)];
+        let selected = HashSet::from([(1, 0), (1, 1)]);
+        let (cx, cy, scale) = viewport_for_selected_track_points(
+            &rows, &selected, iced::Size::new(250.0, 180.0),
+        ).unwrap();
+        assert!(scale.is_finite() && scale > 0.0);
+        for row in &rows {
+            let (x, y) = merc_of(row.lon, row.lat);
+            assert!((x - cx).abs() / scale <= 62.5 + 1e-6);
+            assert!((y - cy).abs() / scale <= 45.0 + 1e-6);
+        }
+    }
+
+    #[test]
+    fn coincident_selected_points_use_the_track_fit_maximum_zoom() {
+        let rows = [row(1, 0, 47.2, 11.4), row(1, 1, 47.2, 11.4)];
+        let selected = HashSet::from([(1, 0), (1, 1)]);
+        let (_, _, scale) = viewport_for_selected_track_points(
+            &rows, &selected, iced::Size::new(800.0, 600.0),
+        ).unwrap();
+        assert_eq!(scale, 0.1);
+    }
+
+    #[test]
+    fn empty_or_invalid_selection_never_repositions_map() {
+        let rows = [row(1, 0, 47.2, 11.4)];
+        let empty = HashSet::new();
+        let selected = HashSet::from([(1, 0)]);
+        let viewport = iced::Size::new(800.0, 600.0);
+        assert!(viewport_for_selected_track_points(&rows, &empty, viewport).is_none());
+        assert!(viewport_for_selected_track_points(&rows, &selected, iced::Size::new(0.0, 600.0)).is_none());
+        let invalid = [row(1, 0, f64::NAN, 11.4)];
+        assert!(viewport_for_selected_track_points(&invalid, &selected, viewport).is_none());
     }
 }
