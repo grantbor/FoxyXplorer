@@ -31,6 +31,69 @@ mod area_format_tests {
     }
 }
 
+// Only the two edges in this segment touch a dragged point. In particular,
+// do not connect points across separate track segments.
+fn adjacent_point_edges(index: usize, point_count: usize) -> [Option<(usize, usize)>; 2] {
+    if index >= point_count {
+        return [None, None];
+    }
+    [
+        index.checked_sub(1).map(|prev| (prev, index)),
+        (index + 1 < point_count).then_some((index, index + 1)),
+    ]
+}
+
+/// From -> to follows track order, just like the ruler tool.
+/// Declination is the same current value already used for the ruler readout.
+fn magnetic_segment_measurement(
+    from: (f64, f64), // lon, lat
+    to: (f64, f64),   // lon, lat
+    declination: f64,
+) -> Option<(f64, f64)> { // distance in meters, magnetic azimuth in degrees
+    if ![from.0, from.1, to.0, to.1, declination]
+        .iter()
+        .all(|value| value.is_finite())
+    {
+        return None;
+    }
+    let distance = crate::domain::haversine_m(from.1, from.0, to.1, to.0);
+    let bearing = crate::util::geo::true_bearing(from.1, from.0, to.1, to.0);
+    if !distance.is_finite() || distance < 0.001 || !bearing.is_finite() {
+        return None;
+    }
+    Some((distance, (bearing - declination).rem_euclid(360.0)))
+}
+
+#[cfg(test)]
+mod selected_point_measurement_tests {
+    use super::{adjacent_point_edges, magnetic_segment_measurement};
+
+    #[test]
+    fn only_immediate_neighbors_within_one_segment() {
+        assert_eq!(adjacent_point_edges(2, 5), [Some((1, 2)), Some((2, 3))]);
+        assert_eq!(adjacent_point_edges(0, 5), [None, Some((0, 1))]);
+        assert_eq!(adjacent_point_edges(4, 5), [Some((3, 4)), None]);
+        assert_eq!(adjacent_point_edges(0, 1), [None, None]);
+        assert_eq!(adjacent_point_edges(5, 5), [None, None]);
+    }
+
+    #[test]
+    fn magnetic_azimuth_follows_track_direction_and_declination() {
+        let (distance, azimuth) = magnetic_segment_measurement((0.0, 0.0), (0.01, 0.0), 10.0).unwrap();
+        assert!((distance - 1113.2).abs() < 1.0);
+        assert!((azimuth - 80.0).abs() < 1e-5);
+
+        let (_, north_azimuth) = magnetic_segment_measurement((0.0, 0.0), (0.0, 0.01), 10.0).unwrap();
+        assert!((north_azimuth - 350.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn coincident_and_invalid_points_are_not_labeled() {
+        assert!(magnetic_segment_measurement((1.0, 2.0), (1.0, 2.0), 0.0).is_none());
+        assert!(magnetic_segment_measurement((f64::NAN, 2.0), (1.0, 3.0), 0.0).is_none());
+    }
+}
+
 // Вспомогательная функция для создания пунктирной линии
 /// Паттерн (dash/gap/dash/gap/...) для каждого стиля линии.
 /// Пустой слайс = сплошная линия.
@@ -365,6 +428,88 @@ impl<'a> canvas::Program<Message> for TrackProgram<'a> {
 
                             frame.fill(&diamond, fill_color);
                             frame.stroke(&diamond, canvas::Stroke::default().with_color(color).with_width(2.0));
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // ИЗМЕРЕНИЯ ПРИ ПЕРЕТАСКИВАНИИ ОДНОЙ ТОЧКИ
+            // ==========================================
+            // A temporary overlay: no new track data or selection state.
+            if app.active_tool == crate::Tool::SelectPoints
+                && app.moving_points
+                && app.selection.points.len() == 1
+            {
+                if let Some(&(track_id, seg_idx, pt_idx)) = app.selection.points.iter().next() {
+                    if let Some(track) = app.tracks.iter().find(|t| t.id == track_id && t.visible) {
+                        if let Some(segment) = track.segments.get(seg_idx) {
+                            for (from_idx, to_idx) in adjacent_point_edges(pt_idx, segment.points.len())
+                                .into_iter().flatten()
+                            {
+                                let from = &segment.points[from_idx];
+                                let to = &segment.points[to_idx];
+                                let Some((distance, azimuth)) = magnetic_segment_measurement(
+                                    (from.lon, from.lat), (to.lon, to.lat), app.declination,
+                                ) else { continue };
+
+                                let (mx1, my1) = merc_of(from.lon, from.lat);
+                                let (mx2, my2) = merc_of(to.lon, to.lat);
+                                let a = to_screen(mx1, my1);
+                                let b = to_screen(mx2, my2);
+                                let dx = b.x - a.x;
+                                let dy = b.y - a.y;
+                                let len = dx.hypot(dy);
+                                if !len.is_finite() || len < 1.0 { continue; }
+                                // Avoid labels for edges wholly outside the viewport.
+                                if a.x.max(b.x) < 0.0 || a.x.min(b.x) > bounds.width
+                                    || a.y.max(b.y) < 0.0 || a.y.min(b.y) > bounds.height
+                                {
+                                    continue;
+                                }
+
+                                let text = if distance >= 1000.0 {
+                                    format!("{:.2} {} · {:.0}°M", distance / 1000.0, crate::t!("msg_0259"), azimuth)
+                                } else {
+                                    format!("{:.0} {} · {:.0}°M", distance, crate::t!("msg_0258"), azimuth)
+                                };
+
+                                // Highlight the measured edge so that the labels
+                                // remain unambiguous on busy maps.
+                                let line = CanvasPath::line(a, b);
+                                let accent = Color::from_rgb8(0x2a, 0x7f, 0xff);
+                                frame.stroke(&line, canvas::Stroke::default().with_color(Color::WHITE).with_width(4.0));
+                                frame.stroke(&line, canvas::Stroke::default().with_color(accent).with_width(2.5));
+
+                                let box_w = text.chars().count() as f32 * 7.4 + 16.0;
+                                let box_h = 23.0;
+                                // Place the label just aside from the edge, not
+                                // on top of the dragged point or its diamond.
+                                let label_x = (a.x + b.x) / 2.0 - dy / len * 20.0;
+                                let label_y = (a.y + b.y) / 2.0 + dx / len * 20.0;
+                                let label_x = if bounds.width >= box_w + 8.0 {
+                                    label_x.clamp(box_w / 2.0 + 4.0, bounds.width - box_w / 2.0 - 4.0)
+                                } else { bounds.width / 2.0 };
+                                let label_y = if bounds.height >= box_h + 8.0 {
+                                    label_y.clamp(box_h / 2.0 + 4.0, bounds.height - box_h / 2.0 - 4.0)
+                                } else { bounds.height / 2.0 };
+                                let position = Point::new(label_x - box_w / 2.0, label_y - box_h / 2.0);
+                                let size = iced::Size::new(box_w, box_h);
+                                frame.fill_rectangle(position, size, Color::from_rgba8(0, 0, 0, 0.88));
+                                frame.stroke(
+                                    &CanvasPath::rectangle(position, size),
+                                    canvas::Stroke::default().with_color(accent).with_width(1.5),
+                                );
+                                frame.fill_text(canvas::Text {
+                                    content: text,
+                                    position: Point::new(label_x, label_y),
+                                    color: Color::WHITE,
+                                    size: iced::Pixels(14.0),
+                                    align_x: iced::widget::text::Alignment::Center,
+                                    align_y: iced::alignment::Vertical::Center,
+                                    ..Default::default()
+                                });
+                            }
                         }
                     }
                 }
