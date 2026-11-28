@@ -148,17 +148,3 @@ Copernicus, ЕС, ESA, DLR или Airbus. При распространении 
 `~/.cache/foxy/osm/…`, `~/.cache/foxy/s2/…`, `~/.cache/foxy/esri/…`.
 
 Автоматическая очистка: старше 90 дней или при превышении 2 ГБ.
-
-### Manual point deletion with gaps (RU/EN)
-
-With the **Select Points** tool, `Delete` or `Backspace` removes the selected
-points and joins their retained neighbours (legacy behaviour). Hold **Shift**
-while pressing `Delete` or `Backspace` to remove the same points **with gaps**.
-In the track-point table there are now two separate buttons: **Delete** and
-**Delete and split** (Russian: **Удалить** / **Удалить с разрывом**).
-
-Deleting with gaps creates separate track segments around *each contiguous
-run* of deleted points. All retained point coordinates and times are unchanged;
-no bridging line is drawn. The action is one Undo step, even across several
-tracks. GPX export preserves the new segment boundaries. A lone retained point
-remains in the data even if it has no drawable line.
