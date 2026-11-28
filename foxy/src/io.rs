@@ -101,6 +101,7 @@ pub fn load_user_file(path: &Path, next_id: &mut u64) -> Result<LoadedContent, S
         "ms" => (false, geoio::ms::read(&bytes)),
         "wpt" => (false, geoio::wpt::read(&bytes)),
         "kml" | "klm" => (false, geoio::kml::read(&bytes)),
+        "fit" => (true, geoio::fit::read(&bytes)),
         _ => return Err(crate::tf!("msg_0402", path = path.display())),
     };
     
@@ -702,6 +703,38 @@ pub fn save_ms(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resul
     std::fs::write(path, xml).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Garmin Course FIT: one track and optional selected waypoints as Course Points.
+/// The binary format is handled by the independent geoio::fit module.
+pub fn save_fit(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
+    if tracks.len() != 1 { return Err(crate::t!("msg_0628").to_owned()); }
+    let mut data = geoio::GeoData::default();
+    let t = tracks[0];
+    data.tracks.push(geoio::Track {
+        name: t.name.clone(),
+        segments: t.segments.iter().map(|seg| seg.points.iter().map(|p| geoio::TrackPoint {
+            lat: p.lat,
+            lon: p.lon,
+            ele_m: p.ele,
+            time: p.time,
+            hdop: p.hdop,
+            speed_m_s: p.speed_m_s,
+        }).collect()).collect(),
+        ..Default::default()
+    });
+    data.waypoints = waypoints.iter().map(|w| geoio::Waypoint {
+        name: w.name.clone(),
+        lon: w.lon,
+        lat: w.lat,
+        ele_m: w.ele,
+        time: w.time,
+        description: w.description.clone().unwrap_or_default(),
+        text_color: w.text_color,
+        bg_color: w.bg_color,
+    }).collect();
+    let bytes = geoio::fit::write(&data).map_err(|e| e.to_string())?;
+    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Result<(), String> {
     let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase()).unwrap_or_default();
     match ext.as_str() {
@@ -717,6 +750,7 @@ pub fn save_any(tracks: &[&Track], waypoints: &[&Waypoint], path: &Path) -> Resu
         },
         "ms" => save_ms(tracks, waypoints, path),
         "kml" => save_kml(tracks, waypoints, path),
+        "fit" => save_fit(tracks, waypoints, path),
         _ => Err(crate::tf!("msg_0406", format = ext)),
     }
 }

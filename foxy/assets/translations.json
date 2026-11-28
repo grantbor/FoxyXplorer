@@ -2166,5 +2166,13 @@
   "msg_0626": {
     "ru": "Не удалось прочитать раздел README",
     "en": "Unable to read README section"
+  },
+  "msg_0627": {
+    "ru": "Garmin FIT: экспорт одного трека и выбранных точек маршрута",
+    "en": "Garmin FIT: export one track and selected course points"
+  },
+  "msg_0628": {
+    "ru": "Для экспорта FIT должен быть выбран ровно один трек",
+    "en": "FIT export requires exactly one selected track"
   }
 }

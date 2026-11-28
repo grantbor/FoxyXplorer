@@ -459,6 +459,14 @@ impl App {
                  },
                  t!("msg_0097")
              ),
+            with_tooltip(
+                if has_tracks && self.selection.tracks.len() == 1 {
+                    self.btn_secondary("FIT").on_press(Message::SaveTracksFit)
+                } else {
+                    self.btn_secondary("FIT")
+                },
+                t!("msg_0627")
+            ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::X, Message::ToggleTrackSaveMenu),
@@ -723,6 +731,14 @@ impl App {
                  },
                  t!("msg_0097")
              ),
+            with_tooltip(
+                if has_tracks && self.selection.tracks.len() == 1 {
+                    self.btn_secondary("FIT").on_press(Message::SaveTracksFit)
+                } else {
+                    self.btn_secondary("FIT")
+                },
+                t!("msg_0627")
+            ),
             Space::new().width(Length::Fill),
             with_tooltip(
                 self.icon_button(lucide_iced::bytes::X, Message::ToggleWpSaveMenu),

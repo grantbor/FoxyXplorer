@@ -440,6 +440,7 @@ impl App {
             | Message::SaveTracksGpx | Message::SaveTracksGpxPicked(_)
             | Message::SaveTracksMs | Message::SaveTracksMsPicked(_)
             | Message::SaveTracksKml | Message::SaveTracksKmlPicked(_)
+            | Message::SaveTracksFit | Message::SaveTracksFitPicked(_)
             | Message::SaveWaypointsWptNew | Message::SaveWaypointsWptNewPicked(_)
             | Message::SaveWaypointsWptAppend | Message::SaveWaypointsWptAppendPicked(_)
             | Message::SaveTrackProps | Message::SaveTrackPropsPicked(_) => {
@@ -3626,6 +3627,31 @@ impl App {
             }
             Message::SaveTracksKmlPicked(None) => {}
             
+            Message::SaveTracksFit => {
+                let name = self.tracks.iter()
+                    .find(|t| self.selection.tracks.contains(&t.id))
+                    .map(|t| if t.props.description.is_empty() { t.name.clone() } else { t.props.description.clone() })
+                    .unwrap_or_else(|| "course".to_owned());
+                let dialog = self.save_dialog_with_dir(
+                    &format!("{}.fit", name), "Garmin FIT", &["fit"]);
+                return Task::perform(
+                    async move { dialog.save_file().await.map(|h| h.path().to_path_buf()) },
+                    Message::SaveTracksFitPicked,
+                );
+            }
+            Message::SaveTracksFitPicked(Some(path)) => {
+                let tracks: Vec<_> = self.tracks.iter()
+                    .filter(|t| self.selection.tracks.contains(&t.id)).map(|t| t.as_ref()).collect();
+                let waypoints: Vec<_> = self.waypoints.iter()
+                    .filter(|w| self.selection.waypoints.contains(&w.id)).map(|w| w.as_ref()).collect();
+                if let Err(e) = io::save_fit(&tracks, &waypoints, &path) {
+                    self.status = crate::tf!("msg_0389", error = e);
+                } else {
+                    self.status = crate::tf!("msg_0390", path = path.display());
+                }
+            }
+            Message::SaveTracksFitPicked(None) => {}
+
             Message::SaveWaypointsWptNew => {
                 let date_str = date_offset(0).replace("-", "");
                 let default_name = format!("Waypoints_{}.wpt", date_str);
@@ -3784,7 +3810,7 @@ impl App {
                     }
                 } else if path.extension().and_then(|ext| ext.to_str())
                     .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(),
-                        "gpx" | "plt" | "wpt" | "ms" | "kml" | "klm")) {
+                        "gpx" | "plt" | "wpt" | "ms" | "kml" | "klm" | "fit")) {
                     return self.update_system(Message::TracksPicked(Some(vec![path])));
                 } else {
                     self.status = crate::tf!("msg_0402", path = path.display());
@@ -3830,7 +3856,7 @@ impl App {
                 return Task::perform(
                     async move {
                         let mut dialog = rfd::AsyncFileDialog::new()
-                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml", "klm"]);
+                            .add_filter("Track/Points", &["gpx", "plt", "ms", "wpt", "kml", "klm", "fit"]);
                         if let Some(d) = dir {
                             dialog = dialog.set_directory(&d);
                         }
